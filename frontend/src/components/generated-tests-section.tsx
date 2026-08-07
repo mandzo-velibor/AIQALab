@@ -1,7 +1,7 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import type { GeneratedTestDto } from "@/lib/testgen-api";
 import { useState } from "react";
 
@@ -17,19 +17,20 @@ export function GeneratedTestsSection({ tests, loading, onGenerate, onRunTest }:
   const [runningTest, setRunningTest] = useState<number | null>(null);
 
   return (
-    <Card className="md:col-span-2 lg:col-span-3">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Generated Tests ({tests.length})</CardTitle>
+    <CollapsibleCard
+      title={`Generated Tests (${tests.length})`}
+      defaultOpen={tests.length > 0}
+      action={
         <Button onClick={onGenerate} disabled={loading} size="sm">
           {loading ? "Generating..." : "Generate Tests"}
         </Button>
-      </CardHeader>
-      <CardContent>
-        {tests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No tests generated yet. Click &quot;Generate Tests&quot; to create Playwright tests.
-          </p>
-        ) : (
+      }
+    >
+      {tests.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No tests generated yet. Click &quot;Generate Tests&quot; to create Playwright tests.
+        </p>
+      ) : (
           <div className="space-y-3">
             {tests.map((test) => (
               <div key={test.id} className="border rounded-lg p-4 space-y-2">
@@ -84,7 +85,6 @@ export function GeneratedTestsSection({ tests, loading, onGenerate, onRunTest }:
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </CollapsibleCard>
   );
 }

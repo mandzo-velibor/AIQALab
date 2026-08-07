@@ -17,6 +17,7 @@ public class AnalysisCache {
     private static final Logger log = LoggerFactory.getLogger(AnalysisCache.class);
 
     private final Map<String, AnalysisResponse> cache = new ConcurrentHashMap<>();
+    private final Map<String, String> pageContentCache = new ConcurrentHashMap<>();
 
     public String hashUrl(String url) {
         try {
@@ -47,14 +48,32 @@ public class AnalysisCache {
         log.info("Cached analysis for URL hash: {}", urlHash);
     }
 
+    public void put(String urlHash, AnalysisResponse response, String simplifiedHtml) {
+        cache.put(urlHash, response);
+        if (simplifiedHtml != null) {
+            pageContentCache.put(urlHash, simplifiedHtml);
+        }
+        log.info("Cached analysis for URL hash: {}", urlHash);
+    }
+
+    public String getSimplifiedHtml(String urlHash) {
+        return pageContentCache.get(urlHash);
+    }
+
     public void clear() {
         cache.clear();
+        pageContentCache.clear();
         log.info("Analysis cache cleared");
     }
 
     public AnalysisResponse getByUrl(String url) {
         String hash = hashUrl(url);
         return get(hash);
+    }
+
+    public String getSimplifiedHtmlByUrl(String url) {
+        String hash = hashUrl(url);
+        return getSimplifiedHtml(hash);
     }
 
     public int size() {

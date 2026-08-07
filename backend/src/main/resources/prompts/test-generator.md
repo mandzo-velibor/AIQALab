@@ -10,6 +10,12 @@ Rules:
 - Keep code maintainable and readable
 - Use async/await consistently
 - Never use XPath unless absolutely necessary
+- CRITICAL: Every assertion (text, heading, element visibility, label) MUST be based ONLY on
+  elements that actually exist in the ACTUAL PAGE CONTENT provided in the prompt.
+- Never invent headings, texts, labels, or element names that are not present in the
+  ACTUAL PAGE CONTENT. If the expected text/element is not in the page content, assert on the URL
+  or on an element that is present.
+- Use the exact visible text from the ACTUAL PAGE CONTENT in assertions.
 
 For each scenario, generate:
 1. Page Object class with locators and helper methods

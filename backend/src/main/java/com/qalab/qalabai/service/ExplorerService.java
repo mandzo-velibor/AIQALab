@@ -110,7 +110,7 @@ public class ExplorerService {
         AnalysisResponse analysis = parseResponse(llmResponse, screenshotBase64);
         log.info("DTO parsed");
 
-        cache.put(urlHash, analysis);
+        cache.put(urlHash, analysis, simplifiedHtml);
         log.info("Analysis finished for URL: {}", url);
 
         saveHistory(url, analysis, projectId);

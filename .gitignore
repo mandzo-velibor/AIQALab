@@ -32,6 +32,7 @@ screenshots/
 **/screenshots/
 
 # Project workspaces (generated test files, page objects, node_modules)
+workspaces/
 backend/workspaces/
 
 # Test output

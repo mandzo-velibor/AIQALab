@@ -71,6 +71,7 @@ public class CodeGenerationService {
 
         String testPlanJson;
         String locatorJson = "[]";
+        String pageContentHtml = analysisCache.getSimplifiedHtmlByUrl(url);
         try {
             Map<String, Object> testPlanMap = new HashMap<>();
             testPlanMap.put("id", testPlan.getId());
@@ -117,6 +118,7 @@ public class CodeGenerationService {
         task.putContext("pageUrl", url);
         task.putContext("testPlanJson", testPlanJson);
         task.putContext("locatorRepositoryJson", locatorJson);
+        task.putContext("pageContentHtml", pageContentHtml != null ? pageContentHtml : "");
         if (projectId != null) {
             task.putContext("projectId", projectId);
         }

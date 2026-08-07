@@ -60,6 +60,7 @@ public class TestGeneratorAgent implements QaAgent {
         String pageUrl = (String) task.getContextValue("pageUrl");
         String testPlanJson = (String) task.getContextValue("testPlanJson");
         String locatorRepositoryJson = (String) task.getContextValue("locatorRepositoryJson");
+        String pageContentHtml = (String) task.getContextValue("pageContentHtml");
         Long projectId = task.getContextValue("projectId") instanceof Number n ? n.longValue() : null;
 
         if (pageUrl == null || testPlanJson == null) {
@@ -67,7 +68,7 @@ public class TestGeneratorAgent implements QaAgent {
         }
 
         try {
-            String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson);
+            String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson, pageContentHtml);
             log.info("Sending request to AI for test generation");
 
             String aiResponse = aiProvider.chat(generatorPrompt, userPrompt, JsonValidators.hasArrayField("tests"));
@@ -93,7 +94,10 @@ public class TestGeneratorAgent implements QaAgent {
         }
     }
 
-    private String buildUserPrompt(String pageUrl, String testPlanJson, String locatorRepositoryJson) {
+    private String buildUserPrompt(String pageUrl, String testPlanJson, String locatorRepositoryJson, String pageContentHtml) {
+        String pageContent = pageContentHtml != null && !pageContentHtml.isBlank()
+                ? pageContentHtml
+                : "Not available";
         return String.format("""
                 Page URL: %s
 
@@ -103,10 +107,21 @@ public class TestGeneratorAgent implements QaAgent {
                 Locator Repository JSON:
                 %s
 
+                ACTUAL PAGE CONTENT (simplified HTML of the real page):
+                %s
+
                 Generate Playwright tests for all scenarios in the test plan.
                 Use the locators from the repository.
                 Follow Page Object Model pattern.
-                """, pageUrl, testPlanJson, locatorRepositoryJson != null ? locatorRepositoryJson : "Not available");
+                IMPORTANT:
+                - Every assertion (text, heading, element visibility) MUST be based ONLY on elements
+                  that actually exist in the ACTUAL PAGE CONTENT above.
+                - Do NOT invent headings, texts, labels, or element names that are not present
+                  in ACTUAL PAGE CONTENT.
+                - Use exact visible text from the page content for assertions.
+                - Assertions on page state after navigation (e.g. after login) should be based on
+                  the URL or on elements present in the page content.
+                """, pageUrl, testPlanJson, locatorRepositoryJson != null ? locatorRepositoryJson : "Not available", pageContent);
     }
 
     private List<GeneratedTest> parseResponse(String aiResponse, String pageUrl) throws Exception {

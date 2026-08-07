@@ -74,9 +74,10 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
   };
 
   return (
-    <div className="flex-1 space-y-4 p-6">
+    <div className="flex-1 space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
+          <div className="text-xs font-medium uppercase tracking-widest text-primary">Project</div>
           <h1 className="text-3xl font-bold tracking-tight">{project?.name ?? "Project"}</h1>
           {project?.baseUrl && <p className="text-sm text-muted-foreground">{project.baseUrl}</p>}
         </div>

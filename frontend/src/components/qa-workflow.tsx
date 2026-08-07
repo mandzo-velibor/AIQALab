@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +40,8 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
 
   const [executions, setExecutions] = useState<TestExecution[]>([]);
   const [executionsLoading, setExecutionsLoading] = useState(false);
+  const [highlightExecutionId, setHighlightExecutionId] = useState<number | null>(null);
+  const executionSectionRef = useRef<HTMLDivElement>(null);
 
   if (initialUrl !== prevUrl || projectId !== prevProjectId) {
     setPrevUrl(initialUrl);
@@ -152,6 +154,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
       await runAllTests(projectId);
       const history = await getExecutionHistory(projectId);
       setExecutions(history);
+      highlightNewExecution(history);
       onHistoryChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Execution failed");
@@ -167,6 +170,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
       await runTest(testId, projectId);
       const history = await getExecutionHistory(projectId);
       setExecutions(history);
+      highlightNewExecution(history);
       onHistoryChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Execution failed");
@@ -175,20 +179,30 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     }
   };
 
+  const highlightNewExecution = (history: TestExecution[]) => {
+    if (history.length === 0) return;
+    const newest = history[0];
+    setHighlightExecutionId(newest.id);
+    setTimeout(() => {
+      executionSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  };
+
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="relative overflow-hidden border-violet-500/30">
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-indigo-500/10 via-violet-500/10 to-fuchsia-500/10" />
         <CardHeader>
-          <CardTitle>Enter URL to Analyze</CardTitle>
+          <CardTitle className="relative">Enter URL to Analyze</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative">
           <form onSubmit={handleSubmit} className="flex gap-2">
             <Input
               type="url"
               placeholder="https://example.com"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="flex-1"
+              className="flex-1 border-violet-500/30 bg-background/60"
               required
             />
             <Button type="submit" disabled={loading}>
@@ -384,11 +398,14 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
             onRunTest={handleRunTest}
           />
 
-          <ExecutionDashboard
-            executions={executions}
-            loading={executionsLoading}
-            onRunAll={handleRunAllTests}
-          />
+          <div ref={executionSectionRef} className="md:col-span-2 lg:col-span-3 scroll-mt-4">
+            <ExecutionDashboard
+              executions={executions}
+              loading={executionsLoading}
+              onRunAll={handleRunAllTests}
+              highlightExecutionId={highlightExecutionId}
+            />
+          </div>
         </div>
       )}
     </div>

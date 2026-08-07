@@ -70,9 +70,16 @@ export function ProjectsPage() {
   };
 
   return (
-    <div className="flex-1 space-y-4 p-6">
+    <div className="flex-1 space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
+        <div>
+          <div className="text-xs font-medium uppercase tracking-widest text-primary">
+            Test Projects
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">
+            My <span className="text-gradient">Projects</span>
+          </h1>
+        </div>
         <div className="flex gap-2">
           <Link href="/">
             <Button variant="outline">Dashboard</Button>
