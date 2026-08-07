@@ -45,11 +45,18 @@ public class WorkspaceManager {
             projectRepository.save(project);
         }
 
-        prepareWorkspace(workspacePath);
+        Path normalized = Paths.get(workspacePath);
+        if (!normalized.isAbsolute()) {
+            normalized = normalized.toAbsolutePath().normalize();
+            project.setWorkspacePath(normalized.toString());
+            projectRepository.save(project);
+        }
+
+        prepareWorkspace(normalized.toString());
 
         return new ProjectContext(
                 project.getId(),
-                workspacePath,
+                normalized.toString(),
                 project.getBaseUrl(),
                 project.getFramework()
         );
@@ -135,12 +142,20 @@ public class WorkspaceManager {
 
     public void prepareWorkspace(String workspacePath) {
         Path path = Paths.get(workspacePath);
-        if (!Files.exists(path.resolve("package.json"))) {
-            log.info("No package.json in workspace {}, skipping dependency setup.", workspacePath);
-            return;
+        if (!Files.exists(path)) {
+            try {
+                Files.createDirectories(path);
+            } catch (IOException e) {
+                log.warn("Failed to create workspace directory {}: {}", workspacePath, e.getMessage());
+            }
         }
 
         try {
+            if (!Files.exists(path.resolve("package.json"))) {
+                log.info("No package.json in workspace {}, initializing project structure.", workspacePath);
+                initializeProjectStructure(path);
+            }
+
             if (!Files.exists(path.resolve("node_modules"))) {
                 log.info("Installing workspace dependencies in {}...", workspacePath);
                 runProcess(path.toFile(), new String[]{"npm", "install"}, "npm install");
