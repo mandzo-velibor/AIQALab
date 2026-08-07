@@ -17,8 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.UUID;
 
 @Service
@@ -65,7 +64,28 @@ public class CodeGenerationService {
         String testPlanJson;
         String locatorJson = "[]";
         try {
-            testPlanJson = objectMapper.writeValueAsString(testPlan);
+            Map<String, Object> testPlanMap = new HashMap<>();
+            testPlanMap.put("id", testPlan.getId());
+            testPlanMap.put("pageUrl", testPlan.getPageUrl());
+            testPlanMap.put("pageType", testPlan.getPageType());
+            
+            List<Map<String, Object>> scenarioMaps = testPlan.getScenarios().stream()
+                    .map(s -> {
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("id", s.getId());
+                        m.put("name", s.getName());
+                        m.put("type", s.getType());
+                        m.put("priority", s.getPriority());
+                        m.put("description", s.getDescription());
+                        m.put("steps", s.getSteps());
+                        m.put("requiredElements", s.getRequiredElements());
+                        return m;
+                    })
+                    .toList();
+            testPlanMap.put("scenarios", scenarioMaps);
+            
+            testPlanJson = objectMapper.writeValueAsString(testPlanMap);
+            
             List<LocatorDto> locators = locatorRepository.findByPageUrl(url).stream()
                     .map(l -> new LocatorDto(
                             l.getId(),

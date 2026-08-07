@@ -59,7 +59,12 @@ export function Dashboard() {
     <div className="flex-1 space-y-4 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">AI QA Lab</h1>
-        <Button onClick={handleGoToAnalyze}>Analyze Page</Button>
+        <div className="flex gap-2">
+          <Link href="/projects">
+            <Button variant="outline">Projects</Button>
+          </Link>
+          <Button onClick={handleGoToAnalyze}>Analyze Page</Button>
+        </div>
       </div>
 
       <ExploreForm onExplore={handleExplore} loading={loading} />

@@ -24,6 +24,7 @@ server:
 
 qalab:
   screenshots-dir: ./screenshots
+  workspaces-dir: ./workspaces
 
 openai:
   api-key: ${OPENAI_API_KEY:}
