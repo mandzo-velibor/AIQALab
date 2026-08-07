@@ -1,0 +1,83 @@
+package com.qalab.qalabai.service;
+
+import com.qalab.qalabai.agent.Task;
+import com.qalab.qalabai.agent.executor.ExecutorAgent;
+import com.qalab.qalabai.dto.executor.ExecutionResponse;
+import com.qalab.qalabai.model.GeneratedTest;
+import com.qalab.qalabai.model.TestExecution;
+import com.qalab.qalabai.repository.GeneratedTestRepository;
+import com.qalab.qalabai.repository.TestExecutionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+public class ExecutionService {
+
+    private static final Logger log = LoggerFactory.getLogger(ExecutionService.class);
+
+    private final ExecutorAgent executorAgent;
+    private final GeneratedTestRepository testRepository;
+    private final TestExecutionRepository executionRepository;
+
+    public ExecutionService(ExecutorAgent executorAgent,
+                            GeneratedTestRepository testRepository,
+                            TestExecutionRepository executionRepository) {
+        this.executorAgent = executorAgent;
+        this.testRepository = testRepository;
+        this.executionRepository = executionRepository;
+    }
+
+    public ExecutionResponse runTest(Long testId) {
+        log.info("Running test with id: {}", testId);
+
+        GeneratedTest test = testRepository.findById(testId)
+                .orElseThrow(() -> new RuntimeException("Test not found: " + testId));
+
+        Task task = new Task(UUID.randomUUID().toString(), "RUN_TEST", test.getPageUrl());
+        task.putContext("testFile", test.getScenarioName() + ".spec.ts");
+        task.putContext("runAll", false);
+
+        var result = executorAgent.execute(task);
+
+        if (!result.isSuccess()) {
+            throw new RuntimeException("Execution failed: " + result.getMessage());
+        }
+
+        return new ExecutionResponse(
+                (Long) result.getData().get("executionId"),
+                (String) result.getData().get("status"),
+                (Long) result.getData().get("duration"),
+                null,
+                (String) result.getData().get("output")
+        );
+    }
+
+    public ExecutionResponse runAllTests() {
+        log.info("Running all tests");
+
+        Task task = new Task(UUID.randomUUID().toString(), "RUN_ALL_TESTS", null);
+        task.putContext("runAll", true);
+
+        var result = executorAgent.execute(task);
+
+        if (!result.isSuccess()) {
+            throw new RuntimeException("Execution failed: " + result.getMessage());
+        }
+
+        return new ExecutionResponse(
+                (Long) result.getData().get("executionId"),
+                (String) result.getData().get("status"),
+                (Long) result.getData().get("duration"),
+                null,
+                (String) result.getData().get("output")
+        );
+    }
+
+    public List<TestExecution> getExecutionHistory() {
+        return executionRepository.findAllByOrderByCreatedAtDesc();
+    }
+}

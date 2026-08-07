@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+backend/target/
+frontend/.next/
+frontend/out/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Screenshots
+screenshots/
+**/screenshots/
+
+# Test output
+test-results/
+playwright-report/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~

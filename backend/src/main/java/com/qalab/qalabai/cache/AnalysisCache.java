@@ -1,0 +1,63 @@
+package com.qalab.qalabai.cache;
+
+import com.qalab.qalabai.dto.analysis.AnalysisResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Component
+public class AnalysisCache {
+
+    private static final Logger log = LoggerFactory.getLogger(AnalysisCache.class);
+
+    private final Map<String, AnalysisResponse> cache = new ConcurrentHashMap<>();
+
+    public String hashUrl(String url) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(url.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+
+    public AnalysisResponse get(String urlHash) {
+        AnalysisResponse result = cache.get(urlHash);
+        if (result != null) {
+            log.info("Cache hit for URL hash: {}", urlHash);
+        }
+        return result;
+    }
+
+    public void put(String urlHash, AnalysisResponse response) {
+        cache.put(urlHash, response);
+        log.info("Cached analysis for URL hash: {}", urlHash);
+    }
+
+    public void clear() {
+        cache.clear();
+        log.info("Analysis cache cleared");
+    }
+
+    public AnalysisResponse getByUrl(String url) {
+        String hash = hashUrl(url);
+        return get(hash);
+    }
+
+    public int size() {
+        return cache.size();
+    }
+}
