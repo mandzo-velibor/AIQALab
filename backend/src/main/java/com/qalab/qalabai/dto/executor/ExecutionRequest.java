@@ -1,3 +1,3 @@
 package com.qalab.qalabai.dto.executor;
 
-public record ExecutionRequest(Long testId, Boolean runAll) {}
+public record ExecutionRequest(Long testId, Boolean runAll, Long projectId) {}

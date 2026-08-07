@@ -38,6 +38,7 @@ public class ExecutorAgent implements QaAgent {
 
         String testFile = (String) task.getContextValue("testFile");
         Boolean runAll = (Boolean) task.getContextValue("runAll");
+        Long projectId = (Long) task.getContextValue("projectId");
 
         if (testFile == null && (runAll == null || !runAll)) {
             return AgentResult.failure(getName(), "Missing testFile or runAll in task context");
@@ -63,6 +64,7 @@ public class ExecutorAgent implements QaAgent {
                 String error = (String) map.get("error");
 
                 TestExecution execution = new TestExecution();
+                execution.setProjectId(projectId);
                 execution.setTestFile(testFile != null ? testFile : "all");
                 execution.setStatus(status);
                 execution.setDuration(duration);

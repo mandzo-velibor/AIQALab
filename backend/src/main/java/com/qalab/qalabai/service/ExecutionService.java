@@ -31,8 +31,8 @@ public class ExecutionService {
         this.executionRepository = executionRepository;
     }
 
-    public ExecutionResponse runTest(Long testId) {
-        log.info("Running test with id: {}", testId);
+    public ExecutionResponse runTest(Long testId, Long projectId) {
+        log.info("Running test with id: {}, project: {}", testId, projectId);
 
         GeneratedTest test = testRepository.findById(testId)
                 .orElseThrow(() -> new RuntimeException("Test not found: " + testId));
@@ -40,6 +40,7 @@ public class ExecutionService {
         Task task = new Task(UUID.randomUUID().toString(), "RUN_TEST", test.getPageUrl());
         task.putContext("testFile", test.getScenarioName() + ".spec.ts");
         task.putContext("runAll", false);
+        task.putContext("projectId", projectId);
 
         var result = executorAgent.execute(task);
 
@@ -56,11 +57,12 @@ public class ExecutionService {
         );
     }
 
-    public ExecutionResponse runAllTests() {
-        log.info("Running all tests");
+    public ExecutionResponse runAllTests(Long projectId) {
+        log.info("Running all tests for project: {}", projectId);
 
         Task task = new Task(UUID.randomUUID().toString(), "RUN_ALL_TESTS", null);
         task.putContext("runAll", true);
+        task.putContext("projectId", projectId);
 
         var result = executorAgent.execute(task);
 
@@ -77,7 +79,10 @@ public class ExecutionService {
         );
     }
 
-    public List<TestExecution> getExecutionHistory() {
+    public List<TestExecution> getExecutionHistory(Long projectId) {
+        if (projectId != null) {
+            return executionRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
+        }
         return executionRepository.findAllByOrderByCreatedAtDesc();
     }
 }

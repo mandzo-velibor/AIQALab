@@ -29,9 +29,9 @@ public class ExecutionController {
         try {
             ExecutionResponse response;
             if (request.runAll() != null && request.runAll()) {
-                response = executionService.runAllTests();
+                response = executionService.runAllTests(request.projectId());
             } else if (request.testId() != null) {
-                response = executionService.runTest(request.testId());
+                response = executionService.runTest(request.testId(), request.projectId());
             } else {
                 return ResponseEntity.badRequest().body(Map.of("error", "testId or runAll is required"));
             }
@@ -46,7 +46,7 @@ public class ExecutionController {
     }
 
     @GetMapping("/history")
-    public ResponseEntity<?> getHistory() {
-        return ResponseEntity.ok(executionService.getExecutionHistory());
+    public ResponseEntity<?> getHistory(@RequestParam(required = false) Long projectId) {
+        return ResponseEntity.ok(executionService.getExecutionHistory(projectId));
     }
 }

@@ -11,6 +11,9 @@ public class TestExecution {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column
+    private Long projectId;
+
     @Column(nullable = false)
     private String testFile;
 
@@ -49,6 +52,14 @@ public class TestExecution {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public Long getProjectId() {
+        return projectId;
+    }
+
+    public void setProjectId(Long projectId) {
+        this.projectId = projectId;
     }
 
     public String getTestFile() {

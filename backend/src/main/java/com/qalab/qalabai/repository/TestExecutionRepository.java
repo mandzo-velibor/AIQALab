@@ -14,4 +14,6 @@ public interface TestExecutionRepository extends JpaRepository<TestExecution, Lo
     List<TestExecution> findByStatus(String status);
 
     List<TestExecution> findAllByOrderByCreatedAtDesc();
+
+    List<TestExecution> findByProjectIdOrderByCreatedAtDesc(Long projectId);
 }
