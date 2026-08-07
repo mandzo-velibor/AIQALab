@@ -1,6 +1,6 @@
 # AI QA Lab
 
-AI-powered QA automation platform that uses AI agents to explore web applications, generate stable locators, create test plans, and produce executable Playwright tests.
+AI-powered QA automation platform that uses AI agents to explore web applications, generate stable locators, create test plans, produce executable Playwright tests, analyze failures, and self-heal broken locators.
 
 ## Vision
 
@@ -11,6 +11,7 @@ AI QA Lab is an experimental platform demonstrating how AI can transform the QA 
 - **Generate** stable, maintainable test code
 - **Execute** tests and collect artifacts
 - **Analyze** failures and suggest fixes
+- **Heal** broken locators with approved suggestions
 - **Learn** from previous issues
 
 The goal is not to replace Playwright, but to show how AI agents can collaborate to automate the entire QA lifecycle.
@@ -18,22 +19,29 @@ The goal is not to replace Playwright, but to show how AI agents can collaborate
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      AI QA Lab (Core)                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │ Explorer │→ │ Locator  │→ │ Planner  │→ │Generator │    │
-│  │  Agent   │  │  Agent   │  │  Agent   │  │  Agent   │    │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
-│       ↓              ↓             ↓             ↓          │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              Agent Orchestrator                       │   │
-│  └──────────────────────────────────────────────────────┘   │
-│       ↓                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │ Browser  │  │   DOM    │  │Playwright│  │   Git    │    │
-│  │  Tool    │  │Simplifier│  │  Tool    │  │ Service  │    │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                        AI QA Lab (Core)                               │
+│  ┌────────┐  ┌────────┐  ┌────────┐  ┌──────────┐  ┌──────────┐      │
+│  │Explorer│→ │Locator │→ │Planner │→ │Generator │→ │Executor  │      │
+│  │ Agent  │  │ Agent  │  │ Agent  │  │  Agent   │  │  Agent   │      │
+│  └────────┘  └────────┘  └────────┘  └──────────┘  └──────────┘      │
+│       ↓           ↓            ↓           ↓             ↓           │
+│  ┌────────────────────────────────────────────────────────────────┐   │
+│  │                     Agent Orchestrator                         │   │
+│  └────────────────────────────────────────────────────────────────┘   │
+│       ↓                                ↓                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
+│  │ Browser  │  │   DOM    │  │Playwright│  │   Git    │              │
+│  │  Tool    │  │Simplifier│  │  Tool    │  │ Service  │              │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘              │
+│       ↓                                ↓                              │
+│  ┌───────────────┐        ┌───────────────────────────┐              │
+│  │Failure Analyst│        │   Self-Healing Engine     │              │
+│  │    Agent      │        │ ElementMatcher            │              │
+│  └───────────────┘        │ LocatorSimilarity         │              │
+│                           │ HealingApplier            │              │
+│                           └───────────────────────────┘              │
+└──────────────────────────────────────────────────────────────────────┘
                             │
                             │ manages
                             ↓
@@ -123,6 +131,25 @@ Runs tests and collects:
 - Traces
 - Console logs
 
+### Failure Analyst Agent
+Analyzes failed test executions and determines the root cause:
+- Failure type classification (TIMEOUT, ELEMENT_NOT_FOUND, HTTP_ERROR, LOCATOR_INVALID, etc.)
+- Confidence score
+- Affected element identification
+- Whether the failure is a healing candidate
+- Stores results in project memory (`FailureAnalysis`, `FailureHistory`)
+
+### Self-Healing Agent
+Generates replacement locators for broken elements. Uses two complementary strategies:
+1. **AI-based**: inspects the current DOM via Browser Tool and proposes the most probable replacement
+2. **Deterministic**: `ElementMatcherService` searches the live page by role/name and ranks candidates with `LocatorSimilarityService`
+
+Safeguards:
+- Never modifies test code automatically
+- Suggestions start as `PENDING` and require explicit **Approve**
+- **Apply** promotes the new locator to the active locator history entry and demotes the old one to `REPLACED`
+- Complete history is preserved for every element
+
 ## AI Providers
 
 The platform supports multiple AI providers through an abstraction layer:
@@ -135,6 +162,41 @@ The platform supports multiple AI providers through an abstraction layer:
 | Claude | Planned | Future |
 | Gemini | Planned | Future |
 | Ollama | Planned | Local models |
+
+## API Overview
+
+### Projects
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/projects` | Create a project |
+| GET | `/api/projects` | List all projects |
+| GET | `/api/projects/{id}` | Get a single project |
+| GET | `/api/projects/{id}/history` | Full project memory (executions, page analyses, locators, failures, healings) |
+
+### Analysis & Generation
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/explore` | Explore a URL with the Browser Tool |
+| POST | `/api/analyze` | AI analysis of a page |
+| POST | `/api/locators/generate` | Generate stable locators |
+| POST | `/api/test-plans/generate` | Generate test plan scenarios |
+| POST | `/api/tests/generate` | Generate Playwright test code |
+
+### Execution
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/executions/run` | Run a test (or all tests) for a project |
+| GET | `/api/executions/history` | Execution history (filterable by `projectId`) |
+| POST | `/api/executions/{executionId}/analyze` | Analyze a failed execution |
+
+### Healing
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/healing/analyze/{executionId}` | Generate a healing suggestion |
+| POST | `/api/healing/{id}/approve` | Approve a suggestion |
+| POST | `/api/healing/{id}/reject` | Reject a suggestion |
+| POST | `/api/healing/{id}/apply` | Apply an approved suggestion to locator history |
+| GET | `/api/healing/suggestions` | List suggestions (filterable by `projectId`) |
 
 ## Tech Stack
 
@@ -213,6 +275,15 @@ The backend will automatically:
 2. Click **Generate Test Plan** - AI creates test scenarios
 3. Click **Generate Tests** - AI produces Playwright code
 
+### 6. Analyze Failures & Heal Locators
+
+1. Open the project page at **Projects → Open Project**
+2. Run tests and open a failed execution
+3. Click **Analyze** - Failure Analyst determines the root cause
+4. Click **Generate Healing** - Self-Healing Agent proposes a replacement locator
+5. **Approve** the suggestion, then **Apply** it to update the active locator history
+6. Re-run the test to confirm the fix
+
 ## Roadmap
 
 ### Completed
@@ -223,10 +294,10 @@ The backend will automatically:
 - [x] Sprint 5: Test Generator Agent
 - [x] Sprint 6: Executor Agent
 - [x] Sprint 7: Project Workspace Architecture
+- [x] Sprint 8: Failure Analyst Agent & Project Memory
+- [x] Sprint 9: Self-Healing Locator Engine
 
 ### Next
-- [ ] Sprint 8: Failure Analyst Agent
-- [ ] Sprint 9: Self-Healing Agent
 - [ ] Sprint 10: Vector Memory
 - [ ] Sprint 11: Git Automation
 - [ ] Sprint 12: Multi-provider support (Claude, Gemini, Ollama)
@@ -238,12 +309,20 @@ ai-qa-lab/
 ├── backend/
 │   ├── src/main/java/com/qalab/qalabai/
 │   │   ├── agent/          # AI agents
+│   │   │   ├── explorer/   # Explorer Agent
+│   │   │   ├── locator/    # Locator Agent
+│   │   │   ├── planner/    # Planner Agent
+│   │   │   ├── testgen/    # Test Generator Agent
+│   │   │   ├── executor/   # Executor Agent
+│   │   │   ├── failure/    # Failure Analyst Agent
+│   │   │   └── healing/    # Self-Healing Agent
 │   │   ├── ai/             # AI provider abstraction
 │   │   ├── controller/     # REST endpoints
 │   │   ├── dto/            # Data transfer objects
 │   │   ├── model/          # JPA entities
 │   │   ├── repository/     # Spring Data repos
 │   │   ├── service/        # Business logic
+│   │   │   └── healing/    # Matcher, similarity, applier
 │   │   └── tool/           # Agent tools
 │   └── src/main/resources/
 │       ├── prompts/        # AI prompt templates
