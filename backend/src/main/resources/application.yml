@@ -44,8 +44,8 @@ opencode:
 
 gemini:
   api-key: ${GEMINI_API_KEY:}
-  base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai}
-  model: gemini-1.5-flash
+  base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
+  model: gemini-1.5-flash-latest
 
 ollama:
   api-key: ${OLLAMA_API_KEY:}
