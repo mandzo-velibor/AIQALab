@@ -31,7 +31,13 @@ public class AnalysisController {
         }
 
         try {
-            AnalysisResponse response = explorerService.analyze(request.getUrl(), request.isForceRefresh(), request.getProjectId());
+            AnalysisResponse response = explorerService.analyze(
+                    request.getUrl(),
+                    request.isForceRefresh(),
+                    request.getProjectId(),
+                    request.getUsername(),
+                    request.getPassword()
+            );
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Analysis failed for URL {}: {}", request.getUrl(), e.getMessage(), e);

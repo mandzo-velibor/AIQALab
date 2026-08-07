@@ -61,10 +61,14 @@ public class ExplorerService {
     }
 
     public AnalysisResponse analyze(String url, boolean forceRefresh) {
-        return analyze(url, forceRefresh, null);
+        return analyze(url, forceRefresh, null, null, null);
     }
 
     public AnalysisResponse analyze(String url, boolean forceRefresh, Long projectId) {
+        return analyze(url, forceRefresh, projectId, null, null);
+    }
+
+    public AnalysisResponse analyze(String url, boolean forceRefresh, Long projectId, String username, String password) {
         log.info("Explorer started for URL: {}", url);
 
         String urlHash = cache.hashUrl(url);
@@ -113,9 +117,33 @@ public class ExplorerService {
         cache.put(urlHash, analysis, simplifiedHtml);
         log.info("Analysis finished for URL: {}", url);
 
+        String postLoginHtml = attemptLogin(currentUrl, username, password);
+        if (postLoginHtml != null) {
+            String postLoginSimplified = domSimplifier.simplify(postLoginHtml);
+            cache.putPostLoginContent(urlHash, postLoginSimplified);
+            cache.putLoginCredentials(urlHash, username, password);
+            log.info("Post-login content cached, simplified to {} chars", postLoginSimplified.length());
+        }
+
         saveHistory(url, analysis, projectId);
 
         return analysis;
+    }
+
+    private String attemptLogin(String url, String username, String password) {
+        if (username == null || username.isBlank() || password == null) {
+            log.info("No credentials provided, skipping login attempt");
+            return null;
+        }
+
+        log.info("Attempting login for URL: {} with user {}", url, username);
+        Object loginResult = browserTool.login(url, username, password);
+        if (!(loginResult instanceof Map<?, ?> map) || map.containsKey("error") || map.get("html") == null) {
+            log.warn("Login attempt produced no post-login content");
+            return null;
+        }
+        log.info("Login succeeded, post-login URL: {}", map.get("url"));
+        return (String) map.get("html");
     }
 
     private void saveHistory(String url, AnalysisResponse analysis, Long projectId) {

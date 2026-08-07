@@ -35,7 +35,7 @@ public class HealingController {
             return ResponseEntity.ok(suggestion);
         } catch (Exception e) {
             log.error("Failed to generate healing suggestion: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(Map.of(
+            return ResponseEntity.badRequest().body(Map.of(
                     "error", "Healing generation failed",
                     "message", e.getMessage() != null ? e.getMessage() : "Unknown error"
             ));

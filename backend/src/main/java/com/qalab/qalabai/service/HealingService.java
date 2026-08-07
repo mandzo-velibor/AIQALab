@@ -5,9 +5,11 @@ import com.qalab.qalabai.agent.healing.SelfHealingAgent;
 import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.HealingSuggestion;
 import com.qalab.qalabai.model.Project;
+import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.repository.FailureAnalysisRepository;
 import com.qalab.qalabai.repository.HealingSuggestionRepository;
 import com.qalab.qalabai.repository.ProjectRepository;
+import com.qalab.qalabai.repository.TestExecutionRepository;
 import com.qalab.qalabai.service.healing.ElementMatcherService;
 import com.qalab.qalabai.service.healing.HealingApplier;
 import org.slf4j.Logger;
@@ -28,26 +30,32 @@ public class HealingService {
     private final ProjectRepository projectRepository;
     private final ElementMatcherService elementMatcherService;
     private final HealingApplier healingApplier;
+    private final FailureAnalysisService failureAnalysisService;
+    private final TestExecutionRepository testExecutionRepository;
 
     public HealingService(SelfHealingAgent selfHealingAgent,
                           FailureAnalysisRepository failureAnalysisRepository,
                           HealingSuggestionRepository healingSuggestionRepository,
                           ProjectRepository projectRepository,
                           ElementMatcherService elementMatcherService,
-                          HealingApplier healingApplier) {
+                          HealingApplier healingApplier,
+                          FailureAnalysisService failureAnalysisService,
+                          TestExecutionRepository testExecutionRepository) {
         this.selfHealingAgent = selfHealingAgent;
         this.failureAnalysisRepository = failureAnalysisRepository;
         this.healingSuggestionRepository = healingSuggestionRepository;
         this.projectRepository = projectRepository;
         this.elementMatcherService = elementMatcherService;
         this.healingApplier = healingApplier;
+        this.failureAnalysisService = failureAnalysisService;
+        this.testExecutionRepository = testExecutionRepository;
     }
 
     public HealingSuggestion generateHealingSuggestion(Long executionId) {
         log.info("Generating healing suggestion for execution {}", executionId);
 
         FailureAnalysis analysis = failureAnalysisRepository.findByExecutionId(executionId)
-                .orElseThrow(() -> new RuntimeException("Failure analysis not found for execution: " + executionId));
+                .orElseGet(() -> analyzeExecution(executionId));
 
         Project project = projectRepository.findById(analysis.getProjectId())
                 .orElseThrow(() -> new RuntimeException("Project not found: " + analysis.getProjectId()));
@@ -61,6 +69,19 @@ public class HealingService {
             throw new RuntimeException("Healing generation failed: no suitable locator found");
         }
         return suggestion;
+    }
+
+    private FailureAnalysis analyzeExecution(Long executionId) {
+        log.info("No failure analysis found for execution {}, running analysis first", executionId);
+
+        TestExecution execution = testExecutionRepository.findById(executionId)
+                .orElseThrow(() -> new RuntimeException("Execution not found: " + executionId));
+
+        if (execution.getProjectId() == null) {
+            throw new RuntimeException("Execution " + executionId + " has no project, cannot run healing");
+        }
+
+        return failureAnalysisService.analyzeExecution(executionId, execution.getProjectId());
     }
 
     private HealingSuggestion generateWithAiAgent(FailureAnalysis analysis, Project project) {

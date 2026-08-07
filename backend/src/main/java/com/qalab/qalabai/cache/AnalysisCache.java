@@ -18,6 +18,10 @@ public class AnalysisCache {
 
     private final Map<String, AnalysisResponse> cache = new ConcurrentHashMap<>();
     private final Map<String, String> pageContentCache = new ConcurrentHashMap<>();
+    private final Map<String, String> postLoginContentCache = new ConcurrentHashMap<>();
+    private final Map<String, LoginCredentials> loginCredentialsCache = new ConcurrentHashMap<>();
+
+    public record LoginCredentials(String username, String password) {}
 
     public String hashUrl(String url) {
         try {
@@ -60,9 +64,31 @@ public class AnalysisCache {
         return pageContentCache.get(urlHash);
     }
 
+    public void putPostLoginContent(String urlHash, String simplifiedHtml) {
+        if (simplifiedHtml != null) {
+            postLoginContentCache.put(urlHash, simplifiedHtml);
+        }
+    }
+
+    public String getPostLoginContent(String urlHash) {
+        return postLoginContentCache.get(urlHash);
+    }
+
+    public void putLoginCredentials(String urlHash, String username, String password) {
+        if (username != null && !username.isBlank()) {
+            loginCredentialsCache.put(urlHash, new LoginCredentials(username, password));
+        }
+    }
+
+    public LoginCredentials getLoginCredentials(String urlHash) {
+        return loginCredentialsCache.get(urlHash);
+    }
+
     public void clear() {
         cache.clear();
         pageContentCache.clear();
+        postLoginContentCache.clear();
+        loginCredentialsCache.clear();
         log.info("Analysis cache cleared");
     }
 
@@ -74,6 +100,16 @@ public class AnalysisCache {
     public String getSimplifiedHtmlByUrl(String url) {
         String hash = hashUrl(url);
         return getSimplifiedHtml(hash);
+    }
+
+    public String getPostLoginContentByUrl(String url) {
+        String hash = hashUrl(url);
+        return getPostLoginContent(hash);
+    }
+
+    public LoginCredentials getLoginCredentialsByUrl(String url) {
+        String hash = hashUrl(url);
+        return getLoginCredentials(hash);
     }
 
     public int size() {
