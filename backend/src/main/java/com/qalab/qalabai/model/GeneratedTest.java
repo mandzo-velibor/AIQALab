@@ -11,19 +11,19 @@ public class GeneratedTest {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String pageUrl;
 
     @Column
     private Long projectId;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String scenarioName;
 
-    @Column(nullable = false, length = 500)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String testCode;
 
-    @Column(length = 2000)
+    @Column(columnDefinition = "TEXT")
     private String pageObjectCode;
 
     @Column(nullable = false)

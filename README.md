@@ -157,11 +157,15 @@ The platform supports multiple AI providers through an abstraction layer:
 | Provider | Status | Notes |
 |----------|--------|-------|
 | OpenCode Go | **Default** | Primary provider with qwen3.7-plus |
-| OpenCode Zen | Fallback | Free models like big-pickle |
+| OpenCode Zen | Fallback | big-pickle, fallback to mimo-v2.5-free |
 | OpenAI | Available | GPT-4o-mini |
+| Gemini | Fallback | gemini-1.5-flash |
+| Ollama | Fallback | Local/remote models (gpt-oss:20b) |
 | Claude | Planned | Future |
-| Gemini | Planned | Future |
-| Ollama | Planned | Local models |
+
+The fallback chain is **Go → Zen (big-pickle) → Zen (mimo-v2.5-free) → Gemini → Ollama**. Every
+provider response is validated (valid JSON matching the required schema); invalid or empty
+responses are rejected with a logged reason and the chain moves to the next provider.
 
 ## API Overview
 
@@ -214,8 +218,10 @@ The platform supports multiple AI providers through an abstraction layer:
 - shadcn/ui
 
 ### AI
-- OpenCode AI (primary)
+- OpenCode AI (primary, 12000 max tokens)
 - OpenAI (fallback)
+- Gemini (fallback)
+- Ollama (fallback)
 
 ## Quick Start
 
@@ -296,11 +302,12 @@ The backend will automatically:
 - [x] Sprint 7: Project Workspace Architecture
 - [x] Sprint 8: Failure Analyst Agent & Project Memory
 - [x] Sprint 9: Self-Healing Locator Engine
+- [x] Sprint 12: Multi-provider support (Gemini, Ollama, fallback chain)
 
 ### Next
 - [ ] Sprint 10: Vector Memory
 - [ ] Sprint 11: Git Automation
-- [ ] Sprint 12: Multi-provider support (Claude, Gemini, Ollama)
+- [ ] Sprint 13: Claude support
 
 ## Project Structure
 

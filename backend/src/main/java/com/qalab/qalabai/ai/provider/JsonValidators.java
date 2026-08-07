@@ -12,21 +12,32 @@ public final class JsonValidators {
 
     public static ResponseValidator hasArrayField(String field) {
         return response -> {
+            JsonNode root;
             try {
-                JsonNode root = MAPPER.readTree(extractJson(response));
-                return root.has(field) && root.path(field).isArray();
+                root = MAPPER.readTree(extractJson(response));
             } catch (Exception e) {
-                return false;
+                return "invalid JSON: " + e.getMessage();
             }
+            if (!root.has(field)) {
+                return "valid JSON but missing field \"" + field + "\"";
+            }
+            if (!root.path(field).isArray()) {
+                return "field \"" + field + "\" is present but not an array";
+            }
+            return null;
         };
     }
 
     public static ResponseValidator isJsonObject() {
         return response -> {
             try {
-                return MAPPER.readTree(extractJson(response)).isObject();
+                JsonNode root = MAPPER.readTree(extractJson(response));
+                if (!root.isObject()) {
+                    return "valid JSON but not an object";
+                }
+                return null;
             } catch (Exception e) {
-                return false;
+                return "invalid JSON: " + e.getMessage();
             }
         };
     }

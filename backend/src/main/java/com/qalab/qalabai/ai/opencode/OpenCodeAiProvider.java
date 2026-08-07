@@ -31,7 +31,7 @@ public class OpenCodeAiProvider implements AiProvider {
     private static final String CHAT_PATH = "/chat/completions";
 
     private static final int MAX_ATTEMPTS = 3;
-    private static final int MAX_TOKENS = 8000;
+    private static final int MAX_TOKENS = 12000;
     private static final long BASE_DELAY_MS = 1000;
     private static final long MAX_DELAY_MS = 8000;
 
@@ -162,11 +162,14 @@ public class OpenCodeAiProvider implements AiProvider {
         throw new RuntimeException("All AI providers failed after " + MAX_ATTEMPTS + " attempts. No valid AI response was obtained for this request. Check the application log for per-provider details.", lastError);
     }
 
-    private boolean accepts(String result, ResponseValidator validator) {
+    private String accepts(String result, ResponseValidator validator) {
         if (result == null || result.isBlank()) {
-            return false;
+            return "empty response";
         }
-        return validator == null || validator.isValid(result);
+        if (validator == null) {
+            return null;
+        }
+        return validator.validate(result);
     }
 
     private String attemptProviders(String systemPrompt, String userPrompt, ResponseValidator validator, boolean goExhausted) throws Exception {
@@ -176,10 +179,12 @@ public class OpenCodeAiProvider implements AiProvider {
             try {
                 log.info("Attempting OpenCode Go with model: {}", goModel);
                 String goResult = callGoApi(systemPrompt, userPrompt);
-                if (accepts(goResult, validator)) {
+                String rejectReason = accepts(goResult, validator);
+                if (rejectReason == null) {
                     return goResult;
                 }
-                log.warn("OpenCode Go ({}) response rejected ({} chars). Trying Zen fallback...", goModel, goResult.length());
+                log.warn("OpenCode Go ({}) response rejected ({} chars): {}. Trying Zen fallback...", goModel, goResult.length(), rejectReason);
+                failures.add("Go(" + goModel + "): rejected, " + rejectReason);
             } catch (GoUsageLimitException e) {
                 throw e;
             } catch (Exception e) {
@@ -191,10 +196,12 @@ public class OpenCodeAiProvider implements AiProvider {
         if (zenApiKey != null && !zenApiKey.isBlank()) {
             try {
                 String zenResult = callZenApi(systemPrompt, userPrompt, zenModel);
-                if (accepts(zenResult, validator)) {
+                String rejectReason = accepts(zenResult, validator);
+                if (rejectReason == null) {
                     return zenResult;
                 }
-                log.warn("OpenCode Zen ({}) response rejected ({} chars). Trying Zen fallback model {}...", zenModel, zenResult.length(), zenFallbackModel);
+                log.warn("OpenCode Zen ({}) response rejected ({} chars): {}. Trying Zen fallback model {}...", zenModel, zenResult.length(), rejectReason, zenFallbackModel);
+                failures.add("Zen(" + zenModel + "): rejected, " + rejectReason);
             } catch (Exception e) {
                 failures.add("Zen(" + zenModel + "): " + e.getMessage());
                 log.warn("OpenCode Zen failed: {}. Trying Zen fallback model {}...", e.getMessage(), zenFallbackModel);
@@ -202,10 +209,12 @@ public class OpenCodeAiProvider implements AiProvider {
 
             try {
                 String zenFallbackResult = callZenApi(systemPrompt, userPrompt, zenFallbackModel);
-                if (accepts(zenFallbackResult, validator)) {
+                String rejectReason = accepts(zenFallbackResult, validator);
+                if (rejectReason == null) {
                     return zenFallbackResult;
                 }
-                log.warn("OpenCode Zen ({}) response rejected ({} chars). Trying Gemini fallback...", zenFallbackModel, zenFallbackResult.length());
+                log.warn("OpenCode Zen ({}) response rejected ({} chars): {}. Trying Gemini fallback...", zenFallbackModel, zenFallbackResult.length(), rejectReason);
+                failures.add("Zen(" + zenFallbackModel + "): rejected, " + rejectReason);
             } catch (Exception e) {
                 failures.add("Zen(" + zenFallbackModel + "): " + e.getMessage());
                 log.warn("OpenCode Zen fallback model failed: {}. Trying Gemini fallback...", e.getMessage());
@@ -216,10 +225,12 @@ public class OpenCodeAiProvider implements AiProvider {
             log.info("Attempting Gemini fallback with model: {}", geminiModel);
             try {
                 String geminiResult = callGeminiApi(systemPrompt, userPrompt);
-                if (accepts(geminiResult, validator)) {
+                String rejectReason = accepts(geminiResult, validator);
+                if (rejectReason == null) {
                     return geminiResult;
                 }
-                log.warn("Gemini ({}) response rejected ({} chars). Trying Ollama fallback...", geminiModel, geminiResult.length());
+                log.warn("Gemini ({}) response rejected ({} chars): {}. Trying Ollama fallback...", geminiModel, geminiResult.length(), rejectReason);
+                failures.add("Gemini(" + geminiModel + "): rejected, " + rejectReason);
             } catch (Exception e) {
                 failures.add("Gemini(" + geminiModel + "): " + e.getMessage());
                 log.warn("Gemini failed: {}. Trying Ollama fallback...", e.getMessage());
@@ -230,10 +241,12 @@ public class OpenCodeAiProvider implements AiProvider {
             log.info("Attempting Ollama fallback with model: {}", ollamaModel);
             try {
                 String ollamaResult = callOllamaApi(systemPrompt, userPrompt);
-                if (accepts(ollamaResult, validator)) {
+                String rejectReason = accepts(ollamaResult, validator);
+                if (rejectReason == null) {
                     return ollamaResult;
                 }
-                log.warn("Ollama ({}) response rejected ({} chars).", ollamaModel, ollamaResult.length());
+                log.warn("Ollama ({}) response rejected ({} chars): {}.", ollamaModel, ollamaResult.length(), rejectReason);
+                failures.add("Ollama(" + ollamaModel + "): rejected, " + rejectReason);
             } catch (Exception e) {
                 failures.add("Ollama(" + ollamaModel + "): " + e.getMessage());
                 log.warn("Ollama failed: {}", e.getMessage());
