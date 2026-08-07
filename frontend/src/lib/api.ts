@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/lib/config";
 export interface ExploreRequest {
   url: string;
 }
@@ -14,7 +15,7 @@ export interface ExploreResponse {
 }
 
 export async function exploreUrl(url: string): Promise<ExploreResponse> {
-  const res = await fetch("http://localhost:8080/api/explore", {
+  const res = await fetch(`${API_BASE_URL}/api/explore`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url } satisfies ExploreRequest),

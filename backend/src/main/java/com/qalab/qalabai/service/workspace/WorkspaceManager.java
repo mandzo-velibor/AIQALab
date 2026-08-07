@@ -9,10 +9,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class WorkspaceManager {
@@ -40,6 +44,8 @@ public class WorkspaceManager {
             project.setWorkspacePath(workspacePath);
             projectRepository.save(project);
         }
+
+        prepareWorkspace(workspacePath);
 
         return new ProjectContext(
                 project.getId(),
@@ -92,7 +98,7 @@ public class WorkspaceManager {
                     "test": "playwright test"
                   },
                   "devDependencies": {
-                    "@playwright/test": "^1.40.0"
+                    "@playwright/test": "1.48.0"
                   }
                 }
                 """;
@@ -124,6 +130,70 @@ public class WorkspaceManager {
         }
         if (!Files.isDirectory(path)) {
             throw new RuntimeException("Workspace is not a directory: " + workspacePath);
+        }
+    }
+
+    public void prepareWorkspace(String workspacePath) {
+        Path path = Paths.get(workspacePath);
+        if (!Files.exists(path.resolve("package.json"))) {
+            log.info("No package.json in workspace {}, skipping dependency setup.", workspacePath);
+            return;
+        }
+
+        try {
+            if (!Files.exists(path.resolve("node_modules"))) {
+                log.info("Installing workspace dependencies in {}...", workspacePath);
+                runProcess(path.toFile(), new String[]{"npm", "install"}, "npm install");
+            }
+
+            Path browsersMarker = path.resolve(".playwright-ready");
+            if (!Files.exists(browsersMarker)) {
+                log.info("Installing Playwright browsers for workspace {}...", workspacePath);
+                boolean ok = runProcess(path.toFile(),
+                        new String[]{"npx", "playwright", "install", "chromium"},
+                        "npx playwright install chromium");
+                if (ok) {
+                    Files.writeString(browsersMarker, "installed");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Workspace dependency setup failed for {}: {}", workspacePath, e.getMessage());
+        }
+    }
+
+    private boolean runProcess(File dir, String[] command, String what) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.directory(dir);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
+            }
+
+            boolean finished = process.waitFor(600, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("{} timed out.", what);
+                return false;
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                log.warn("{} failed with exit code {}. Output tail: {}", what, exitCode,
+                        output.length() > 800 ? output.substring(output.length() - 800) : output);
+                return false;
+            }
+            log.info("{} completed.", what);
+            return true;
+        } catch (Exception e) {
+            log.warn("{} error: {}", what, e.getMessage());
+            return false;
         }
     }
 }

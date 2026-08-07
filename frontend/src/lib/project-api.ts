@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/lib/config";
 export interface ProjectResponse {
   id: number;
   name: string;
@@ -19,19 +20,19 @@ export interface CreateProjectRequest {
 }
 
 export async function getProjects(): Promise<ProjectResponse[]> {
-  const res = await fetch("http://localhost:8080/api/projects");
+  const res = await fetch(`${API_BASE_URL}/api/projects`);
   if (!res.ok) throw new Error(`Failed to fetch projects: ${res.status}`);
   return res.json();
 }
 
 export async function getProject(id: number): Promise<ProjectResponse> {
-  const res = await fetch(`http://localhost:8080/api/projects/${id}`);
+  const res = await fetch(`${API_BASE_URL}/api/projects/${id}`);
   if (!res.ok) throw new Error(`Failed to fetch project: ${res.status}`);
   return res.json();
 }
 
 export async function createProject(request: CreateProjectRequest): Promise<ProjectResponse> {
-  const res = await fetch("http://localhost:8080/api/projects", {
+  const res = await fetch(`${API_BASE_URL}/api/projects`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
@@ -100,13 +101,13 @@ export interface HealingSuggestionEntry {
 }
 
 export async function getProjectHistory(id: number): Promise<ProjectHistoryResponse> {
-  const res = await fetch(`http://localhost:8080/api/projects/${id}/history`);
+  const res = await fetch(`${API_BASE_URL}/api/projects/${id}/history`);
   if (!res.ok) throw new Error(`Failed to fetch project history: ${res.status}`);
   return res.json();
 }
 
 export async function deleteProject(id: number): Promise<void> {
-  const res = await fetch(`http://localhost:8080/api/projects/${id}`, {
+  const res = await fetch(`${API_BASE_URL}/api/projects/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) {

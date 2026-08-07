@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/lib/config";
 export interface ExecutionResponse {
   executionId: number;
   status: string;
@@ -21,7 +22,7 @@ export interface TestExecution {
 }
 
 export async function runTest(testId: number, projectId?: number): Promise<ExecutionResponse> {
-  const res = await fetch("http://localhost:8080/api/executions/run", {
+  const res = await fetch(`${API_BASE_URL}/api/executions/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ testId, projectId: projectId ?? null }),
@@ -36,7 +37,7 @@ export async function runTest(testId: number, projectId?: number): Promise<Execu
 }
 
 export async function runAllTests(projectId?: number): Promise<ExecutionResponse> {
-  const res = await fetch("http://localhost:8080/api/executions/run", {
+  const res = await fetch(`${API_BASE_URL}/api/executions/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ runAll: true, projectId: projectId ?? null }),
@@ -52,8 +53,8 @@ export async function runAllTests(projectId?: number): Promise<ExecutionResponse
 
 export async function getExecutionHistory(projectId?: number): Promise<TestExecution[]> {
   const url = projectId
-    ? `http://localhost:8080/api/executions/history?projectId=${projectId}`
-    : "http://localhost:8080/api/executions/history";
+    ? `${API_BASE_URL}/api/executions/history?projectId=${projectId}`
+    : `${API_BASE_URL}/api/executions/history`;
 
   const res = await fetch(url);
 

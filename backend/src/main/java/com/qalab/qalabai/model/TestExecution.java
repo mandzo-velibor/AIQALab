@@ -23,7 +23,7 @@ public class TestExecution {
     @Column
     private Long duration;
 
-    @Column(length = 2000)
+    @Column(columnDefinition = "TEXT")
     private String errorMessage;
 
     @Column
@@ -35,7 +35,7 @@ public class TestExecution {
     @Column
     private String tracePath;
 
-    @Column(length = 5000)
+    @Column(columnDefinition = "TEXT")
     private String consoleLogs;
 
     @Column(nullable = false)

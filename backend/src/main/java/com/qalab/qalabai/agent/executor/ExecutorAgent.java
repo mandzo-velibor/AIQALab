@@ -39,6 +39,7 @@ public class ExecutorAgent implements QaAgent {
         String testFile = (String) task.getContextValue("testFile");
         Boolean runAll = (Boolean) task.getContextValue("runAll");
         Long projectId = (Long) task.getContextValue("projectId");
+        String workspacePath = (String) task.getContextValue("workspacePath");
 
         if (testFile == null && (runAll == null || !runAll)) {
             return AgentResult.failure(getName(), "Missing testFile or runAll in task context");
@@ -53,6 +54,9 @@ public class ExecutorAgent implements QaAgent {
             }
             if (runAll != null) {
                 context.put("runAll", runAll);
+            }
+            if (workspacePath != null && !workspacePath.isBlank()) {
+                context.put("workspacePath", workspacePath);
             }
 
             Object rawResult = playwrightTool.execute(context);

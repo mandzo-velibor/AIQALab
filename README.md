@@ -226,10 +226,32 @@ responses are rejected with a logged reason and the chain moves to the next prov
 ## Quick Start
 
 ### Prerequisites
-- Java 21+
-- Node.js 20+
-- PostgreSQL 15+
-- Git
+
+These must be installed **before** first run:
+
+| Tool | Version | Notes |
+|------|---------|-------|
+| Java | 21+ | Required for the Spring Boot backend |
+| Maven | 3.9+ | Builds the backend |
+| Node.js | 20+ | Required for the frontend **and** for running generated Playwright tests |
+| npm | 10+ | Comes with Node.js |
+| PostgreSQL | 15+ | App database (or use Docker below) |
+| Git | any | Cloning project repositories |
+
+**Playwright + browsers** are installed automatically:
+- On backend startup, `PlaywrightSetupConfig` checks each project workspace and runs
+  `npm install` (once) and `npx playwright install chromium` (once per workspace,
+  guarded by a `.playwright-ready` marker) if they are missing.
+- A new project workspace is prepared the first time it is used (`WorkspaceManager.getProjectContext`).
+- Disable auto-install with `QALAB_AUTO_INSTALL_PLAYWRIGHT=false`.
+
+Verify manually with:
+```bash
+node --version   # v20+
+npm --version    # 10+
+mvn --version    # 3.9+
+npx playwright install chromium   # download browser binaries if needed
+```
 
 ### 1. Clone and Setup
 
@@ -237,14 +259,9 @@ responses are rejected with a logged reason and the chain moves to the next prov
 git clone https://github.com/your-org/ai-qa-lab.git
 cd ai-qa-lab
 
-# Create .env file
-cat > .env << EOF
-OPENCODE_GO_API_KEY=your-key-here
-OPENCODE_ZEN_API_KEY=your-key-here
-DATABASE_URL=jdbc:postgresql://localhost:5432/qalab
-DATABASE_USERNAME=qalab
-DATABASE_PASSWORD=qalab
-EOF
+# Create .env file (see .env.example)
+cp .env.example .env
+# Then edit .env and add your AI provider keys
 ```
 
 ### 2. Start Backend
@@ -257,8 +274,52 @@ mvn spring-boot:run
 The backend will automatically:
 - Start the frontend dev server
 - Open browser at http://localhost:3000
+- Install Playwright browsers for project workspaces on first use (see Prerequisites)
 
-### 3. Create a Project
+### 3. Run with Docker
+
+The whole stack (PostgreSQL + backend + frontend) runs in Docker.
+Requires **Docker Engine** with Compose v2 — use `docker compose` (the older
+`docker-compose` v1 command is **not** supported).
+
+```bash
+# 1. Add your AI keys to .env (docker compose reads it automatically)
+
+# 2. Build and start everything
+docker compose up --build
+
+# 3. Open the app
+open http://localhost:3000
+
+# Stop everything
+docker compose down
+
+# Stop and also delete the database volume
+docker compose down -v
+```
+
+- Backend: http://localhost:8080
+- Frontend: http://localhost:3000
+- PostgreSQL: `localhost:5432` (user/password `qalab`/`qalab`, database `qalab`)
+- Project workspaces and screenshots are stored in named Docker volumes
+  (`qalab-workspaces`, `qalab-screenshots`) so generated tests persist across restarts.
+- AI provider keys are passed from the host `.env` into the backend container;
+  the `.env` file is **never** committed or baked into images.
+- Inside the backend image Playwright + Chromium are pre-installed, so generated
+  tests run out of the box.
+
+### 4. CI/CD (GitHub Actions)
+
+A workflow at `.github/workflows/ci.yml` runs on push/PR to `main`/`master`:
+
+| Job | What it does |
+|-----|-------------|
+| `backend-build` | JDK 21 + Node 20, installs Playwright Chromium, `mvn -B verify` |
+| `frontend-build` | Node 20, `npm ci`, typecheck, `next build` |
+| `security-check` | Fails if `.env` or hardcoded API keys are committed; validates `docker compose config` |
+| `docker-build` | Builds both Docker images (push only) |
+
+### 5. Create a Project
 
 1. Navigate to **Projects** page
 2. Click **New Project**
@@ -268,20 +329,20 @@ The backend will automatically:
    - Framework: "Playwright TypeScript"
 4. Click **Create Project**
 
-### 4. Analyze Application
+### 6. Analyze Application
 
 1. Go to **Analyze Page**
 2. Enter the URL to analyze
 3. Click **Analyze**
 4. Review the AI analysis results
 
-### 5. Generate Tests
+### 7. Generate Tests
 
 1. Click **Generate Locators** - AI creates stable locators
 2. Click **Generate Test Plan** - AI creates test scenarios
 3. Click **Generate Tests** - AI produces Playwright code
 
-### 6. Analyze Failures & Heal Locators
+### 8. Analyze Failures & Heal Locators
 
 1. Open the project page at **Projects → Open Project**
 2. Run tests and open a failed execution
@@ -314,33 +375,40 @@ The backend will automatically:
 ```
 ai-qa-lab/
 ├── backend/
-│   ├── src/main/java/com/qalab/qalabai/
-│   │   ├── agent/          # AI agents
-│   │   │   ├── explorer/   # Explorer Agent
-│   │   │   ├── locator/    # Locator Agent
-│   │   │   ├── planner/    # Planner Agent
-│   │   │   ├── testgen/    # Test Generator Agent
-│   │   │   ├── executor/   # Executor Agent
-│   │   │   ├── failure/    # Failure Analyst Agent
-│   │   │   └── healing/    # Self-Healing Agent
-│   │   ├── ai/             # AI provider abstraction
-│   │   ├── controller/     # REST endpoints
-│   │   ├── dto/            # Data transfer objects
-│   │   ├── model/          # JPA entities
-│   │   ├── repository/     # Spring Data repos
-│   │   ├── service/        # Business logic
-│   │   │   └── healing/    # Matcher, similarity, applier
-│   │   └── tool/           # Agent tools
+│   ├── Dockerfile
+│   └── src/main/java/com/qalab/qalabai/
+│       ├── agent/          # AI agents
+│       │   ├── explorer/   # Explorer Agent
+│       │   ├── locator/    # Locator Agent
+│       │   ├── planner/    # Planner Agent
+│       │   ├── testgen/    # Test Generator Agent
+│       │   ├── executor/   # Executor Agent
+│       │   ├── failure/    # Failure Analyst Agent
+│       │   └── healing/    # Self-Healing Agent
+│       ├── ai/             # AI provider abstraction
+│       ├── config/         # Startup setup (Playwright auto-install), WS config
+│       ├── controller/     # REST endpoints
+│       ├── dto/            # Data transfer objects
+│       ├── model/          # JPA entities
+│       ├── repository/     # Spring Data repos
+│       ├── service/        # Business logic
+│       │   ├── healing/    # Matcher, similarity, applier
+│       │   └── workspace/  # WorkspaceManager, TestWorkspaceService
+│       └── tool/           # Agent tools
 │   └── src/main/resources/
 │       ├── prompts/        # AI prompt templates
 │       └── application.yml # Configuration
 ├── frontend/
+│   ├── Dockerfile
 │   └── src/
 │       ├── app/            # Next.js pages
 │       ├── components/     # React components
 │       └── lib/            # API clients
+├── .github/workflows/ci.yml # CI/CD pipeline
+├── docker-compose.yml       # Full stack (db + backend + frontend)
 ├── workspaces/             # External project workspaces
 ├── .env                    # Environment variables (not committed)
+├── .env.example            # Safe template for .env
 └── README.md
 ```
 

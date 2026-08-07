@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/lib/config";
 export interface FailureAnalysis {
   id: number;
   projectId: number;
@@ -29,7 +30,7 @@ export interface HealingSuggestion {
 
 export async function analyzeExecution(executionId: number, projectId: number): Promise<FailureAnalysis> {
   const res = await fetch(
-    `http://localhost:8080/api/executions/${executionId}/analyze?projectId=${projectId}`,
+    `${API_BASE_URL}/api/executions/${executionId}/analyze?projectId=${projectId}`,
     { method: "POST" }
   );
 
@@ -42,7 +43,7 @@ export async function analyzeExecution(executionId: number, projectId: number): 
 }
 
 export async function generateHealing(executionId: number): Promise<HealingSuggestion> {
-  const res = await fetch(`http://localhost:8080/api/healing/analyze/${executionId}`, {
+  const res = await fetch(`${API_BASE_URL}/api/healing/analyze/${executionId}`, {
     method: "POST",
   });
 
@@ -55,7 +56,7 @@ export async function generateHealing(executionId: number): Promise<HealingSugge
 }
 
 export async function approveSuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await fetch(`http://localhost:8080/api/healing/${id}/approve`, {
+  const res = await fetch(`${API_BASE_URL}/api/healing/${id}/approve`, {
     method: "POST",
   });
 
@@ -68,7 +69,7 @@ export async function approveSuggestion(id: number): Promise<HealingSuggestion> 
 }
 
 export async function rejectSuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await fetch(`http://localhost:8080/api/healing/${id}/reject`, {
+  const res = await fetch(`${API_BASE_URL}/api/healing/${id}/reject`, {
     method: "POST",
   });
 
@@ -81,7 +82,7 @@ export async function rejectSuggestion(id: number): Promise<HealingSuggestion> {
 }
 
 export async function applySuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await fetch(`http://localhost:8080/api/healing/${id}/apply`, {
+  const res = await fetch(`${API_BASE_URL}/api/healing/${id}/apply`, {
     method: "POST",
   });
 
@@ -95,8 +96,8 @@ export async function applySuggestion(id: number): Promise<HealingSuggestion> {
 
 export async function getSuggestions(projectId?: number): Promise<HealingSuggestion[]> {
   const url = projectId
-    ? `http://localhost:8080/api/healing/suggestions?projectId=${projectId}`
-    : "http://localhost:8080/api/healing/suggestions";
+    ? `${API_BASE_URL}/api/healing/suggestions?projectId=${projectId}`
+    : `${API_BASE_URL}/api/healing/suggestions`;
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch suggestions: ${res.status}`);

@@ -33,13 +33,16 @@ public class PlaywrightTool implements Tool {
     public Object execute(ToolContext context) {
         String testFile = context.getString("testFile");
         boolean runAll = context.get("runAll") != null && (Boolean) context.get("runAll");
+        String workspacePath = context.getString("workspacePath");
 
-        log.info("PlaywrightTool executing: testFile={}, runAll={}", testFile, runAll);
+        log.info("PlaywrightTool executing: testFile={}, runAll={}, workspacePath={}", testFile, runAll, workspacePath);
 
         try {
-            Path testsPath = Paths.get(testsDir);
-            if (!Files.exists(testsPath)) {
-                Files.createDirectories(testsPath);
+            Path runPath = workspacePath != null && !workspacePath.isBlank()
+                    ? Paths.get(workspacePath)
+                    : Paths.get(testsDir);
+            if (!Files.exists(runPath)) {
+                Files.createDirectories(runPath);
             }
 
             ProcessBuilder pb;
@@ -51,7 +54,7 @@ public class PlaywrightTool implements Tool {
                 return Map.of("error", "No test file specified and runAll is false");
             }
 
-            pb.directory(testsPath.toFile());
+            pb.directory(runPath.toFile());
             pb.redirectErrorStream(true);
 
             long startTime = System.currentTimeMillis();

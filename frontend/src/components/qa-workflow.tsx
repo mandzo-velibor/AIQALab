@@ -9,7 +9,7 @@ import { analyzeUrl, type AnalysisResponse } from "@/lib/analysis-api";
 import { generateLocators, getLocators, type LocatorDto } from "@/lib/locator-api";
 import { generateTestPlan, getTestPlans, type TestScenarioDto } from "@/lib/testplan-api";
 import { generateTests, getTests, type GeneratedTestDto } from "@/lib/testgen-api";
-import { runAllTests, getExecutionHistory, type TestExecution } from "@/lib/execution-api";
+import { runTest, runAllTests, getExecutionHistory, type TestExecution } from "@/lib/execution-api";
 import { LocatorRepository } from "@/components/locator-repository";
 import { TestPlanSection } from "@/components/test-plan-section";
 import { GeneratedTestsSection } from "@/components/generated-tests-section";
@@ -150,6 +150,21 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     setError(null);
     try {
       await runAllTests(projectId);
+      const history = await getExecutionHistory(projectId);
+      setExecutions(history);
+      onHistoryChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Execution failed");
+    } finally {
+      setExecutionsLoading(false);
+    }
+  };
+
+  const handleRunTest = async (testId: number) => {
+    setExecutionsLoading(true);
+    setError(null);
+    try {
+      await runTest(testId, projectId);
       const history = await getExecutionHistory(projectId);
       setExecutions(history);
       onHistoryChanged?.();
@@ -345,7 +360,11 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
               )}
             </CardContent>
           </Card>
+        </div>
+      )}
 
+      {url.trim() && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <LocatorRepository
             locators={locators}
             loading={locatorsLoading}
@@ -362,6 +381,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
             tests={tests}
             loading={testsLoading}
             onGenerate={handleGenerateTests}
+            onRunTest={handleRunTest}
           />
 
           <ExecutionDashboard

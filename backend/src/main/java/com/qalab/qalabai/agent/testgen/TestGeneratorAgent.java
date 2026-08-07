@@ -121,6 +121,7 @@ public class TestGeneratorAgent implements QaAgent {
                 GeneratedTest test = new GeneratedTest();
                 test.setPageUrl(pageUrl);
                 test.setScenarioName(node.path("scenarioName").asText(""));
+                test.setTestFileName(toFileName(node.path("scenarioName").asText("")));
                 test.setTestCode(node.path("testCode").asText(""));
                 test.setPageObjectCode(node.path("pageObjectCode").asText(""));
                 tests.add(test);
@@ -142,5 +143,17 @@ public class TestGeneratorAgent implements QaAgent {
             trimmed = trimmed.substring(0, trimmed.length() - 3);
         }
         return trimmed.trim();
+    }
+
+    private String toFileName(String scenarioName) {
+        String base = scenarioName == null ? "test" : scenarioName.trim();
+        String fileName = base
+                .toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (fileName.isBlank() || fileName.equals("null")) {
+            fileName = "test";
+        }
+        return fileName + ".spec.ts";
     }
 }

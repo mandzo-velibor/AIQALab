@@ -13,6 +13,7 @@ import com.qalab.qalabai.model.TestPlan;
 import com.qalab.qalabai.repository.GeneratedTestRepository;
 import com.qalab.qalabai.repository.LocatorRepository;
 import com.qalab.qalabai.repository.TestPlanRepository;
+import com.qalab.qalabai.service.workspace.TestWorkspaceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ public class CodeGenerationService {
     private final LocatorRepository locatorRepository;
     private final TestPlanRepository testPlanRepository;
     private final AnalysisCache analysisCache;
+    private final TestWorkspaceService testWorkspaceService;
     private final ObjectMapper objectMapper;
 
     public CodeGenerationService(TestGeneratorAgent testGeneratorAgent,
@@ -37,12 +39,14 @@ public class CodeGenerationService {
                                  LocatorRepository locatorRepository,
                                  TestPlanRepository testPlanRepository,
                                  AnalysisCache analysisCache,
+                                 TestWorkspaceService testWorkspaceService,
                                  ObjectMapper objectMapper) {
         this.testGeneratorAgent = testGeneratorAgent;
         this.testRepository = testRepository;
         this.locatorRepository = locatorRepository;
         this.testPlanRepository = testPlanRepository;
         this.analysisCache = analysisCache;
+        this.testWorkspaceService = testWorkspaceService;
         this.objectMapper = objectMapper;
     }
 
@@ -125,6 +129,10 @@ public class CodeGenerationService {
 
         @SuppressWarnings("unchecked")
         List<GeneratedTest> tests = (List<GeneratedTest>) result.getData().get("tests");
+
+        if (projectId != null) {
+            testWorkspaceService.writeTestFiles(projectId, tests);
+        }
 
         List<GeneratedTestDto> dtos = tests.stream()
                 .map(this::toDto)

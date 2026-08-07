@@ -20,6 +20,9 @@ public class GeneratedTest {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String scenarioName;
 
+    @Column
+    private String testFileName;
+
     @Column(nullable = false, columnDefinition = "TEXT")
     private String testCode;
 
@@ -64,6 +67,14 @@ public class GeneratedTest {
 
     public void setScenarioName(String scenarioName) {
         this.scenarioName = scenarioName;
+    }
+
+    public String getTestFileName() {
+        return testFileName;
+    }
+
+    public void setTestFileName(String testFileName) {
+        this.testFileName = testFileName;
     }
 
     public String getTestCode() {

@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/lib/config";
 export interface LocatorDto {
   id: number;
   elementName: string;
@@ -15,7 +16,7 @@ export interface LocatorResponse {
 }
 
 export async function generateLocators(url: string, projectId?: number): Promise<LocatorResponse> {
-  const res = await fetch("http://localhost:8080/api/locators/generate", {
+  const res = await fetch(`${API_BASE_URL}/api/locators/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, projectId }),
@@ -30,7 +31,7 @@ export async function generateLocators(url: string, projectId?: number): Promise
 }
 
 export async function getLocators(url: string): Promise<LocatorDto[]> {
-  const res = await fetch(`http://localhost:8080/api/locators?url=${encodeURIComponent(url)}`);
+  const res = await fetch(`${API_BASE_URL}/api/locators?url=${encodeURIComponent(url)}`);
 
   if (!res.ok) {
     throw new Error(`Failed to fetch locators: ${res.status}`);

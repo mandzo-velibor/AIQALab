@@ -9,10 +9,12 @@ interface GeneratedTestsSectionProps {
   tests: GeneratedTestDto[];
   loading: boolean;
   onGenerate: () => void;
+  onRunTest?: (testId: number) => void;
 }
 
-export function GeneratedTestsSection({ tests, loading, onGenerate }: GeneratedTestsSectionProps) {
+export function GeneratedTestsSection({ tests, loading, onGenerate, onRunTest }: GeneratedTestsSectionProps) {
   const [expandedTest, setExpandedTest] = useState<number | null>(null);
+  const [runningTest, setRunningTest] = useState<number | null>(null);
 
   return (
     <Card className="md:col-span-2 lg:col-span-3">
@@ -33,13 +35,32 @@ export function GeneratedTestsSection({ tests, loading, onGenerate }: GeneratedT
               <div key={test.id} className="border rounded-lg p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{test.scenarioName}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setExpandedTest(expandedTest === test.id ? null : test.id)}
-                  >
-                    {expandedTest === test.id ? "Collapse" : "Expand"}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {onRunTest && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={runningTest === test.id}
+                        onClick={async () => {
+                          setRunningTest(test.id);
+                          try {
+                            await onRunTest(test.id);
+                          } finally {
+                            setRunningTest(null);
+                          }
+                        }}
+                      >
+                        {runningTest === test.id ? "Running..." : "Run"}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExpandedTest(expandedTest === test.id ? null : test.id)}
+                    >
+                      {expandedTest === test.id ? "Collapse" : "Expand"}
+                    </Button>
+                  </div>
                 </div>
                 {expandedTest === test.id && (
                   <div className="space-y-3 mt-3">

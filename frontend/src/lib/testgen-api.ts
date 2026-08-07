@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/lib/config";
 export interface GeneratedTestDto {
   id: number;
   scenarioName: string;
@@ -11,7 +12,7 @@ export interface TestGenResponse {
 }
 
 export async function generateTests(url: string, projectId?: number): Promise<TestGenResponse> {
-  const res = await fetch("http://localhost:8080/api/tests/generate", {
+  const res = await fetch(`${API_BASE_URL}/api/tests/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, projectId }),
@@ -26,7 +27,7 @@ export async function generateTests(url: string, projectId?: number): Promise<Te
 }
 
 export async function getTests(url: string): Promise<GeneratedTestDto[]> {
-  const res = await fetch(`http://localhost:8080/api/tests?url=${encodeURIComponent(url)}`);
+  const res = await fetch(`${API_BASE_URL}/api/tests?url=${encodeURIComponent(url)}`);
 
   if (!res.ok) {
     throw new Error(`Failed to fetch tests: ${res.status}`);

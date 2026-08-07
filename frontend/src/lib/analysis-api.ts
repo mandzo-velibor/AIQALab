@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/lib/config";
 export interface DetectedForm {
   name: string;
   inputs: string[];
@@ -53,7 +54,7 @@ export async function analyzeUrl(
   forceRefresh = false,
   projectId?: number,
 ): Promise<AnalysisResponse> {
-  const res = await fetch("http://localhost:8080/api/analyze", {
+  const res = await fetch(`${API_BASE_URL}/api/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, forceRefresh, projectId } satisfies AnalyzeRequest),

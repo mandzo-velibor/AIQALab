@@ -19,9 +19,21 @@ public class QaLabAiApplication {
     public static void main(String[] args) {
         loadEnvFile();
         SpringApplication.run(QaLabAiApplication.class, args);
-        
-        startFrontend();
-        openBrowser();
+
+        if (envFlag("QALAB_AUTO_START_FRONTEND", "qalab.auto-start-frontend", true)) {
+            startFrontend();
+        }
+        if (envFlag("QALAB_AUTO_OPEN_BROWSER", "qalab.auto-open-browser", true)) {
+            openBrowser();
+        }
+    }
+
+    private static boolean envFlag(String envKey, String propKey, boolean defaultValue) {
+        String fromProp = System.getProperty(propKey);
+        if (fromProp != null) return Boolean.parseBoolean(fromProp);
+        String fromEnv = System.getenv(envKey);
+        if (fromEnv != null) return Boolean.parseBoolean(fromEnv);
+        return defaultValue;
     }
 
     private static void loadEnvFile() {

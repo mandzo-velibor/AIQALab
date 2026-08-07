@@ -31,6 +31,9 @@ Thumbs.db
 screenshots/
 **/screenshots/
 
+# Project workspaces (generated test files, page objects, node_modules)
+backend/workspaces/
+
 # Test output
 test-results/
 playwright-report/

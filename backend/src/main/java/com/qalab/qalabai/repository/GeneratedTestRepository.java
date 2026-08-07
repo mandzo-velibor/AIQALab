@@ -11,5 +11,7 @@ public interface GeneratedTestRepository extends JpaRepository<GeneratedTest, Lo
 
     List<GeneratedTest> findByPageUrl(String pageUrl);
 
+    List<GeneratedTest> findByProjectId(Long projectId);
+
     void deleteByProjectId(Long projectId);
 }

@@ -25,6 +25,9 @@ server:
 qalab:
   screenshots-dir: ./screenshots
   workspaces-dir: ./workspaces
+  auto-start-frontend: true
+  auto-open-browser: true
+  auto-install-playwright: true
 
 openai:
   api-key: ${OPENAI_API_KEY:}

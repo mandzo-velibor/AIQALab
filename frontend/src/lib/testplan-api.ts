@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "@/lib/config";
 export interface TestScenarioDto {
   id: number;
   name: string;
@@ -14,7 +15,7 @@ export interface TestPlanResponse {
 }
 
 export async function generateTestPlan(url: string, projectId?: number): Promise<TestPlanResponse> {
-  const res = await fetch("http://localhost:8080/api/test-plans/generate", {
+  const res = await fetch(`${API_BASE_URL}/api/test-plans/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, projectId }),
@@ -29,7 +30,7 @@ export async function generateTestPlan(url: string, projectId?: number): Promise
 }
 
 export async function getTestPlans(url: string): Promise<TestPlanResponse[]> {
-  const res = await fetch(`http://localhost:8080/api/test-plans?url=${encodeURIComponent(url)}`);
+  const res = await fetch(`${API_BASE_URL}/api/test-plans?url=${encodeURIComponent(url)}`);
 
   if (!res.ok) {
     throw new Error(`Failed to fetch test plans: ${res.status}`);
