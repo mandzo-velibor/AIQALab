@@ -53,15 +53,15 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Typecheck
-        run: npx tsc --noEmit
-        working-directory: frontend
-
       - name: Build
         run: npm run build
         working-directory: frontend
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: frontend
 
   security-check:
     name: Secrets & env check
