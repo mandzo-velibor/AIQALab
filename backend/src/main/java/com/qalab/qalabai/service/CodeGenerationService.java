@@ -47,6 +47,10 @@ public class CodeGenerationService {
     }
 
     public TestGenResponse generateTests(String url) {
+        return generateTests(url, null);
+    }
+
+    public TestGenResponse generateTests(String url, Long projectId) {
         log.info("Generating tests for URL: {}", url);
 
         AnalysisResponse analysis = analysisCache.getByUrl(url);
@@ -109,6 +113,9 @@ public class CodeGenerationService {
         task.putContext("pageUrl", url);
         task.putContext("testPlanJson", testPlanJson);
         task.putContext("locatorRepositoryJson", locatorJson);
+        if (projectId != null) {
+            task.putContext("projectId", projectId);
+        }
 
         var result = testGeneratorAgent.execute(task);
 

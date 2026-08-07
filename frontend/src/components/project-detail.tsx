@@ -8,7 +8,9 @@ import { getProjectHistory, type ProjectResponse, type ProjectHistoryResponse } 
 import { getSuggestions, analyzeExecution, generateHealing, type HealingSuggestion } from "@/lib/healing-api";
 import { ProjectHistory } from "@/components/project-history";
 import { HealingDashboard } from "@/components/healing-dashboard";
+import { QaWorkflow } from "@/components/qa-workflow";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface ProjectDetailProps {
   projectId: number;
@@ -18,6 +20,7 @@ interface ProjectDetailProps {
 }
 
 export function ProjectDetail({ projectId, project, history: initialHistory, suggestions: initialSuggestions }: ProjectDetailProps) {
+  const router = useRouter();
   const [history, setHistory] = useState<ProjectHistoryResponse | null>(initialHistory);
   const [suggestions, setSuggestions] = useState<HealingSuggestion[]>(initialSuggestions);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +68,11 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
     }
   };
 
+  const handleGoToAnalyze = () => {
+    const baseUrl = project?.baseUrl || "";
+    router.push(`/analyze?url=${encodeURIComponent(baseUrl)}&projectId=${projectId}`);
+  };
+
   return (
     <div className="flex-1 space-y-4 p-6">
       <div className="flex items-center justify-between">
@@ -74,6 +82,9 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
         </div>
         <div className="flex gap-2">
           {project && <Badge variant="secondary">{project.framework}</Badge>}
+          <Button onClick={handleGoToAnalyze} disabled={!project?.baseUrl}>
+            Run QA Workflow
+          </Button>
           <Link href="/projects">
             <Button variant="outline">Back to Projects</Button>
           </Link>
@@ -84,6 +95,21 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
         <Card className="border-red-500">
           <CardContent className="pt-6">
             <p className="text-red-500">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {project?.baseUrl && (
+        <Card>
+          <CardHeader>
+            <CardTitle>QA Workflow</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <QaWorkflow
+              url={project.baseUrl}
+              projectId={projectId}
+              onHistoryChanged={refresh}
+            />
           </CardContent>
         </Card>
       )}

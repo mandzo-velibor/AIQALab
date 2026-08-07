@@ -12,4 +12,6 @@ public interface TestPlanRepository extends JpaRepository<TestPlan, Long> {
     List<TestPlan> findByPageUrl(String pageUrl);
 
     List<TestPlan> findByPageType(String pageType);
+
+    void deleteByProjectId(Long projectId);
 }

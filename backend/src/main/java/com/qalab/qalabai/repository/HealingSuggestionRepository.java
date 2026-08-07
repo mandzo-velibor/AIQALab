@@ -11,4 +11,6 @@ public interface HealingSuggestionRepository extends JpaRepository<HealingSugges
     List<HealingSuggestion> findByProjectIdOrderByCreatedAtDesc(Long projectId);
     List<HealingSuggestion> findByExecutionId(Long executionId);
     List<HealingSuggestion> findByStatus(String status);
+
+    void deleteByProjectId(Long projectId);
 }

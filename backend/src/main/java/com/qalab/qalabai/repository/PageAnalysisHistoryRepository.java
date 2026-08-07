@@ -10,4 +10,6 @@ import java.util.List;
 public interface PageAnalysisHistoryRepository extends JpaRepository<PageAnalysisHistory, Long> {
     List<PageAnalysisHistory> findByProjectIdOrderByCreatedAtDesc(Long projectId);
     List<PageAnalysisHistory> findByProjectIdAndUrlOrderByVersionDesc(Long projectId, String url);
+
+    void deleteByProjectId(Long projectId);
 }

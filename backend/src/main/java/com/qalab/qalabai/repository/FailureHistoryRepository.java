@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface FailureHistoryRepository extends JpaRepository<FailureHistory, Long> {
     List<FailureHistory> findByProjectIdOrderByCreatedAtDesc(Long projectId);
+
+    void deleteByProjectId(Long projectId);
 }

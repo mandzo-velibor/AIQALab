@@ -1,3 +1,3 @@
 package com.qalab.qalabai.dto.testgen;
 
-public record TestGenRequest(String url) {}
+public record TestGenRequest(String url, Long projectId) {}

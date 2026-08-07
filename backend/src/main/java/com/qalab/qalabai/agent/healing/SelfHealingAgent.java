@@ -6,6 +6,7 @@ import com.qalab.qalabai.agent.AgentResult;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
 import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.HealingSuggestion;
 import com.qalab.qalabai.model.LocatorHistory;
@@ -112,7 +113,7 @@ public class SelfHealingAgent implements QaAgent {
             String userPrompt = buildUserPrompt(oldLocator, analysis, currentDom);
             log.info("Sending healing request to AI");
 
-            String aiResponse = aiProvider.chat(healingPrompt, userPrompt);
+            String aiResponse = aiProvider.chat(healingPrompt, userPrompt, JsonValidators.isJsonObject());
             log.info("AI response received for healing suggestion");
 
             HealingSuggestion suggestion = parseResponse(aiResponse, projectId, analysis.getExecutionId(), failureAnalysisId, oldLocator);

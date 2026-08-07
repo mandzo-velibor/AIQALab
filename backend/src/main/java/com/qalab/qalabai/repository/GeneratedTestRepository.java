@@ -10,4 +10,6 @@ import java.util.List;
 public interface GeneratedTestRepository extends JpaRepository<GeneratedTest, Long> {
 
     List<GeneratedTest> findByPageUrl(String pageUrl);
+
+    void deleteByProjectId(Long projectId);
 }

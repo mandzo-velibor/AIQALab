@@ -7,4 +7,8 @@ public interface AiProvider {
     String chat(String prompt);
 
     String chat(String systemPrompt, String userPrompt);
+
+    default String chat(String systemPrompt, String userPrompt, ResponseValidator validator) {
+        return chat(systemPrompt, userPrompt);
+    }
 }

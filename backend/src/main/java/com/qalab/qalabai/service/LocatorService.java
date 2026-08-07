@@ -8,6 +8,8 @@ import com.qalab.qalabai.dto.analysis.AnalysisResponse;
 import com.qalab.qalabai.dto.locator.LocatorDto;
 import com.qalab.qalabai.dto.locator.LocatorResponse;
 import com.qalab.qalabai.model.LocatorDefinition;
+import com.qalab.qalabai.model.LocatorHistory;
+import com.qalab.qalabai.repository.LocatorHistoryRepository;
 import com.qalab.qalabai.repository.LocatorRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,20 +26,27 @@ public class LocatorService {
 
     private final LocatorAgent locatorAgent;
     private final LocatorRepository locatorRepository;
+    private final LocatorHistoryRepository locatorHistoryRepository;
     private final AnalysisCache analysisCache;
     private final ObjectMapper objectMapper;
 
     public LocatorService(LocatorAgent locatorAgent,
                           LocatorRepository locatorRepository,
+                          LocatorHistoryRepository locatorHistoryRepository,
                           AnalysisCache analysisCache,
                           ObjectMapper objectMapper) {
         this.locatorAgent = locatorAgent;
         this.locatorRepository = locatorRepository;
+        this.locatorHistoryRepository = locatorHistoryRepository;
         this.analysisCache = analysisCache;
         this.objectMapper = objectMapper;
     }
 
     public LocatorResponse generateLocators(String url) {
+        return generateLocators(url, null);
+    }
+
+    public LocatorResponse generateLocators(String url, Long projectId) {
         log.info("Generating locators for URL: {}", url);
 
         AnalysisResponse analysis = analysisCache.getByUrl(url);
@@ -69,7 +78,33 @@ public class LocatorService {
                 .map(this::toDto)
                 .toList();
 
+        saveHistory(url, locators, projectId);
+
         return new LocatorResponse(dtos.size(), dtos);
+    }
+
+    private void saveHistory(String url, List<LocatorDefinition> locators, Long projectId) {
+        if (projectId == null) {
+            return;
+        }
+
+        try {
+            for (LocatorDefinition locator : locators) {
+                LocatorHistory history = new LocatorHistory();
+                history.setProjectId(projectId);
+                history.setElementName(locator.getElementName());
+                history.setLocator(locator.getPreferredLocator());
+                history.setStrategy(locator.getStrategy());
+                history.setConfidence(locator.getConfidence());
+                history.setStatus("ACTIVE");
+                locatorHistoryRepository.save(history);
+            }
+            log.info("Saved {} locator history entries for project {}, URL {}",
+                    locators.size(), projectId, url);
+        } catch (Exception e) {
+            log.warn("Failed to save locator history for project {}, URL {}: {}",
+                    projectId, url, e.getMessage());
+        }
     }
 
     public List<LocatorDto> getLocatorsForUrl(String pageUrl) {

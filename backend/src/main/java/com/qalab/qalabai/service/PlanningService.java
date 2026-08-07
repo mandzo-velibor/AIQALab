@@ -43,6 +43,10 @@ public class PlanningService {
     }
 
     public TestPlanResponse generateTestPlan(String url) {
+        return generateTestPlan(url, null);
+    }
+
+    public TestPlanResponse generateTestPlan(String url, Long projectId) {
         log.info("Generating test plan for URL: {}", url);
 
         AnalysisResponse analysis = analysisCache.getByUrl(url);
@@ -77,6 +81,9 @@ public class PlanningService {
         task.putContext("pageUrl", url);
         task.putContext("pageAnalysisJson", analysisJson);
         task.putContext("locatorRepositoryJson", locatorJson);
+        if (projectId != null) {
+            task.putContext("projectId", projectId);
+        }
 
         var result = plannerAgent.execute(task);
 

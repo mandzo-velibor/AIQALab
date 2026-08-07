@@ -6,6 +6,7 @@ import com.qalab.qalabai.agent.AgentResult;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
 import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.TestPlan;
 import com.qalab.qalabai.model.TestScenario;
 import com.qalab.qalabai.repository.TestPlanRepository;
@@ -60,6 +61,7 @@ public class PlannerAgent implements QaAgent {
         String pageUrl = (String) task.getContextValue("pageUrl");
         String pageAnalysisJson = (String) task.getContextValue("pageAnalysisJson");
         String locatorRepositoryJson = (String) task.getContextValue("locatorRepositoryJson");
+        Long projectId = task.getContextValue("projectId") instanceof Number n ? n.longValue() : null;
 
         if (pageUrl == null || pageAnalysisJson == null) {
             return AgentResult.failure(getName(), "Missing pageUrl or pageAnalysisJson in task context");
@@ -69,10 +71,13 @@ public class PlannerAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson, locatorRepositoryJson);
             log.info("Sending request to AI for test plan generation");
 
-            String aiResponse = aiProvider.chat(plannerPrompt, userPrompt);
+            String aiResponse = aiProvider.chat(plannerPrompt, userPrompt, JsonValidators.hasArrayField("scenarios"));
             log.info("AI response received for test plan generation");
 
             TestPlan testPlan = parseResponse(aiResponse, pageUrl);
+            if (projectId != null) {
+                testPlan.setProjectId(projectId);
+            }
             log.info("Parsed test plan with {} scenarios", testPlan.getScenarios().size());
 
             TestPlan saved = testPlanRepository.save(testPlan);

@@ -45,17 +45,23 @@ export interface AnalysisResponse {
 export interface AnalyzeRequest {
   url: string;
   forceRefresh?: boolean;
+  projectId?: number;
 }
 
-export async function analyzeUrl(url: string, forceRefresh = false): Promise<AnalysisResponse> {
+export async function analyzeUrl(
+  url: string,
+  forceRefresh = false,
+  projectId?: number,
+): Promise<AnalysisResponse> {
   const res = await fetch("http://localhost:8080/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, forceRefresh } satisfies AnalyzeRequest),
+    body: JSON.stringify({ url, forceRefresh, projectId } satisfies AnalyzeRequest),
   });
 
   if (!res.ok) {
-    throw new Error(`Analysis failed: ${res.status}`);
+    const error = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.message || error.error || `Analysis failed: ${res.status}`);
   }
 
   return res.json();

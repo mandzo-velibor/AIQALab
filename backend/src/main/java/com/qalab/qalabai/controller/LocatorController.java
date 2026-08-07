@@ -31,7 +31,7 @@ public class LocatorController {
         }
 
         try {
-            LocatorResponse response = locatorService.generateLocators(request.url());
+            LocatorResponse response = locatorService.generateLocators(request.url(), request.projectId());
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Locator generation failed for URL {}: {}", request.url(), e.getMessage(), e);

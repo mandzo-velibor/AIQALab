@@ -16,6 +16,9 @@ public class TestPlan {
     @Column(nullable = false)
     private String pageUrl;
 
+    @Column
+    private Long projectId;
+
     @Column(nullable = false)
     private String pageType;
 
@@ -44,6 +47,14 @@ public class TestPlan {
 
     public void setPageUrl(String pageUrl) {
         this.pageUrl = pageUrl;
+    }
+
+    public Long getProjectId() {
+        return projectId;
+    }
+
+    public void setProjectId(Long projectId) {
+        this.projectId = projectId;
     }
 
     public String getPageType() {

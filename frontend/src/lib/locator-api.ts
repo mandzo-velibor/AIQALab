@@ -14,15 +14,16 @@ export interface LocatorResponse {
   locators: LocatorDto[];
 }
 
-export async function generateLocators(url: string): Promise<LocatorResponse> {
+export async function generateLocators(url: string, projectId?: number): Promise<LocatorResponse> {
   const res = await fetch("http://localhost:8080/api/locators/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, projectId }),
   });
 
   if (!res.ok) {
-    throw new Error(`Locator generation failed: ${res.status}`);
+    const error = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.message || error.error || `Locator generation failed: ${res.status}`);
   }
 
   return res.json();

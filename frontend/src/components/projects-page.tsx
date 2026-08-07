@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { getProjects, createProject, type ProjectResponse, type CreateProjectRequest } from "@/lib/project-api";
+import { getProjects, createProject, deleteProject, type ProjectResponse, type CreateProjectRequest } from "@/lib/project-api";
 import Link from "next/link";
 
 export function ProjectsPage() {
@@ -21,6 +21,8 @@ export function ProjectsPage() {
     repositoryUrl: "",
     framework: "PLAYWRIGHT_TYPESCRIPT",
   });
+
+  const [deleting, setDeleting] = useState<number | null>(null);
 
   useEffect(() => {
     loadProjects();
@@ -48,6 +50,22 @@ export function ProjectsPage() {
       await loadProjects();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this project? This removes all executions, analyses, locators and healing suggestions.")) {
+      return;
+    }
+    setDeleting(id);
+    setError(null);
+    try {
+      await deleteProject(id);
+      await loadProjects();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete project");
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -170,10 +188,18 @@ export function ProjectsPage() {
                     <p className="text-sm">{project.description}</p>
                   </div>
                 )}
-                <div className="pt-2">
-                  <Link href={`/projects/${project.id}`}>
+                <div className="pt-2 flex gap-2">
+                  <Link href={`/projects/${project.id}`} className="flex-1">
                     <Button size="sm" className="w-full">Open Project</Button>
                   </Link>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={deleting === project.id}
+                    onClick={() => handleDelete(project.id)}
+                  >
+                    {deleting === project.id ? "Deleting..." : "Delete"}
+                  </Button>
                 </div>
               </CardContent>
             </Card>

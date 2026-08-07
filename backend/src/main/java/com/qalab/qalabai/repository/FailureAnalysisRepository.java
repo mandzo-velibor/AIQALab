@@ -11,4 +11,6 @@ import java.util.Optional;
 public interface FailureAnalysisRepository extends JpaRepository<FailureAnalysis, Long> {
     List<FailureAnalysis> findByProjectIdOrderByCreatedAtDesc(Long projectId);
     Optional<FailureAnalysis> findByExecutionId(Long executionId);
+
+    void deleteByProjectId(Long projectId);
 }

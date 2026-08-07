@@ -6,6 +6,7 @@ import com.qalab.qalabai.agent.AgentResult;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
 import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.FailureHistory;
 import com.qalab.qalabai.model.TestExecution;
@@ -78,7 +79,7 @@ public class FailureAnalystAgent implements QaAgent {
             String userPrompt = buildUserPrompt(execution);
             log.info("Sending failure analysis request to AI");
 
-            String aiResponse = aiProvider.chat(analystPrompt, userPrompt);
+            String aiResponse = aiProvider.chat(analystPrompt, userPrompt, JsonValidators.isJsonObject());
             log.info("AI response received for failure analysis");
 
             FailureAnalysis analysis = parseResponse(aiResponse, projectId, executionId);

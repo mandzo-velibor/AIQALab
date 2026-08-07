@@ -104,3 +104,13 @@ export async function getProjectHistory(id: number): Promise<ProjectHistoryRespo
   if (!res.ok) throw new Error(`Failed to fetch project history: ${res.status}`);
   return res.json();
 }
+
+export async function deleteProject(id: number): Promise<void> {
+  const res = await fetch(`http://localhost:8080/api/projects/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.message || error.error || `Failed to delete project: ${res.status}`);
+  }
+}

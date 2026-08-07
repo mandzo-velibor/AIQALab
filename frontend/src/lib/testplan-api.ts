@@ -13,15 +13,16 @@ export interface TestPlanResponse {
   scenarios: TestScenarioDto[];
 }
 
-export async function generateTestPlan(url: string): Promise<TestPlanResponse> {
+export async function generateTestPlan(url: string, projectId?: number): Promise<TestPlanResponse> {
   const res = await fetch("http://localhost:8080/api/test-plans/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, projectId }),
   });
 
   if (!res.ok) {
-    throw new Error(`Test plan generation failed: ${res.status}`);
+    const error = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.message || error.error || `Test plan generation failed: ${res.status}`);
   }
 
   return res.json();

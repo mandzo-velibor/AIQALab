@@ -10,11 +10,11 @@ export interface TestGenResponse {
   tests: GeneratedTestDto[];
 }
 
-export async function generateTests(url: string): Promise<TestGenResponse> {
+export async function generateTests(url: string, projectId?: number): Promise<TestGenResponse> {
   const res = await fetch("http://localhost:8080/api/tests/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, projectId }),
   });
 
   if (!res.ok) {

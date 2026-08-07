@@ -6,6 +6,7 @@ import com.qalab.qalabai.agent.AgentResult;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
 import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.GeneratedTest;
 import com.qalab.qalabai.repository.GeneratedTestRepository;
 import org.slf4j.Logger;
@@ -59,6 +60,7 @@ public class TestGeneratorAgent implements QaAgent {
         String pageUrl = (String) task.getContextValue("pageUrl");
         String testPlanJson = (String) task.getContextValue("testPlanJson");
         String locatorRepositoryJson = (String) task.getContextValue("locatorRepositoryJson");
+        Long projectId = task.getContextValue("projectId") instanceof Number n ? n.longValue() : null;
 
         if (pageUrl == null || testPlanJson == null) {
             return AgentResult.failure(getName(), "Missing pageUrl or testPlanJson in task context");
@@ -68,10 +70,13 @@ public class TestGeneratorAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson);
             log.info("Sending request to AI for test generation");
 
-            String aiResponse = aiProvider.chat(generatorPrompt, userPrompt);
+            String aiResponse = aiProvider.chat(generatorPrompt, userPrompt, JsonValidators.hasArrayField("tests"));
             log.info("AI response received for test generation");
 
             List<GeneratedTest> tests = parseResponse(aiResponse, pageUrl);
+            if (projectId != null) {
+                tests.forEach(t -> t.setProjectId(projectId));
+            }
             log.info("Parsed {} tests from AI response", tests.size());
 
             List<GeneratedTest> saved = testRepository.saveAll(tests);

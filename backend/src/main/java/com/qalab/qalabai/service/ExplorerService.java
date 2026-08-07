@@ -3,8 +3,11 @@ package com.qalab.qalabai.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.cache.AnalysisCache;
 import com.qalab.qalabai.dto.analysis.*;
+import com.qalab.qalabai.model.PageAnalysisHistory;
+import com.qalab.qalabai.repository.PageAnalysisHistoryRepository;
 import com.qalab.qalabai.tool.ToolContext;
 import com.qalab.qalabai.tool.browser.BrowserTool;
 import com.qalab.qalabai.tool.browser.DomSimplifier;
@@ -29,18 +32,21 @@ public class ExplorerService {
     private final AiProvider aiProvider;
     private final AnalysisCache cache;
     private final ObjectMapper objectMapper;
+    private final PageAnalysisHistoryRepository historyRepository;
     private final String explorerPrompt;
 
     public ExplorerService(BrowserTool browserTool,
                            DomSimplifier domSimplifier,
                            AiProvider aiProvider,
                            AnalysisCache cache,
-                           ObjectMapper objectMapper) {
+                           ObjectMapper objectMapper,
+                           PageAnalysisHistoryRepository historyRepository) {
         this.browserTool = browserTool;
         this.domSimplifier = domSimplifier;
         this.aiProvider = aiProvider;
         this.cache = cache;
         this.objectMapper = objectMapper;
+        this.historyRepository = historyRepository;
         this.explorerPrompt = loadPrompt();
     }
 
@@ -55,6 +61,10 @@ public class ExplorerService {
     }
 
     public AnalysisResponse analyze(String url, boolean forceRefresh) {
+        return analyze(url, forceRefresh, null);
+    }
+
+    public AnalysisResponse analyze(String url, boolean forceRefresh, Long projectId) {
         log.info("Explorer started for URL: {}", url);
 
         String urlHash = cache.hashUrl(url);
@@ -103,7 +113,36 @@ public class ExplorerService {
         cache.put(urlHash, analysis);
         log.info("Analysis finished for URL: {}", url);
 
+        saveHistory(url, analysis, projectId);
+
         return analysis;
+    }
+
+    private void saveHistory(String url, AnalysisResponse analysis, Long projectId) {
+        if (projectId == null) {
+            return;
+        }
+
+        try {
+            PageAnalysisHistory history = new PageAnalysisHistory();
+            history.setProjectId(projectId);
+            history.setUrl(url);
+            history.setPageType(analysis.pageType());
+            history.setAnalysisJson(objectMapper.writeValueAsString(analysis));
+            history.setScreenshotReference(analysis.screenshotBase64() != null
+                    ? "embedded" : null);
+            int version = 1;
+            var existing = historyRepository.findByProjectIdAndUrlOrderByVersionDesc(projectId, url);
+            if (!existing.isEmpty()) {
+                version = existing.get(0).getVersion() + 1;
+            }
+            history.setVersion(version);
+            historyRepository.save(history);
+            log.info("Saved page analysis history v{} for project {}, URL {}", version, projectId, url);
+        } catch (Exception e) {
+            log.warn("Failed to save page analysis history for project {}, URL {}: {}",
+                    projectId, url, e.getMessage());
+        }
     }
 
     private String buildUserPrompt(String title, String url, String html, String accessibilityTree) {
@@ -122,11 +161,11 @@ public class ExplorerService {
     private String callLlmWithRetry(String userPrompt) {
         try {
             log.info("LLM request sent");
-            return aiProvider.chat(explorerPrompt, userPrompt);
+            return aiProvider.chat(explorerPrompt, userPrompt, JsonValidators.isJsonObject());
         } catch (Exception e) {
             log.warn("First LLM call failed: {}. Retrying...", e.getMessage());
             try {
-                return aiProvider.chat(explorerPrompt, userPrompt);
+                return aiProvider.chat(explorerPrompt, userPrompt, JsonValidators.isJsonObject());
             } catch (Exception retryEx) {
                 log.error("LLM retry failed: {}", retryEx.getMessage());
                 throw new RuntimeException("LLM call failed after retry: " + retryEx.getMessage(), retryEx);

@@ -6,6 +6,7 @@ import com.qalab.qalabai.agent.AgentResult;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
 import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.LocatorDefinition;
 import com.qalab.qalabai.repository.LocatorRepository;
 import org.slf4j.Logger;
@@ -67,7 +68,7 @@ public class LocatorAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson);
             log.info("Sending request to AI for locator generation");
 
-            String aiResponse = aiProvider.chat(locatorPrompt, userPrompt);
+            String aiResponse = aiProvider.chat(locatorPrompt, userPrompt, JsonValidators.hasArrayField("locators"));
             log.info("AI response received for locator generation");
 
             List<LocatorDefinition> locators = parseResponse(aiResponse, pageUrl);

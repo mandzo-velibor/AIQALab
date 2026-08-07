@@ -10,8 +10,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @RestController
 @RequestMapping("/api/projects")
@@ -24,20 +29,29 @@ public class ProjectController {
     private final PageAnalysisHistoryRepository pageAnalysisHistoryRepository;
     private final LocatorHistoryRepository locatorHistoryRepository;
     private final FailureAnalysisRepository failureAnalysisRepository;
+    private final FailureHistoryRepository failureHistoryRepository;
     private final HealingSuggestionRepository healingSuggestionRepository;
+    private final TestPlanRepository testPlanRepository;
+    private final GeneratedTestRepository generatedTestRepository;
 
     public ProjectController(ProjectRepository projectRepository,
                              TestExecutionRepository testExecutionRepository,
                              PageAnalysisHistoryRepository pageAnalysisHistoryRepository,
                              LocatorHistoryRepository locatorHistoryRepository,
                              FailureAnalysisRepository failureAnalysisRepository,
-                             HealingSuggestionRepository healingSuggestionRepository) {
+                             FailureHistoryRepository failureHistoryRepository,
+                             HealingSuggestionRepository healingSuggestionRepository,
+                             TestPlanRepository testPlanRepository,
+                             GeneratedTestRepository generatedTestRepository) {
         this.projectRepository = projectRepository;
         this.testExecutionRepository = testExecutionRepository;
         this.pageAnalysisHistoryRepository = pageAnalysisHistoryRepository;
         this.locatorHistoryRepository = locatorHistoryRepository;
         this.failureAnalysisRepository = failureAnalysisRepository;
+        this.failureHistoryRepository = failureHistoryRepository;
         this.healingSuggestionRepository = healingSuggestionRepository;
+        this.testPlanRepository = testPlanRepository;
+        this.generatedTestRepository = generatedTestRepository;
     }
 
     @PostMapping
@@ -128,6 +142,56 @@ public class ProjectController {
                     return ResponseEntity.ok(response);
                 })
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteProject(@PathVariable Long id) {
+        log.info("DELETE /api/projects/{}", id);
+
+        Project project = projectRepository.findById(id).orElse(null);
+        if (project == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        try {
+            testExecutionRepository.deleteByProjectId(id);
+            pageAnalysisHistoryRepository.deleteByProjectId(id);
+            locatorHistoryRepository.deleteByProjectId(id);
+            failureAnalysisRepository.deleteByProjectId(id);
+            failureHistoryRepository.deleteByProjectId(id);
+            healingSuggestionRepository.deleteByProjectId(id);
+            testPlanRepository.deleteByProjectId(id);
+            generatedTestRepository.deleteByProjectId(id);
+
+            if (project.getWorkspacePath() != null && !project.getWorkspacePath().isBlank()) {
+                try {
+                    Path workspacePath = Paths.get(project.getWorkspacePath());
+                    if (Files.exists(workspacePath)) {
+                        Files.walk(workspacePath)
+                                .sorted(Comparator.reverseOrder())
+                                .forEach(path -> {
+                                    try {
+                                        Files.delete(path);
+                                    } catch (IOException e) {
+                                        log.warn("Failed to delete workspace file {}: {}", path, e.getMessage());
+                                    }
+                                });
+                        log.info("Deleted workspace for project {}: {}", id, workspacePath);
+                    }
+                } catch (IOException e) {
+                    log.warn("Failed to delete workspace for project {}: {}", id, e.getMessage());
+                }
+            }
+
+            projectRepository.delete(project);
+            return ResponseEntity.ok(Map.of("message", "Project deleted"));
+        } catch (Exception e) {
+            log.error("Failed to delete project {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "Failed to delete project",
+                    "message", e.getMessage() != null ? e.getMessage() : "Unknown error"
+            ));
+        }
     }
 
     @GetMapping("/{id}/history")

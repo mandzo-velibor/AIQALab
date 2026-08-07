@@ -11,4 +11,6 @@ import java.util.Optional;
 public interface LocatorHistoryRepository extends JpaRepository<LocatorHistory, Long> {
     List<LocatorHistory> findByProjectId(Long projectId);
     Optional<LocatorHistory> findByProjectIdAndElementNameAndStatus(Long projectId, String elementName, String status);
+
+    void deleteByProjectId(Long projectId);
 }

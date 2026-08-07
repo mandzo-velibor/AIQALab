@@ -1,3 +1,3 @@
 package com.qalab.qalabai.dto.planner;
 
-public record TestPlanRequest(String url) {}
+public record TestPlanRequest(String url, Long projectId) {}
