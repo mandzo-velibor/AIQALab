@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { HealingSuggestion } from "@/lib/healing-api";
-import { approveSuggestion, rejectSuggestion } from "@/lib/healing-api";
+import { approveSuggestion, rejectSuggestion, applySuggestion } from "@/lib/healing-api";
 import { useState } from "react";
 
 interface HealingDashboardProps {
@@ -55,6 +55,19 @@ export function HealingDashboard({ suggestions, onSuggestionChanged }: HealingDa
     }
   };
 
+  const handleApply = async (id: number) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      await applySuggestion(id);
+      onSuggestionChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Apply failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <Card className="md:col-span-2 lg:col-span-3">
       <CardHeader>
@@ -97,6 +110,16 @@ export function HealingDashboard({ suggestions, onSuggestionChanged }: HealingDa
                         Reject
                       </Button>
                     </>
+                  )}
+                  {s.status === "APPROVED" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busyId === s.id}
+                      onClick={() => handleApply(s.id)}
+                    >
+                      {busyId === s.id ? "Applying..." : "Apply"}
+                    </Button>
                   )}
                 </div>
               </div>

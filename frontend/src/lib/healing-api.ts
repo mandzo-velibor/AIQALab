@@ -80,6 +80,19 @@ export async function rejectSuggestion(id: number): Promise<HealingSuggestion> {
   return res.json();
 }
 
+export async function applySuggestion(id: number): Promise<HealingSuggestion> {
+  const res = await fetch(`http://localhost:8080/api/healing/${id}/apply`, {
+    method: "POST",
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.message || error.error || `Apply failed: ${res.status}`);
+  }
+
+  return res.json();
+}
+
 export async function getSuggestions(projectId?: number): Promise<HealingSuggestion[]> {
   const url = projectId
     ? `http://localhost:8080/api/healing/suggestions?projectId=${projectId}`

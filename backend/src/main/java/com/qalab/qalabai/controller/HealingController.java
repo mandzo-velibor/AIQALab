@@ -76,6 +76,23 @@ public class HealingController {
         }
     }
 
+    @PostMapping("/{id}/apply")
+    public ResponseEntity<?> applySuggestion(@PathVariable Long id,
+                                             @RequestParam(required = false, defaultValue = "user") String appliedBy) {
+        log.info("POST /api/healing/{}/apply", id);
+
+        try {
+            HealingSuggestion suggestion = healingService.applySuggestion(id, appliedBy);
+            return ResponseEntity.ok(suggestion);
+        } catch (Exception e) {
+            log.error("Failed to apply suggestion: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "Apply failed",
+                    "message", e.getMessage() != null ? e.getMessage() : "Unknown error"
+            ));
+        }
+    }
+
     @GetMapping("/suggestions")
     public ResponseEntity<List<HealingSuggestion>> getSuggestions(@RequestParam(required = false) Long projectId) {
         log.info("GET /api/healing/suggestions");

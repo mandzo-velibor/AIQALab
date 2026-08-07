@@ -8,10 +8,13 @@ import com.qalab.qalabai.model.Project;
 import com.qalab.qalabai.repository.FailureAnalysisRepository;
 import com.qalab.qalabai.repository.HealingSuggestionRepository;
 import com.qalab.qalabai.repository.ProjectRepository;
+import com.qalab.qalabai.service.healing.ElementMatcherService;
+import com.qalab.qalabai.service.healing.HealingApplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -23,15 +26,21 @@ public class HealingService {
     private final FailureAnalysisRepository failureAnalysisRepository;
     private final HealingSuggestionRepository healingSuggestionRepository;
     private final ProjectRepository projectRepository;
+    private final ElementMatcherService elementMatcherService;
+    private final HealingApplier healingApplier;
 
     public HealingService(SelfHealingAgent selfHealingAgent,
                           FailureAnalysisRepository failureAnalysisRepository,
                           HealingSuggestionRepository healingSuggestionRepository,
-                          ProjectRepository projectRepository) {
+                          ProjectRepository projectRepository,
+                          ElementMatcherService elementMatcherService,
+                          HealingApplier healingApplier) {
         this.selfHealingAgent = selfHealingAgent;
         this.failureAnalysisRepository = failureAnalysisRepository;
         this.healingSuggestionRepository = healingSuggestionRepository;
         this.projectRepository = projectRepository;
+        this.elementMatcherService = elementMatcherService;
+        this.healingApplier = healingApplier;
     }
 
     public HealingSuggestion generateHealingSuggestion(Long executionId) {
@@ -43,6 +52,18 @@ public class HealingService {
         Project project = projectRepository.findById(analysis.getProjectId())
                 .orElseThrow(() -> new RuntimeException("Project not found: " + analysis.getProjectId()));
 
+        HealingSuggestion suggestion = generateWithAiAgent(analysis, project);
+        if (suggestion == null) {
+            log.info("AI agent produced no suggestion, falling back to deterministic matcher");
+            suggestion = generateWithElementMatcher(analysis, project);
+        }
+        if (suggestion == null) {
+            throw new RuntimeException("Healing generation failed: no suitable locator found");
+        }
+        return suggestion;
+    }
+
+    private HealingSuggestion generateWithAiAgent(FailureAnalysis analysis, Project project) {
         Task task = new Task(UUID.randomUUID().toString(), "GENERATE_HEALING", project.getBaseUrl());
         task.putContext("failureAnalysisId", analysis.getId());
         task.putContext("projectId", project.getId());
@@ -51,12 +72,60 @@ public class HealingService {
         var result = selfHealingAgent.execute(task);
 
         if (!result.isSuccess()) {
-            throw new RuntimeException("Healing generation failed: " + result.getMessage());
+            log.warn("AI agent failed: {}", result.getMessage());
+            return null;
         }
 
         Long suggestionId = (Long) result.getData().get("suggestionId");
-        return healingSuggestionRepository.findById(suggestionId)
-                .orElseThrow(() -> new RuntimeException("Suggestion not found: " + suggestionId));
+        HealingSuggestion suggestion = healingSuggestionRepository.findById(suggestionId)
+                .orElse(null);
+
+        if (suggestion != null) {
+            verifyWithMatcher(suggestion, project);
+        }
+        return suggestion;
+    }
+
+    private void verifyWithMatcher(HealingSuggestion suggestion, Project project) {
+        if (suggestion.getNewLocator() == null || suggestion.getNewLocator().isBlank()) {
+            return;
+        }
+        List<ElementMatcherService.Candidate> candidates = elementMatcherService.findCandidates(
+                project.getBaseUrl(), suggestion.getOldLocator(), suggestion.getElementName());
+        if (!candidates.isEmpty()) {
+            ElementMatcherService.Candidate best = candidates.get(0);
+            if (best.score() >= 0.5) {
+                log.info("Matcher confirmed candidate '{}' (score {}) for '{}'",
+                        best.locator(), best.score(), suggestion.getElementName());
+                suggestion.setNewLocator(best.locator());
+                suggestion.setReason(suggestion.getReason() != null
+                        ? suggestion.getReason() + " [matcher-confirmed: " + best.name() + "]"
+                        : "[matcher-confirmed: " + best.name() + "]");
+                healingSuggestionRepository.save(suggestion);
+            }
+        }
+    }
+
+    private HealingSuggestion generateWithElementMatcher(FailureAnalysis analysis, Project project) {
+        List<ElementMatcherService.Candidate> candidates = elementMatcherService.findCandidates(
+                project.getBaseUrl(), analysis.getAffectedElement(), analysis.getAffectedElement());
+
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        ElementMatcherService.Candidate best = candidates.get(0);
+
+        HealingSuggestion suggestion = new HealingSuggestion();
+        suggestion.setProjectId(project.getId());
+        suggestion.setExecutionId(analysis.getExecutionId());
+        suggestion.setFailureAnalysisId(analysis.getId());
+        suggestion.setElementName(analysis.getAffectedElement());
+        suggestion.setOldLocator(analysis.getAffectedElement());
+        suggestion.setNewLocator(best.locator());
+        suggestion.setConfidence((int) (best.score() * 100));
+        suggestion.setReason("Deterministic fallback (AI agent failed): matched role " + best.role());
+        suggestion.setStatus("PENDING");
+        return healingSuggestionRepository.save(suggestion);
     }
 
     public HealingSuggestion approveSuggestion(Long suggestionId, String approvedBy) {
@@ -83,5 +152,10 @@ public class HealingService {
         suggestion.setApprovedAt(java.time.LocalDateTime.now());
 
         return healingSuggestionRepository.save(suggestion);
+    }
+
+    public HealingSuggestion applySuggestion(Long suggestionId, String appliedBy) {
+        log.info("Applying healing suggestion {}", suggestionId);
+        return healingApplier.apply(suggestionId, appliedBy);
     }
 }
