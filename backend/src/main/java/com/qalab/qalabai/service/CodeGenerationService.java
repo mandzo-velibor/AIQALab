@@ -72,12 +72,14 @@ public class CodeGenerationService {
         String testPlanJson;
         String locatorJson = "[]";
         String pageContentHtml = analysisCache.getSimplifiedHtmlByUrl(url);
+        String postLoginContentHtml = analysisCache.getPostLoginContentByUrl(url);
+        AnalysisCache.LoginCredentials credentials = analysisCache.getLoginCredentialsByUrl(url);
         try {
             Map<String, Object> testPlanMap = new HashMap<>();
             testPlanMap.put("id", testPlan.getId());
             testPlanMap.put("pageUrl", testPlan.getPageUrl());
             testPlanMap.put("pageType", testPlan.getPageType());
-            
+
             List<Map<String, Object>> scenarioMaps = testPlan.getScenarios().stream()
                     .map(s -> {
                         Map<String, Object> m = new HashMap<>();
@@ -92,9 +94,9 @@ public class CodeGenerationService {
                     })
                     .toList();
             testPlanMap.put("scenarios", scenarioMaps);
-            
+
             testPlanJson = objectMapper.writeValueAsString(testPlanMap);
-            
+
             List<LocatorDto> locators = locatorRepository.findByPageUrl(url).stream()
                     .map(l -> new LocatorDto(
                             l.getId(),
@@ -119,6 +121,11 @@ public class CodeGenerationService {
         task.putContext("testPlanJson", testPlanJson);
         task.putContext("locatorRepositoryJson", locatorJson);
         task.putContext("pageContentHtml", pageContentHtml != null ? pageContentHtml : "");
+        task.putContext("postLoginContentHtml", postLoginContentHtml != null ? postLoginContentHtml : "");
+        if (credentials != null) {
+            task.putContext("loginUsername", credentials.username());
+            task.putContext("loginPassword", credentials.password());
+        }
         if (projectId != null) {
             task.putContext("projectId", projectId);
         }

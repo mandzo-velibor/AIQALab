@@ -28,6 +28,8 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [analyzeUsername, setAnalyzeUsername] = useState("");
+  const [analyzePassword, setAnalyzePassword] = useState("");
 
   const [locators, setLocators] = useState<LocatorDto[]>([]);
   const [locatorsLoading, setLocatorsLoading] = useState(false);
@@ -89,7 +91,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     setExecutions([]);
 
     try {
-      const response = await analyzeUrl(url.trim(), false, projectId);
+      const response = await analyzeUrl(url.trim(), false, projectId, analyzeUsername.trim() || undefined, analyzePassword || undefined);
       setResult(response);
       onHistoryChanged?.();
     } catch (err) {
@@ -196,16 +198,32 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
           <CardTitle className="relative">Enter URL to Analyze</CardTitle>
         </CardHeader>
         <CardContent className="relative">
-          <form onSubmit={handleSubmit} className="flex gap-2">
+          <form onSubmit={handleSubmit} className="space-y-2">
             <Input
               type="url"
               placeholder="https://example.com"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 border-violet-500/30 bg-background/60"
+              className="border-violet-500/30 bg-background/60"
               required
             />
-            <Button type="submit" disabled={loading}>
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                placeholder="Username (optional, for login)"
+                value={analyzeUsername}
+                onChange={(e) => setAnalyzeUsername(e.target.value)}
+                className="flex-1 border-violet-500/30 bg-background/60"
+              />
+              <Input
+                type="password"
+                placeholder="Password (optional, for login)"
+                value={analyzePassword}
+                onChange={(e) => setAnalyzePassword(e.target.value)}
+                className="flex-1 border-violet-500/30 bg-background/60"
+              />
+            </div>
+            <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Analyzing..." : "Analyze"}
             </Button>
           </form>

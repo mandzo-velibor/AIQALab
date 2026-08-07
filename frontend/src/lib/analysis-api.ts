@@ -47,17 +47,21 @@ export interface AnalyzeRequest {
   url: string;
   forceRefresh?: boolean;
   projectId?: number;
+  username?: string;
+  password?: string;
 }
 
 export async function analyzeUrl(
   url: string,
   forceRefresh = false,
   projectId?: number,
+  username?: string,
+  password?: string,
 ): Promise<AnalysisResponse> {
   const res = await fetch(`${API_BASE_URL}/api/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, forceRefresh, projectId } satisfies AnalyzeRequest),
+    body: JSON.stringify({ url, forceRefresh, projectId, username, password } satisfies AnalyzeRequest),
   });
 
   if (!res.ok) {

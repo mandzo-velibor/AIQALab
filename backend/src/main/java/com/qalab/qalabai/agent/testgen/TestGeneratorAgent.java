@@ -61,6 +61,9 @@ public class TestGeneratorAgent implements QaAgent {
         String testPlanJson = (String) task.getContextValue("testPlanJson");
         String locatorRepositoryJson = (String) task.getContextValue("locatorRepositoryJson");
         String pageContentHtml = (String) task.getContextValue("pageContentHtml");
+        String postLoginContentHtml = (String) task.getContextValue("postLoginContentHtml");
+        String loginUsername = (String) task.getContextValue("loginUsername");
+        String loginPassword = (String) task.getContextValue("loginPassword");
         Long projectId = task.getContextValue("projectId") instanceof Number n ? n.longValue() : null;
 
         if (pageUrl == null || testPlanJson == null) {
@@ -68,7 +71,7 @@ public class TestGeneratorAgent implements QaAgent {
         }
 
         try {
-            String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson, pageContentHtml);
+            String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson, pageContentHtml, postLoginContentHtml, loginUsername, loginPassword);
             log.info("Sending request to AI for test generation");
 
             String aiResponse = aiProvider.chat(generatorPrompt, userPrompt, JsonValidators.hasArrayField("tests"));
@@ -94,10 +97,17 @@ public class TestGeneratorAgent implements QaAgent {
         }
     }
 
-    private String buildUserPrompt(String pageUrl, String testPlanJson, String locatorRepositoryJson, String pageContentHtml) {
+    private String buildUserPrompt(String pageUrl, String testPlanJson, String locatorRepositoryJson, String pageContentHtml, String postLoginContentHtml, String loginUsername, String loginPassword) {
         String pageContent = pageContentHtml != null && !pageContentHtml.isBlank()
                 ? pageContentHtml
                 : "Not available";
+        String postLoginContent = postLoginContentHtml != null && !postLoginContentHtml.isBlank()
+                ? postLoginContentHtml
+                : "Not available (no credentials provided or login not attempted)";
+        String credentialsInfo = (loginUsername != null && !loginUsername.isBlank() && loginPassword != null)
+                ? String.format("Username: %s\nPassword: %s", loginUsername, loginPassword)
+                : "Not provided (tests must use environment variables or config)";
+
         return String.format("""
                 Page URL: %s
 
@@ -107,21 +117,31 @@ public class TestGeneratorAgent implements QaAgent {
                 Locator Repository JSON:
                 %s
 
-                ACTUAL PAGE CONTENT (simplified HTML of the real page):
+                ACTUAL PAGE CONTENT (simplified HTML of the landing page):
+                %s
+
+                POST-LOGIN PAGE CONTENT (simplified HTML of the page AFTER successful login):
+                %s
+
+                LOGIN CREDENTIALS (use these exact values when the test needs to log in):
                 %s
 
                 Generate Playwright tests for all scenarios in the test plan.
                 Use the locators from the repository.
                 Follow Page Object Model pattern.
-                IMPORTANT:
+                CRITICAL RULES:
                 - Every assertion (text, heading, element visibility) MUST be based ONLY on elements
-                  that actually exist in the ACTUAL PAGE CONTENT above.
+                  that actually exist in the ACTUAL PAGE CONTENT (for pre-login) or
+                  POST-LOGIN PAGE CONTENT (for state AFTER login).
+                - If a scenario performs login, assertions about the post-login state
+                  MUST use the POST-LOGIN PAGE CONTENT above.
+                - If POST-LOGIN PAGE CONTENT is "Not available", do NOT assert on any heading,
+                  text, or element after login — assert ONLY on the URL (e.g. expect(page).toHaveURL(...)).
                 - Do NOT invent headings, texts, labels, or element names that are not present
-                  in ACTUAL PAGE CONTENT.
-                - Use exact visible text from the page content for assertions.
-                - Assertions on page state after navigation (e.g. after login) should be based on
-                  the URL or on elements present in the page content.
-                """, pageUrl, testPlanJson, locatorRepositoryJson != null ? locatorRepositoryJson : "Not available", pageContent);
+                  in the provided page content.
+                - Use exact visible text from the relevant page content for assertions.
+                - When the test needs to log in, use the LOGIN CREDENTIALS provided above.
+                """, pageUrl, testPlanJson, locatorRepositoryJson != null ? locatorRepositoryJson : "Not available", pageContent, postLoginContent, credentialsInfo);
     }
 
     private List<GeneratedTest> parseResponse(String aiResponse, String pageUrl) throws Exception {
