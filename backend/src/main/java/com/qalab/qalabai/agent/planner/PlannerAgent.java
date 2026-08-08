@@ -3,13 +3,17 @@ package com.qalab.qalabai.agent.planner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.AgentResult;
+import com.qalab.qalabai.agent.ProjectContextUtil;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
-import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.gateway.AgentExecutionContext;
+import com.qalab.qalabai.ai.gateway.AiGateway;
+import com.qalab.qalabai.ai.gateway.AiOperation;
+import com.qalab.qalabai.ai.gateway.AiRequest;
+import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.TestPlan;
 import com.qalab.qalabai.model.TestScenario;
-import com.qalab.qalabai.repository.TestPlanRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -25,16 +29,13 @@ public class PlannerAgent implements QaAgent {
 
     private static final Logger log = LoggerFactory.getLogger(PlannerAgent.class);
 
-    private final AiProvider aiProvider;
-    private final TestPlanRepository testPlanRepository;
+    private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
     private final String plannerPrompt;
 
-    public PlannerAgent(AiProvider aiProvider,
-                        TestPlanRepository testPlanRepository,
+    public PlannerAgent(AiGateway aiGateway,
                         ObjectMapper objectMapper) {
-        this.aiProvider = aiProvider;
-        this.testPlanRepository = testPlanRepository;
+        this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
         this.plannerPrompt = loadPrompt();
     }
@@ -71,22 +72,25 @@ public class PlannerAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson, locatorRepositoryJson);
             log.info("Sending request to AI for test plan generation");
 
-            String aiResponse = aiProvider.chat(plannerPrompt, userPrompt, JsonValidators.hasArrayField("scenarios"));
+            AiRequest request = AiRequest.builder(AiOperation.TEST_PLAN, plannerPrompt, userPrompt)
+                    .validator(JsonValidators.hasArrayField("scenarios"))
+                    .build();
+            AgentExecutionContext ctx = AgentExecutionContext.builder()
+                    .projectContext(ProjectContextUtil.fromTask(task))
+                    .operationId("op-" + task.getId())
+                    .build();
+            AiResponse aiResponse = aiGateway.complete(request, ctx);
             log.info("AI response received for test plan generation");
 
-            TestPlan testPlan = parseResponse(aiResponse, pageUrl);
+            TestPlan testPlan = parseResponse(aiResponse.getContent(), pageUrl);
             if (projectId != null) {
                 testPlan.setProjectId(projectId);
             }
             log.info("Parsed test plan with {} scenarios", testPlan.getScenarios().size());
 
-            TestPlan saved = testPlanRepository.save(testPlan);
-            log.info("Saved test plan to database with id: {}", saved.getId());
-
-            AgentResult result = AgentResult.success(getName(), "Generated test plan with " + saved.getScenarios().size() + " scenarios");
-            result.putData("testPlanId", saved.getId());
-            result.putData("scenarioCount", saved.getScenarios().size());
-            result.putData("testPlan", saved);
+            AgentResult result = AgentResult.success(getName(), "Generated test plan with " + testPlan.getScenarios().size() + " scenarios");
+            result.putData("scenarioCount", testPlan.getScenarios().size());
+            result.putData("testPlan", testPlan);
             return result;
 
         } catch (Exception e) {

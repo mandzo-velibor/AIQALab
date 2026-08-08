@@ -3,12 +3,16 @@ package com.qalab.qalabai.agent.locator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.AgentResult;
+import com.qalab.qalabai.agent.ProjectContextUtil;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
-import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.gateway.AgentExecutionContext;
+import com.qalab.qalabai.ai.gateway.AiGateway;
+import com.qalab.qalabai.ai.gateway.AiOperation;
+import com.qalab.qalabai.ai.gateway.AiRequest;
+import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.LocatorDefinition;
-import com.qalab.qalabai.repository.LocatorRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -24,16 +28,13 @@ public class LocatorAgent implements QaAgent {
 
     private static final Logger log = LoggerFactory.getLogger(LocatorAgent.class);
 
-    private final AiProvider aiProvider;
-    private final LocatorRepository locatorRepository;
+    private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
     private final String locatorPrompt;
 
-    public LocatorAgent(AiProvider aiProvider,
-                        LocatorRepository locatorRepository,
+    public LocatorAgent(AiGateway aiGateway,
                         ObjectMapper objectMapper) {
-        this.aiProvider = aiProvider;
-        this.locatorRepository = locatorRepository;
+        this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
         this.locatorPrompt = loadPrompt();
     }
@@ -68,18 +69,19 @@ public class LocatorAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson);
             log.info("Sending request to AI for locator generation");
 
-            String aiResponse = aiProvider.chat(locatorPrompt, userPrompt, JsonValidators.hasArrayField("locators"));
+            AiRequest request = AiRequest.builder(AiOperation.LOCATOR_GENERATION, locatorPrompt, userPrompt)
+                    .validator(JsonValidators.hasArrayField("locators"))
+                    .build();
+            AgentExecutionContext ctx = contextFrom(task);
+            AiResponse aiResponse = aiGateway.complete(request, ctx);
             log.info("AI response received for locator generation");
 
-            List<LocatorDefinition> locators = parseResponse(aiResponse, pageUrl);
+            List<LocatorDefinition> locators = parseResponse(aiResponse.getContent(), pageUrl);
             log.info("Parsed {} locators from AI response", locators.size());
 
-            List<LocatorDefinition> saved = locatorRepository.saveAll(locators);
-            log.info("Saved {} locators to database", saved.size());
-
-            AgentResult result = AgentResult.success(getName(), "Generated " + saved.size() + " locators");
-            result.putData("locatorCount", saved.size());
-            result.putData("locators", saved);
+            AgentResult result = AgentResult.success(getName(), "Generated " + locators.size() + " locators");
+            result.putData("locatorCount", locators.size());
+            result.putData("locators", locators);
             return result;
 
         } catch (Exception e) {
@@ -145,5 +147,12 @@ public class LocatorAgent implements QaAgent {
             trimmed = trimmed.substring(0, trimmed.length() - 3);
         }
         return trimmed.trim();
+    }
+
+    private AgentExecutionContext contextFrom(Task task) {
+        return AgentExecutionContext.builder()
+                .projectContext(ProjectContextUtil.fromTask(task))
+                .operationId("op-" + task.getId())
+                .build();
     }
 }

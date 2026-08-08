@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+#
+# qalab - CLI for the QALabAI Core API.
+#
+# Commands:
+#   init <dir>            create a .qalab.json project config
+#   generate --url <url>  generate Playwright tests for a page
+#   plan --url <url>      generate a test plan
+#   explore --url <url>   explore/analyze a page
+#   execute [--all|--test <id>]  run tests (needs a registered project)
+#   report [<executionId>]       list or show a test report
+#   intent "<prompt>"     detect intent and run the matching operation
+#   budget-policy         show the current budget policy
+#   budget-policy set <HARD|SOFT|NONE>  update the budget policy
+#
+# Configuration (environment):
+#   QALAB_API_URL   default http://localhost:8080
+#   QALAB_PROJECT_ID   logical project id
+#   QALAB_BASE_URL     app base url
+#   QALAB_WORKSPACE    workspace path for execution
+#
+set -euo pipefail
+
+API_URL="${QALAB_API_URL:-http://localhost:8080}"
+PROJECT_ID="${QALAB_PROJECT_ID:-qalab-cli}"
+BASE_URL="${QALAB_BASE_URL:-}"
+WORKSPACE="${QALAB_WORKSPACE:-}"
+
+json_get() {
+  # json_get <json> <key>
+  local json="$1" key="$2"
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$json" | jq -r "$key"
+  else
+    printf '%s' "$json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d$key)"
+  fi
+}
+
+project_payload() {
+  cat <<EOF
+  {
+    "projectId": "$PROJECT_ID",
+    "baseUrl": "$BASE_URL",
+    "framework": "PLAYWRIGHT",
+    "language": "TYPESCRIPT",
+    "workspacePath": "$WORKSPACE"
+  }
+EOF
+}
+
+require_url() {
+  if [ -z "$BASE_URL" ]; then
+    echo "error: QALAB_BASE_URL is not set (or use --url)" >&2
+    exit 1
+  fi
+}
+
+usage() {
+  grep '^#' "$0" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+  init)
+    dir="${2:-.}"
+    mkdir -p "$dir"
+    cat > "$dir/.qalab.json" <<EOF
+{
+  "projectId": "$PROJECT_ID",
+  "baseUrl": "$BASE_URL",
+  "framework": "PLAYWRIGHT",
+  "language": "TYPESCRIPT",
+  "workspacePath": "$WORKSPACE",
+  "apiUrl": "$API_URL"
+}
+EOF
+    echo "Initialized $dir/.qalab.json"
+    ;;
+  explore)
+    require_url
+    payload="$(project_payload)"
+    curl -sS -X POST "$API_URL/api/v1/explore" \
+      -H 'Content-Type: application/json' \
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
+    ;;
+  plan)
+    require_url
+    payload="$(project_payload)"
+    curl -sS -X POST "$API_URL/api/v1/test-plan" \
+      -H 'Content-Type: application/json' \
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
+    ;;
+  generate)
+    require_url
+    payload="$(project_payload)"
+    curl -sS -X POST "$API_URL/api/v1/tests" \
+      -H 'Content-Type: application/json' \
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
+    ;;
+  execute)
+    payload="$(project_payload)"
+    if [ -n "$WORKSPACE" ]; then
+      curl -sS -X POST "$API_URL/api/v1/run" \
+        -H 'Content-Type: application/json' \
+        -d "{\"project\":$payload,\"runAll\":true}" | jq . 2>/dev/null || true
+    else
+      echo "error: execution requires QALAB_WORKSPACE" >&2
+      exit 1
+    fi
+    ;;
+  report)
+    if [ -n "${2:-}" ]; then
+      curl -sS "$API_URL/api/v1/reports/$2" | jq . 2>/dev/null || true
+    else
+      curl -sS "$API_URL/api/v1/reports" | jq . 2>/dev/null || true
+    fi
+    ;;
+  intent)
+    require_url
+    prompt="${2:?usage: qalab intent \"<prompt>\"}"
+    payload="$(project_payload)"
+    curl -sS -X POST "$API_URL/api/v1/intent/run" \
+      -H 'Content-Type: application/json' \
+      -d "{\"project\":$payload,\"prompt\":\"$prompt\",\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
+    ;;
+  budget-policy)
+    if [ "${2:-}" = "set" ]; then
+      policy="${3:?usage: qalab budget-policy set <HARD|SOFT|NONE>}"
+      curl -sS -X PATCH "$API_URL/api/v1/account/budget-policy" \
+        -H 'Content-Type: application/json' \
+        -d "{\"policy\":\"$policy\"}" | jq . 2>/dev/null || true
+    else
+      curl -sS "$API_URL/api/v1/account/budget-policy" | jq . 2>/dev/null || true
+    fi
+    ;;
+  help|-h|--help|"")
+    usage
+    ;;
+  *)
+    echo "unknown command: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

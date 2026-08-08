@@ -92,8 +92,10 @@ public class PlanningService {
         }
 
         TestPlan testPlan = (TestPlan) result.getData().get("testPlan");
+        TestPlan saved = testPlanRepository.save(testPlan);
+        log.info("Saved test plan to database with id: {}", saved.getId());
 
-        List<TestScenarioDto> dtos = testPlan.getScenarios().stream()
+        List<TestScenarioDto> dtos = saved.getScenarios().stream()
                 .map(s -> new TestScenarioDto(
                         s.getId(),
                         s.getName(),

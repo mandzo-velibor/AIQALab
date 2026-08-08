@@ -74,11 +74,14 @@ public class LocatorService {
         @SuppressWarnings("unchecked")
         List<LocatorDefinition> locators = (List<LocatorDefinition>) result.getData().get("locators");
 
-        List<LocatorDto> dtos = locators.stream()
+        List<LocatorDefinition> saved = locatorRepository.saveAll(locators);
+        log.info("Saved {} locators to database", saved.size());
+
+        List<LocatorDto> dtos = saved.stream()
                 .map(this::toDto)
                 .toList();
 
-        saveHistory(url, locators, projectId);
+        saveHistory(url, saved, projectId);
 
         return new LocatorResponse(dtos.size(), dtos);
     }

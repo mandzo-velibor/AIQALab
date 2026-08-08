@@ -1,92 +1,124 @@
 # AI QA Lab
 
-AI-powered QA automation platform that uses AI agents to explore web applications, generate stable locators, create test plans, produce executable Playwright tests, analyze failures, and self-heal broken locators.
+An AI-powered QA automation **engine** that explores web applications, generates stable
+locators, creates test plans, produces executable Playwright tests, analyzes failures, and
+suggests self-healing fixes — exposed as a service via a versioned REST API.
 
-## Vision
+## Concept
 
-AI QA Lab is an experimental platform demonstrating how AI can transform the QA automation workflow:
+AI QA Lab is built on a strict separation of ownership:
 
-- **Explore** applications intelligently
-- **Plan** comprehensive test strategies
-- **Generate** stable, maintainable test code
-- **Execute** tests and collect artifacts
-- **Analyze** failures and suggest fixes
-- **Heal** broken locators with approved suggestions
-- **Learn** from previous issues
-
-The goal is not to replace Playwright, but to show how AI agents can collaborate to automate the entire QA lifecycle.
-
-## Architecture
+- **AI QA Lab Core** contains the intelligence and orchestration only. It never stores or
+  owns target-project source code.
+- **The target QA project** owns its own source code, tests, and Git repository. AI QA Lab
+  can *read* that code to run tests, but generated files are returned to the client — the
+  client decides where they are written.
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        AI QA Lab (Core)                               │
-│  ┌────────┐  ┌────────┐  ┌────────┐  ┌──────────┐  ┌──────────┐      │
-│  │Explorer│→ │Locator │→ │Planner │→ │Generator │→ │Executor  │      │
-│  │ Agent  │  │ Agent  │  │ Agent  │  │  Agent   │  │  Agent   │      │
-│  └────────┘  └────────┘  └────────┘  └──────────┘  └──────────┘      │
-│       ↓           ↓            ↓           ↓             ↓           │
-│  ┌────────────────────────────────────────────────────────────────┐   │
-│  │                     Agent Orchestrator                         │   │
-│  └────────────────────────────────────────────────────────────────┘   │
-│       ↓                                ↓                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-│  │ Browser  │  │   DOM    │  │Playwright│  │   Git    │              │
-│  │  Tool    │  │Simplifier│  │  Tool    │  │ Service  │              │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘              │
-│       ↓                                ↓                              │
-│  ┌───────────────┐        ┌───────────────────────────┐              │
-│  │Failure Analyst│        │   Self-Healing Engine     │              │
-│  │    Agent      │        │ ElementMatcher            │              │
-│  └───────────────┘        │ LocatorSimilarity         │              │
-│                           │ HealingApplier            │              │
-│                           └───────────────────────────┘              │
-└──────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                     AI QA LAB CORE (intelligence)                    │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐         │
+│  │Explorer │ │Locator  │ │ Planner │ │Generator│ │Executor │         │
+│  │  Agent  │ │ Agent   │ │  Agent  │ │  Agent  │ │  Agent  │         │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘         │
+│  ┌──────────────┐ ┌───────────────┐ ┌──────────────┐                 │
+│  │Failure       │ │ Self-Healing  │ │  QaWorkflow  │                 │
+│  │Analyst Agent │ │    Agent      │ │   Service    │                 │
+│  └──────────────┘ └───────────────┘ └──────────────┘                 │
+└─────────────────────────────────────────────────────────────────────┘
                             │
-                            │ manages
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│              External QA Project Repositories                │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │  Project A   │  │  Project B   │  │  Project C   │      │
-│  │  Repository  │  │  Repository  │  │  Repository  │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-└─────────────────────────────────────────────────────────────┘
+                      REST API / SDK / CLI  (/api/v1)
+                            │
+┌─────────────────────────────────────────────────────────────────────┐
+│                    USER QA PROJECTS (source owned)                   │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐   │
+│  │ my-playwright-   │  │ another-project  │  │      ...         │   │
+│  │ tests (repo)     │  │ (repo)           │  │                  │   │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Core Platform
+### Ownership rules
 
-The AI QA Lab is the **control plane** that:
-- Manages AI agents and their orchestration
-- Provides tools for browser automation and code generation
-- Stores metadata about projects, tests, and executions
-- Never stores project-specific source code
+- The Core stores AI knowledge: explorations, analyses, locators, test plans, executions,
+  failure analyses, and healing suggestions.
+- Generated test source is **returned to the client** as files (`path` + `content`). The
+  Core writes nothing into the target project unless the client explicitly provides a
+  workspace path for execution.
+- Agents never construct filesystem paths, never access the database, and never select an
+  execution provider. They receive everything they need through `Task` objects and return
+  results in `AgentResult` data.
 
-### External Projects
+## Capabilities (service API)
 
-Each application under test has its **own independent repository**:
-- Separate Git repositories for each project
-- Independent workspaces for generated artifacts
-- Project-specific locators, tests, and configurations
+Every operation returns an `operationId` and an `OperationStatus`
+(`PENDING` / `RUNNING` / `COMPLETED` / `FAILED`).
 
-## Project Concept
+| Capability | Endpoint | Description |
+|------------|----------|-------------|
+| Explore | `POST /api/v1/explore` | Explore a URL with the Browser Tool (element map) |
+| Analyze | `POST /api/v1/analyze` | AI analysis of a page |
+| Generate locators | `POST /api/v1/locators` | Generate stable Playwright locators |
+| Generate test plan | `POST /api/v1/test-plan` | Generate test scenarios |
+| Generate tests | `POST /api/v1/tests` | Generate Playwright code, returned as files |
+| Run tests | `POST /api/v1/run` | Run a test or the full suite in the target workspace |
+| Analyze failure | `POST /api/v1/failures/analyze` | Root-cause analysis of a failed execution |
+| Healing | `POST /api/v1/healing/analyze` | Propose a replacement locator for a broken element |
+| Full QA workflow | `POST /api/v1/workflows/full-test` | Explore → analyze → locators → plan → generate → run → failure analysis → healing |
+| Intent detection | `POST /api/v1/intent` | Detect what a natural-language request wants |
+| Intent execution | `POST /api/v1/intent/run` | Detect the intent, then dispatch to the matching operation |
+| Reports | `GET /api/v1/reports` | List execution reports |
+| Report | `GET /api/v1/reports/{executionId}` | Full report incl. artifact paths |
+| Budget policy | `GET /api/v1/account/budget-policy` | Current budget policy and usage |
+| Budget policy | `PATCH /api/v1/account/budget-policy` | Update policy (`HARD`, `SOFT` or `NONE`) |
 
-Every application being tested is represented as a **Project**:
+### Request shape
+
+All `/api/v1` requests carry a minimal `project` block — identity/context only, **not** source code:
 
 ```json
 {
-  "name": "The Internet Login",
-  "baseUrl": "https://the-internet.herokuapp.com/login",
-  "repositoryUrl": "https://github.com/user/the-internet-login-tests",
-  "framework": "PLAYWRIGHT_TYPESCRIPT"
+  "project": {
+    "projectId": "my-app-1",
+    "name": "My App",
+    "baseUrl": "https://my-app.com",
+    "framework": "PLAYWRIGHT_TYPESCRIPT",
+    "language": "TypeScript",
+    "workspacePath": "/home/dev/my-app-tests"
+  },
+  "url": "https://my-app.com/login"
 }
 ```
 
-Projects are isolated:
-- Locators are project-specific
-- Test plans are project-specific
-- Generated tests go to the project's workspace
-- Execution history is per-project
+- `projectId` is required. `workspacePath` is optional: it is only used when the Core must
+  execute tests locally.
+- Responses embed the same `projectId` and the generated artifacts; generated tests come as
+  `files: [{ "path": "login.spec.ts", "content": "..." }]` for the client to write.
+
+### Error model
+
+Errors follow a single shape with an operation scope:
+
+```json
+{
+  "error": {
+    "code": "INVALID_PROJECT_CONTEXT",
+    "message": "projectId is required",
+    "operationId": "op_2026..."
+  }
+}
+```
+
+| Code | HTTP status |
+|------|-------------|
+| `INVALID_REQUEST`, `INVALID_PROJECT_CONTEXT`, `INVALID_PROVIDER` | 400 |
+| `PROJECT_NOT_FOUND` | 404 |
+| `AI_BUDGET_EXCEEDED` | 429 |
+| `AI_PROVIDER_UNAVAILABLE` | 503 |
+| `INTERNAL_ERROR` | 500 |
+
+Security rules: no arbitrary filesystem paths are ever accepted from clients, no API keys
+are returned in responses, and API keys are never logged.
 
 ## Agents
 
@@ -108,320 +140,243 @@ Generates stable Playwright locators following priority:
 7. XPath (last resort)
 
 ### Planner Agent
-Creates comprehensive test plans covering:
-- Happy paths
-- Negative scenarios
-- Validation cases
-- Security risks
-- Reliability tests
+Creates comprehensive test plans covering happy paths, negative scenarios, validation
+cases, security risks, and reliability tests.
 
 ### Test Generator Agent
-Produces executable Playwright code:
-- Page Object Model pattern
-- TypeScript with proper types
-- Semantic locators from Locator Agent
-- Meaningful assertions
+Produces executable Playwright code — Page Object Model pattern, TypeScript with proper
+types, semantic locators, and meaningful assertions.
 
 ### Executor Agent
-Runs tests and collects:
-- Pass/fail status
-- Duration
-- Screenshots
-- Videos
-- Traces
-- Console logs
+Runs tests through a `WorkspaceProvider` (local workspace, remote targets later) and
+collects pass/fail status, duration, screenshots, videos, traces, and console logs. It
+never knows where files live or how to reach the target — it only asks the provider.
 
 ### Failure Analyst Agent
-Analyzes failed test executions and determines the root cause:
-- Failure type classification (TIMEOUT, ELEMENT_NOT_FOUND, HTTP_ERROR, LOCATOR_INVALID, etc.)
-- Confidence score
-- Affected element identification
-- Whether the failure is a healing candidate
-- Stores results in project memory (`FailureAnalysis`, `FailureHistory`)
+Classifies failure types (TIMEOUT, ELEMENT_NOT_FOUND, HTTP_ERROR, LOCATOR_INVALID, …),
+computes a confidence score, identifies the affected element, and decides whether the
+failure is a healing candidate.
 
 ### Self-Healing Agent
-Generates replacement locators for broken elements. Uses two complementary strategies:
-1. **AI-based**: inspects the current DOM via Browser Tool and proposes the most probable replacement
-2. **Deterministic**: `ElementMatcherService` searches the live page by role/name and ranks candidates with `LocatorSimilarityService`
+Proposes replacement locators for broken elements using two complementary strategies:
+1. **AI-based**: inspects the current DOM and proposes the most probable replacement
+2. **Deterministic**: `ElementMatcherService` ranks live-page candidates by
+   `LocatorSimilarityService`
 
-Safeguards:
-- Never modifies test code automatically
-- Suggestions start as `PENDING` and require explicit **Approve**
-- **Apply** promotes the new locator to the active locator history entry and demotes the old one to `REPLACED`
-- Complete history is preserved for every element
+Safeguards: it **never** modifies test code automatically; suggestions start as `PENDING`
+and require explicit approval/apply to become active, while the full locator history is
+preserved.
+
+## Services
+
+Application logic lives in focused services (no monolithic `QaService`):
+
+| Service | Responsibility |
+|---------|----------------|
+| `ExplorationService` | EXPLORE capability |
+| `AnalysisService` | ANALYZE capability |
+| `LocatorService` | LOCATORS capability + persistence |
+| `PlanningService` | TEST PLAN capability + persistence |
+| `CodeGenerationService` | TEST GENERATION (content-only and entity variants) |
+| `ExecutionService` | RUN capability + execution records |
+| `FailureAnalysisService` | FAILURE ANALYSIS + project memory |
+| `HealingService` | HEALING + suggestion lifecycle |
+| `QaWorkflowService` | FULL_TEST orchestration with branching |
+
+`ProjectContextResolver` converts the client `project` block into a `ProjectContext` (an
+optional database lookup enriches it). `WorkspaceProvider` / `TestExecutionTarget`
+abstract where tests run.
 
 ## AI Providers
 
-The platform supports multiple AI providers through an abstraction layer:
+Multiple AI providers are supported through an abstraction layer with a fallback chain:
 
-| Provider | Status | Notes |
-|----------|--------|-------|
-| OpenCode Go | **Default** | Primary provider with qwen3.7-plus |
-| OpenCode Zen | Fallback | big-pickle, fallback to mimo-v2.5-free |
-| OpenAI | Available | GPT-4o-mini |
-| Gemini | Fallback | gemini-1.5-flash |
-| Ollama | Fallback | Local/remote models (gpt-oss:20b) |
-| Claude | Planned | Future |
+| Provider | Role |
+|----------|------|
+| OpenCode Go | Primary |
+| OpenCode Zen | Fallback |
+| OpenAI | Available |
+| Gemini | Fallback |
+| Ollama | Fallback |
 
-The fallback chain is **Go → Zen (big-pickle) → Zen (mimo-v2.5-free) → Gemini → Ollama**. Every
-provider response is validated (valid JSON matching the required schema); invalid or empty
-responses are rejected with a logged reason and the chain moves to the next provider.
+Every provider response is validated (valid JSON matching the required schema); invalid or
+empty responses are rejected with a logged reason and the chain moves to the next provider.
 
-## API Overview
+### Token budget
 
-### Projects
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/projects` | Create a project |
-| GET | `/api/projects` | List all projects |
-| GET | `/api/projects/{id}` | Get a single project |
-| GET | `/api/projects/{id}/history` | Full project memory (executions, page analyses, locators, failures, healings) |
+All AI calls flow through `AiGateway`, which tracks managed-token usage per account and
+month. When the allowance is exhausted the enforcement depends on the account's
+`budgetPolicy`:
 
-### Analysis & Generation
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/explore` | Explore a URL with the Browser Tool |
-| POST | `/api/analyze` | AI analysis of a page |
-| POST | `/api/locators/generate` | Generate stable locators |
-| POST | `/api/test-plans/generate` | Generate test plan scenarios |
-| POST | `/api/tests/generate` | Generate Playwright test code |
+| Policy | Behavior when exhausted |
+|--------|-------------------------|
+| `HARD` | Call refused with `AI_BUDGET_EXCEEDED` (HTTP 429); no provider call (FREE default) |
+| `SOFT` | Call proceeds, usage recorded, workflow context flagged `budgetSoftExceeded` |
+| `NONE` | Allowance not enforced (PRO/TEAM default) |
 
-### Execution
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/executions/run` | Run a test (or all tests) for a project |
-| GET | `/api/executions/history` | Execution history (filterable by `projectId`) |
-| POST | `/api/executions/{executionId}/analyze` | Analyze a failed execution |
-
-### Healing
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/healing/analyze/{executionId}` | Generate a healing suggestion |
-| POST | `/api/healing/{id}/approve` | Approve a suggestion |
-| POST | `/api/healing/{id}/reject` | Reject a suggestion |
-| POST | `/api/healing/{id}/apply` | Apply an approved suggestion to locator history |
-| GET | `/api/healing/suggestions` | List suggestions (filterable by `projectId`) |
+View/update the policy with `GET/PATCH /api/v1/account/budget-policy` (or
+`qalab budget-policy`). Only MANAGED calls consume the allowance; BYOK and LOCAL calls
+are recorded but never blocked.
 
 ## Tech Stack
 
-### Backend
-- Java 21
-- Spring Boot 3.3
-- Spring Data JPA
-- PostgreSQL
-- Playwright Java
-
-### Frontend
-- Next.js 16
-- TypeScript
-- Tailwind CSS
-- shadcn/ui
-
-### AI
-- OpenCode AI (primary, 12000 max tokens)
-- OpenAI (fallback)
-- Gemini (fallback)
-- Ollama (fallback)
+- **Backend**: Java 21, Spring Boot 3.3, Spring Data JPA, PostgreSQL, Playwright Java
+- **Frontend** (first client of the engine): Next.js, TypeScript, Tailwind CSS, shadcn/ui
 
 ## Quick Start
 
 ### Prerequisites
 
-These must be installed **before** first run:
-
 | Tool | Version | Notes |
 |------|---------|-------|
-| Java | 21+ | Required for the Spring Boot backend |
-| Maven | 3.9+ | Builds the backend |
-| Node.js | 20+ | Required for the frontend **and** for running generated Playwright tests |
+| Java | 21+ | Backend |
+| Maven | 3.9+ | Backend build |
+| Node.js | 20+ | Frontend and generated Playwright tests |
 | npm | 10+ | Comes with Node.js |
-| PostgreSQL | 15+ | App database (or use Docker below) |
-| Git | any | Cloning project repositories |
+| PostgreSQL | 15+ | App database (or use Docker) |
 
-**Playwright + browsers** are installed automatically:
-- On backend startup, `PlaywrightSetupConfig` checks each project workspace and runs
-  `npm install` (once) and `npx playwright install chromium` (once per workspace,
-  guarded by a `.playwright-ready` marker) if they are missing.
-- A new project workspace is prepared the first time it is used (`WorkspaceManager.getProjectContext`).
-- Disable auto-install with `QALAB_AUTO_INSTALL_PLAYWRIGHT=false`.
+Playwright + Chromium are installed automatically per workspace on first use
+(`PlaywrightSetupConfig`, guarded by a `.playwright-ready` marker). Disable with
+`QALAB_AUTO_INSTALL_PLAYWRIGHT=false`.
 
-Verify manually with:
-```bash
-node --version   # v20+
-npm --version    # 10+
-mvn --version    # 3.9+
-npx playwright install chromium   # download browser binaries if needed
-```
-
-### 1. Clone and Setup
+### 1. Setup
 
 ```bash
-git clone https://github.com/your-org/ai-qa-lab.git
-cd ai-qa-lab
-
-# Create .env file (see .env.example)
-cp .env.example .env
-# Then edit .env and add your AI provider keys
-```
-
-### 2. Start Backend
-
-```bash
-cd backend
-mvn spring-boot:run
-```
-
-The backend will automatically:
-- Start the frontend dev server
-- Open browser at http://localhost:3000
-- Install Playwright browsers for project workspaces on first use (see Prerequisites)
-
-### 3. Run with Docker
-
-The whole stack (PostgreSQL + backend + frontend) runs in Docker.
-Requires **Docker Engine** with Compose v2 — use `docker compose` (the older
-`docker-compose` v1 command is **not** supported).
-
-```bash
-# 1. Add your AI keys to .env (docker compose reads it automatically)
-
-# 2. Build and start everything
-docker compose up --build
-
-# 3. Open the app
-open http://localhost:3000
-
-# Stop everything
-docker compose down
-
-# Stop and also delete the database volume
-docker compose down -v
+cp .env.example .env      # add your AI provider keys
+docker compose up --build # full stack: PostgreSQL + backend + frontend
 ```
 
 - Backend: http://localhost:8080
 - Frontend: http://localhost:3000
 - PostgreSQL: `localhost:5432` (user/password `qalab`/`qalab`, database `qalab`)
-- Project workspaces and screenshots are stored in named Docker volumes
-  (`qalab-workspaces`, `qalab-screenshots`) so generated tests persist across restarts.
-- AI provider keys are passed from the host `.env` into the backend container;
-  the `.env` file is **never** committed or baked into images.
-- Inside the backend image Playwright + Chromium are pre-installed, so generated
-  tests run out of the box.
 
-### 4. CI/CD (GitHub Actions)
+Or run the backend directly: `cd backend && mvn spring-boot:run`.
 
-A workflow at `.github/workflows/ci.yml` runs on push/PR to `main`/`master`:
+### 2. Use the engine
 
-| Job | What it does |
-|-----|-------------|
-| `backend-build` | JDK 21 + Node 20, installs Playwright Chromium, `mvn -B verify` |
-| `frontend-build` | Node 20, `npm ci`, typecheck, `next build` |
-| `security-check` | Fails if `.env` or hardcoded API keys are committed; validates `docker compose config` |
-| `docker-build` | Builds both Docker images (push only) |
+```bash
+# Register a project (optional — the Core can operate on a projectId alone)
+curl -X POST http://localhost:8080/api/projects \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"The Internet Tests","baseUrl":"https://the-internet.herokuapp.com","framework":"PLAYWRIGHT_TYPESCRIPT"}'
 
-### 5. Create a Project
+# Explore a page
+curl -X POST http://localhost:8080/api/v1/explore \
+  -H 'Content-Type: application/json' \
+  -d '{"project":{"projectId":"my-internet-project"},"url":"https://the-internet.herokuapp.com/login"}'
 
-1. Navigate to **Projects** page
-2. Click **New Project**
-3. Enter project details:
-   - Name: "My App Tests"
-   - Base URL: "https://my-app.com"
-   - Framework: "Playwright TypeScript"
-4. Click **Create Project**
+# Generate tests (files are returned, never written by the Core)
+curl -X POST http://localhost:8080/api/v1/tests \
+  -H 'Content-Type: application/json' \
+  -d '{"project":{"projectId":"my-internet-project"},"url":"https://the-internet.herokuapp.com/login"}'
 
-### 6. Analyze Application
+# Run a generated test in a client-owned workspace
+curl -X POST http://localhost:8080/api/v1/run \
+  -H 'Content-Type: application/json' \
+  -d '{"project":{"projectId":"my-internet-project","workspacePath":"/home/dev/my-internet-tests"},"testId":"login-test"}'
+```
 
-1. Go to **Analyze Page**
-2. Enter the URL to analyze
-3. Click **Analyze**
-4. Review the AI analysis results
+To execute tests locally, the client owns a workspace (e.g. `my-playwright-tests/`) with
+its own `package.json` and `playwright.config.ts`; the generated `files` are written there
+by the client, then passed back to the Core via `workspacePath` for execution.
 
-### 7. Generate Tests
+### 3. CLI & SDK
 
-1. Click **Generate Locators** - AI creates stable locators
-2. Click **Generate Test Plan** - AI creates test scenarios
-3. Click **Generate Tests** - AI produces Playwright code
+The engine ships with a CLI and a Java SDK for scripted/CI use.
 
-### 8. Analyze Failures & Heal Locators
+```bash
+# CLI
+export QALAB_BASE_URL=https://the-internet.herokuapp.com/login
+export QALAB_WORKSPACE=/home/dev/my-internet-tests
 
-1. Open the project page at **Projects → Open Project**
-2. Run tests and open a failed execution
-3. Click **Analyze** - Failure Analyst determines the root cause
-4. Click **Generate Healing** - Self-Healing Agent proposes a replacement locator
-5. **Approve** the suggestion, then **Apply** it to update the active locator history
-6. Re-run the test to confirm the fix
+cli/qalab init ~/qa-project            # create a .qalab.json config
+cli/qalab explore                      # page map
+cli/qalab generate                     # Playwright test files
+cli/qalab execute                      # run in the configured workspace
+cli/qalab report                       # list reports
+cli/qalab report 12                    # one report
+cli/qalab intent "generate tests for the login page"   # natural language
+cli/qalab budget-policy                # show policy + usage
+cli/qalab budget-policy set SOFT       # HARD | SOFT | NONE
+```
+
+```java
+// SDK (sdk/qalab-sdk)
+QalabClient qalab = new QalabClient("http://localhost:8080")
+        .projectId("the-internet-tests")
+        .baseUrl("https://the-internet.herokuapp.com/login")
+        .workspacePath("/tmp/qa");
+
+qalab.intent("generate tests for the login page");
+qalab.generate("https://the-internet.herokuapp.com/login");
+qalab.executeAll();
+qalab.report(1L);
+qalab.updateBudgetPolicy("SOFT");
+```
+
+Every generated test run stores artifacts (screenshots, traces, videos, console
+logs) in `./artifacts/execution-<id>/` and renders a `report.json` + `report.md`,
+exposed through `GET /api/v1/reports`.
+
+### 4. CI/CD
+
+`.github/workflows/ci.yml` runs on push/PR to `main`/`master`: backend build (JDK 21 +
+Node 20, Playwright Chromium, `mvn -B verify`), frontend build (typecheck + `next build`),
+a security check that fails if `.env` or hardcoded API keys are committed, and Docker image
+builds (push only).
 
 ## Roadmap
 
 ### Completed
-- [x] Sprint 1: Backend & Frontend foundation
-- [x] Sprint 2: Explorer AI with LLM analysis
-- [x] Sprint 3: Locator Intelligence Agent
-- [x] Sprint 4: Test Planning Agent
-- [x] Sprint 5: Test Generator Agent
-- [x] Sprint 6: Executor Agent
-- [x] Sprint 7: Project Workspace Architecture
-- [x] Sprint 8: Failure Analyst Agent & Project Memory
-- [x] Sprint 9: Self-Healing Locator Engine
-- [x] Sprint 12: Multi-provider support (Gemini, Ollama, fallback chain)
+- Sprint 1: Backend & Frontend foundation
+- Sprint 2: Explorer AI with LLM analysis
+- Sprint 3: Locator Intelligence Agent
+- Sprint 4: Test Planning Agent
+- Sprint 5: Test Generator Agent
+- Sprint 6: Executor Agent
+- Sprint 7: Project Workspace Architecture
+- Sprint 8: Failure Analyst Agent & Project Memory
+- Sprint 9: Self-Healing Locator Engine
+- Sprint 10: Service-oriented core — `QaAgent`-based agents without DB access,
+  `WorkspaceProvider` abstraction, `ProjectContextResolver`, and the `/api/v1` service API
+  with the `QaWorkflowService` FULL_TEST pipeline
+- Sprint 11: Multi-provider gateway (`AiGateway`), managed/BYOK/local credentials,
+  token usage accounting and budget enforcement (`AI_BUDGET_EXCEEDED`)
+- Sprint 12: Budget policy (`HARD`/`SOFT`/`NONE`), natural-language intent detection,
+  execution reports + artifact store, and the `qalab` CLI + Java SDK
 
 ### Next
-- [ ] Sprint 10: Vector Memory
-- [ ] Sprint 11: Git Automation
-- [ ] Sprint 13: Claude support
+- Vector memory
+- Git automation
+- Claude support
+- Remote execution targets (`TestExecutionTarget.REMOTE`)
 
 ## Project Structure
 
 ```
 ai-qa-lab/
 ├── backend/
-│   ├── Dockerfile
 │   └── src/main/java/com/qalab/qalabai/
-│       ├── agent/          # AI agents
-│       │   ├── explorer/   # Explorer Agent
-│       │   ├── locator/    # Locator Agent
-│       │   ├── planner/    # Planner Agent
-│       │   ├── testgen/    # Test Generator Agent
-│       │   ├── executor/   # Executor Agent
-│       │   ├── failure/    # Failure Analyst Agent
-│       │   └── healing/    # Self-Healing Agent
+│       ├── agent/          # AI agents (no DB access, no paths)
 │       ├── ai/             # AI provider abstraction
-│       ├── config/         # Startup setup (Playwright auto-install), WS config
-│       ├── controller/     # REST endpoints
+│       ├── api/            # Operation/status + error model, v1 DTOs & controllers
+│       ├── config/         # Startup setup, WS config
+│       ├── controller/     # Legacy UI REST endpoints
 │       ├── dto/            # Data transfer objects
 │       ├── model/          # JPA entities
 │       ├── repository/     # Spring Data repos
-│       ├── service/        # Business logic
-│       │   ├── healing/    # Matcher, similarity, applier
-│       │   └── workspace/  # WorkspaceManager, TestWorkspaceService
+│       ├── service/        # Application services, workspace abstraction
 │       └── tool/           # Agent tools
-│   └── src/main/resources/
-│       ├── prompts/        # AI prompt templates
-│       └── application.yml # Configuration
-├── frontend/
-│   ├── Dockerfile
-│   └── src/
-│       ├── app/            # Next.js pages
-│       ├── components/     # React components
-│       └── lib/            # API clients
-├── .github/workflows/ci.yml # CI/CD pipeline
-├── docker-compose.yml       # Full stack (db + backend + frontend)
-├── workspaces/             # External project workspaces
-├── .env                    # Environment variables (not committed)
-├── .env.example            # Safe template for .env
+├── frontend/               # Next.js UI (first client)
+├── cli/qalab               # CLI client for the Core API
+├── sdk/qalab-sdk/          # Java SDK for the Core API
+├── workspaces/             # Local test workspaces (generated on demand)
+├── artifacts/              # Per-execution reports + screenshots/traces/videos
+├── .github/workflows/ci.yml
+├── docker-compose.yml
 └── README.md
 ```
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
 
 ## License
 
 MIT License - see LICENSE file for details.
-
-## Acknowledgments
-
-- [Playwright](https://playwright.dev/) for browser automation
-- [OpenCode](https://opencode.ai) for AI provider infrastructure
-- [shadcn/ui](https://ui.shadcn.com/) for UI components

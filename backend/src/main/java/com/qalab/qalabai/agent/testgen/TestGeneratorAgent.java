@@ -3,12 +3,16 @@ package com.qalab.qalabai.agent.testgen;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.AgentResult;
+import com.qalab.qalabai.agent.ProjectContextUtil;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
-import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.gateway.AgentExecutionContext;
+import com.qalab.qalabai.ai.gateway.AiGateway;
+import com.qalab.qalabai.ai.gateway.AiOperation;
+import com.qalab.qalabai.ai.gateway.AiRequest;
+import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.GeneratedTest;
-import com.qalab.qalabai.repository.GeneratedTestRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -24,16 +28,13 @@ public class TestGeneratorAgent implements QaAgent {
 
     private static final Logger log = LoggerFactory.getLogger(TestGeneratorAgent.class);
 
-    private final AiProvider aiProvider;
-    private final GeneratedTestRepository testRepository;
+    private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
     private final String generatorPrompt;
 
-    public TestGeneratorAgent(AiProvider aiProvider,
-                              GeneratedTestRepository testRepository,
+    public TestGeneratorAgent(AiGateway aiGateway,
                               ObjectMapper objectMapper) {
-        this.aiProvider = aiProvider;
-        this.testRepository = testRepository;
+        this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
         this.generatorPrompt = loadPrompt();
     }
@@ -74,21 +75,25 @@ public class TestGeneratorAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson, pageContentHtml, postLoginContentHtml, loginUsername, loginPassword);
             log.info("Sending request to AI for test generation");
 
-            String aiResponse = aiProvider.chat(generatorPrompt, userPrompt, JsonValidators.hasArrayField("tests"));
+            AiRequest request = AiRequest.builder(AiOperation.TEST_GENERATION, generatorPrompt, userPrompt)
+                    .validator(JsonValidators.hasArrayField("tests"))
+                    .build();
+            AgentExecutionContext ctx = AgentExecutionContext.builder()
+                    .projectContext(ProjectContextUtil.fromTask(task))
+                    .operationId("op-" + task.getId())
+                    .build();
+            AiResponse aiResponse = aiGateway.complete(request, ctx);
             log.info("AI response received for test generation");
 
-            List<GeneratedTest> tests = parseResponse(aiResponse, pageUrl);
+            List<GeneratedTest> tests = parseResponse(aiResponse.getContent(), pageUrl);
             if (projectId != null) {
                 tests.forEach(t -> t.setProjectId(projectId));
             }
             log.info("Parsed {} tests from AI response", tests.size());
 
-            List<GeneratedTest> saved = testRepository.saveAll(tests);
-            log.info("Saved {} tests to database", saved.size());
-
-            AgentResult result = AgentResult.success(getName(), "Generated " + saved.size() + " tests");
-            result.putData("testCount", saved.size());
-            result.putData("tests", saved);
+            AgentResult result = AgentResult.success(getName(), "Generated " + tests.size() + " tests");
+            result.putData("testCount", tests.size());
+            result.putData("tests", tests);
             return result;
 
         } catch (Exception e) {
@@ -157,13 +162,45 @@ public class TestGeneratorAgent implements QaAgent {
                 test.setPageUrl(pageUrl);
                 test.setScenarioName(node.path("scenarioName").asText(""));
                 test.setTestFileName(toFileName(node.path("scenarioName").asText("")));
-                test.setTestCode(node.path("testCode").asText(""));
-                test.setPageObjectCode(node.path("pageObjectCode").asText(""));
+                test.setTestCode(normalizeCode(node.path("testCode").asText("")));
+                test.setPageObjectCode(normalizeCode(node.path("pageObjectCode").asText("")));
                 tests.add(test);
             }
         }
 
         return tests;
+    }
+
+    /**
+     * Some providers double-encode line breaks inside generated code: the code
+     * arrives as a single line whose newlines are literal "\n" (backslash-n)
+     * characters instead of real line breaks. When the model clearly did that
+     * (more escaped newlines than real ones) the literal sequences are decoded
+     * back to actual newlines so the written file is valid source code.
+     */
+    private String normalizeCode(String code) {
+        if (code == null || code.isEmpty()) {
+            return code;
+        }
+        int literalNewlines = countOccurrences(code, "\\n");
+        int realNewlines = countOccurrences(code, "\n");
+        if (literalNewlines > 0 && realNewlines == 0) {
+            return code
+                    .replace("\\r\\n", "\n")
+                    .replace("\\n", "\n")
+                    .replace("\\t", "\t");
+        }
+        return code;
+    }
+
+    private int countOccurrences(String text, String needle) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(needle, idx)) >= 0) {
+            count++;
+            idx += needle.length();
+        }
+        return count;
     }
 
     private String extractJson(String response) {

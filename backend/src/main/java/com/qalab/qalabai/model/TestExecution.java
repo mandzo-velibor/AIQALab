@@ -35,6 +35,9 @@ public class TestExecution {
     @Column
     private String tracePath;
 
+    @Column
+    private String reportPath;
+
     @Column(columnDefinition = "TEXT")
     private String consoleLogs;
 
@@ -116,6 +119,14 @@ public class TestExecution {
 
     public void setTracePath(String tracePath) {
         this.tracePath = tracePath;
+    }
+
+    public String getReportPath() {
+        return reportPath;
+    }
+
+    public void setReportPath(String reportPath) {
+        this.reportPath = reportPath;
     }
 
     public String getConsoleLogs() {

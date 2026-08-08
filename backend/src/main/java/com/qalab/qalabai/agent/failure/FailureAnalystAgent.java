@@ -3,16 +3,16 @@ package com.qalab.qalabai.agent.failure;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.AgentResult;
+import com.qalab.qalabai.agent.ProjectContextUtil;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
-import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.gateway.AgentExecutionContext;
+import com.qalab.qalabai.ai.gateway.AiGateway;
+import com.qalab.qalabai.ai.gateway.AiOperation;
+import com.qalab.qalabai.ai.gateway.AiRequest;
+import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.FailureAnalysis;
-import com.qalab.qalabai.model.FailureHistory;
-import com.qalab.qalabai.model.TestExecution;
-import com.qalab.qalabai.repository.FailureAnalysisRepository;
-import com.qalab.qalabai.repository.FailureHistoryRepository;
-import com.qalab.qalabai.repository.TestExecutionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -26,22 +26,13 @@ public class FailureAnalystAgent implements QaAgent {
 
     private static final Logger log = LoggerFactory.getLogger(FailureAnalystAgent.class);
 
-    private final AiProvider aiProvider;
-    private final TestExecutionRepository executionRepository;
-    private final FailureAnalysisRepository analysisRepository;
-    private final FailureHistoryRepository failureHistoryRepository;
+    private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
     private final String analystPrompt;
 
-    public FailureAnalystAgent(AiProvider aiProvider,
-                               TestExecutionRepository executionRepository,
-                               FailureAnalysisRepository analysisRepository,
-                               FailureHistoryRepository failureHistoryRepository,
+    public FailureAnalystAgent(AiGateway aiGateway,
                                ObjectMapper objectMapper) {
-        this.aiProvider = aiProvider;
-        this.executionRepository = executionRepository;
-        this.analysisRepository = analysisRepository;
-        this.failureHistoryRepository = failureHistoryRepository;
+        this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
         this.analystPrompt = loadPrompt();
     }
@@ -67,39 +58,38 @@ public class FailureAnalystAgent implements QaAgent {
 
         Long executionId = (Long) task.getContextValue("executionId");
         Long projectId = (Long) task.getContextValue("projectId");
+        String testFile = (String) task.getContextValue("testFile");
+        String errorMessage = (String) task.getContextValue("errorMessage");
+        String consoleLogs = (String) task.getContextValue("consoleLogs");
+        String screenshotPath = (String) task.getContextValue("screenshotPath");
 
         if (executionId == null || projectId == null) {
             return AgentResult.failure(getName(), "Missing executionId or projectId in task context");
         }
 
         try {
-            TestExecution execution = executionRepository.findById(executionId)
-                    .orElseThrow(() -> new RuntimeException("Execution not found: " + executionId));
-
-            String userPrompt = buildUserPrompt(execution);
+            String userPrompt = buildUserPrompt(testFile, errorMessage, consoleLogs, screenshotPath);
             log.info("Sending failure analysis request to AI");
 
-            String aiResponse = aiProvider.chat(analystPrompt, userPrompt, JsonValidators.isJsonObject());
+            AiRequest request = AiRequest.builder(AiOperation.FAILURE_ANALYSIS, analystPrompt, userPrompt)
+                    .validator(JsonValidators.isJsonObject())
+                    .build();
+            AgentExecutionContext ctx = AgentExecutionContext.builder()
+                    .projectContext(ProjectContextUtil.fromTask(task))
+                    .operationId("op-" + task.getId())
+                    .build();
+            AiResponse aiResponse = aiGateway.complete(request, ctx);
             log.info("AI response received for failure analysis");
 
-            FailureAnalysis analysis = parseResponse(aiResponse, projectId, executionId);
-            FailureAnalysis saved = analysisRepository.save(analysis);
-
-            FailureHistory history = new FailureHistory();
-            history.setProjectId(projectId);
-            history.setTestName(execution.getTestFile());
-            history.setFailureType(analysis.getFailureType());
-            history.setMessage(analysis.getSummary());
-            history.setRelatedElement(analysis.getAffectedElement());
-            failureHistoryRepository.save(history);
-
-            log.info("Failure analysis saved with id: {}", saved.getId());
+            FailureAnalysis analysis = parseResponse(aiResponse.getContent(), projectId, executionId);
+            log.info("Failure analysis parsed: type={}, healingCandidate={}",
+                    analysis.getFailureType(), analysis.getHealingCandidate());
 
             AgentResult result = AgentResult.success(getName(), "Failure analysis completed");
-            result.putData("analysisId", saved.getId());
-            result.putData("failureType", saved.getFailureType());
-            result.putData("confidence", saved.getConfidence());
-            result.putData("healingCandidate", saved.getHealingCandidate());
+            result.putData("failureAnalysis", analysis);
+            result.putData("failureType", analysis.getFailureType());
+            result.putData("confidence", analysis.getConfidence());
+            result.putData("healingCandidate", analysis.getHealingCandidate());
             return result;
 
         } catch (Exception e) {
@@ -108,7 +98,7 @@ public class FailureAnalystAgent implements QaAgent {
         }
     }
 
-    private String buildUserPrompt(TestExecution execution) {
+    private String buildUserPrompt(String testFile, String errorMessage, String consoleLogs, String screenshotPath) {
         return String.format("""
                 Test Name: %s
                 Error Message: %s
@@ -117,10 +107,10 @@ public class FailureAnalystAgent implements QaAgent {
                 
                 Analyze this failed test execution and determine the root cause.
                 """,
-                execution.getTestFile(),
-                execution.getErrorMessage() != null ? execution.getErrorMessage() : "No error message",
-                execution.getConsoleLogs() != null ? execution.getConsoleLogs() : "No logs",
-                execution.getScreenshotPath() != null ? execution.getScreenshotPath() : "No screenshot");
+                testFile != null ? testFile : "unknown",
+                errorMessage != null ? errorMessage : "No error message",
+                consoleLogs != null ? consoleLogs : "No logs",
+                screenshotPath != null ? screenshotPath : "No screenshot");
     }
 
     private FailureAnalysis parseResponse(String aiResponse, Long projectId, Long executionId) throws Exception {

@@ -2,7 +2,11 @@ package com.qalab.qalabai.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.gateway.AgentExecutionContext;
+import com.qalab.qalabai.ai.gateway.AiGateway;
+import com.qalab.qalabai.ai.gateway.AiOperation;
+import com.qalab.qalabai.ai.gateway.AiRequest;
+import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.cache.AnalysisCache;
 import com.qalab.qalabai.dto.analysis.*;
@@ -29,7 +33,7 @@ public class ExplorerService {
 
     private final BrowserTool browserTool;
     private final DomSimplifier domSimplifier;
-    private final AiProvider aiProvider;
+    private final AiGateway aiGateway;
     private final AnalysisCache cache;
     private final ObjectMapper objectMapper;
     private final PageAnalysisHistoryRepository historyRepository;
@@ -37,13 +41,13 @@ public class ExplorerService {
 
     public ExplorerService(BrowserTool browserTool,
                            DomSimplifier domSimplifier,
-                           AiProvider aiProvider,
+                           AiGateway aiGateway,
                            AnalysisCache cache,
                            ObjectMapper objectMapper,
                            PageAnalysisHistoryRepository historyRepository) {
         this.browserTool = browserTool;
         this.domSimplifier = domSimplifier;
-        this.aiProvider = aiProvider;
+        this.aiGateway = aiGateway;
         this.cache = cache;
         this.objectMapper = objectMapper;
         this.historyRepository = historyRepository;
@@ -108,7 +112,7 @@ public class ExplorerService {
         String userPrompt = buildUserPrompt(title, currentUrl, simplifiedHtml, accessibilityTree);
         log.info("Prompt created, length: {} chars", userPrompt.length());
 
-        String llmResponse = callLlmWithRetry(userPrompt);
+        String llmResponse = callLlmWithRetry(userPrompt, projectId);
         log.info("LLM response received");
 
         AnalysisResponse analysis = parseResponse(llmResponse, screenshotBase64);
@@ -186,14 +190,36 @@ public class ExplorerService {
                 """, title, url, html, accessibilityTree);
     }
 
-    private String callLlmWithRetry(String userPrompt) {
+    private String callLlmWithRetry(String userPrompt, Long projectId) {
         try {
             log.info("LLM request sent");
-            return aiProvider.chat(explorerPrompt, userPrompt, JsonValidators.isJsonObject());
+            AiRequest request = AiRequest.builder(AiOperation.ANALYZE, explorerPrompt, userPrompt)
+                    .validator(JsonValidators.isJsonObject())
+                    .build();
+            AgentExecutionContext ctx = AgentExecutionContext.builder()
+                    .operationId("op-analyze")
+                    .build();
+            if (projectId != null) {
+                com.qalab.qalabai.agent.ProjectContext project = new com.qalab.qalabai.agent.ProjectContext();
+                project.setProjectId(String.valueOf(projectId));
+                ctx.setProjectContext(project);
+            }
+            return aiGateway.complete(request, ctx).getContent();
         } catch (Exception e) {
             log.warn("First LLM call failed: {}. Retrying...", e.getMessage());
             try {
-                return aiProvider.chat(explorerPrompt, userPrompt, JsonValidators.isJsonObject());
+                AiRequest request = AiRequest.builder(AiOperation.ANALYZE, explorerPrompt, userPrompt)
+                        .validator(JsonValidators.isJsonObject())
+                        .build();
+                AgentExecutionContext ctx = AgentExecutionContext.builder()
+                        .operationId("op-analyze")
+                        .build();
+                if (projectId != null) {
+                    com.qalab.qalabai.agent.ProjectContext project = new com.qalab.qalabai.agent.ProjectContext();
+                    project.setProjectId(String.valueOf(projectId));
+                    ctx.setProjectContext(project);
+                }
+                return aiGateway.complete(request, ctx).getContent();
             } catch (Exception retryEx) {
                 log.error("LLM retry failed: {}", retryEx.getMessage());
                 throw new RuntimeException("LLM call failed after retry: " + retryEx.getMessage(), retryEx);

@@ -4,10 +4,12 @@ import com.qalab.qalabai.agent.Task;
 import com.qalab.qalabai.agent.healing.SelfHealingAgent;
 import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.HealingSuggestion;
+import com.qalab.qalabai.model.LocatorHistory;
 import com.qalab.qalabai.model.Project;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.repository.FailureAnalysisRepository;
 import com.qalab.qalabai.repository.HealingSuggestionRepository;
+import com.qalab.qalabai.repository.LocatorHistoryRepository;
 import com.qalab.qalabai.repository.ProjectRepository;
 import com.qalab.qalabai.repository.TestExecutionRepository;
 import com.qalab.qalabai.service.healing.ElementMatcherService;
@@ -28,6 +30,7 @@ public class HealingService {
     private final FailureAnalysisRepository failureAnalysisRepository;
     private final HealingSuggestionRepository healingSuggestionRepository;
     private final ProjectRepository projectRepository;
+    private final LocatorHistoryRepository locatorHistoryRepository;
     private final ElementMatcherService elementMatcherService;
     private final HealingApplier healingApplier;
     private final FailureAnalysisService failureAnalysisService;
@@ -37,6 +40,7 @@ public class HealingService {
                           FailureAnalysisRepository failureAnalysisRepository,
                           HealingSuggestionRepository healingSuggestionRepository,
                           ProjectRepository projectRepository,
+                          LocatorHistoryRepository locatorHistoryRepository,
                           ElementMatcherService elementMatcherService,
                           HealingApplier healingApplier,
                           FailureAnalysisService failureAnalysisService,
@@ -45,6 +49,7 @@ public class HealingService {
         this.failureAnalysisRepository = failureAnalysisRepository;
         this.healingSuggestionRepository = healingSuggestionRepository;
         this.projectRepository = projectRepository;
+        this.locatorHistoryRepository = locatorHistoryRepository;
         this.elementMatcherService = elementMatcherService;
         this.healingApplier = healingApplier;
         this.failureAnalysisService = failureAnalysisService;
@@ -85,10 +90,23 @@ public class HealingService {
     }
 
     private HealingSuggestion generateWithAiAgent(FailureAnalysis analysis, Project project) {
+        LocatorHistory oldLocator = locatorHistoryRepository
+                .findByProjectIdAndElementNameAndStatus(project.getId(), analysis.getAffectedElement(), "ACTIVE")
+                .orElse(null);
+
+        if (oldLocator == null) {
+            log.warn("No active locator found for element: {}", analysis.getAffectedElement());
+            return null;
+        }
+
         Task task = new Task(UUID.randomUUID().toString(), "GENERATE_HEALING", project.getBaseUrl());
         task.putContext("failureAnalysisId", analysis.getId());
+        task.putContext("executionId", analysis.getExecutionId());
         task.putContext("projectId", project.getId());
         task.putContext("baseUrl", project.getBaseUrl());
+        task.putContext("elementName", oldLocator.getElementName());
+        task.putContext("oldLocator", oldLocator.getLocator());
+        task.putContext("failureSummary", analysis.getSummary());
 
         var result = selfHealingAgent.execute(task);
 
@@ -97,14 +115,17 @@ public class HealingService {
             return null;
         }
 
-        Long suggestionId = (Long) result.getData().get("suggestionId");
-        HealingSuggestion suggestion = healingSuggestionRepository.findById(suggestionId)
-                .orElse(null);
-
-        if (suggestion != null) {
-            verifyWithMatcher(suggestion, project);
+        HealingSuggestion suggestion = (HealingSuggestion) result.getData().get("suggestion");
+        if (suggestion == null || suggestion.getNewLocator() == null || suggestion.getNewLocator().isBlank()) {
+            log.warn("AI agent produced no suggestion");
+            return null;
         }
-        return suggestion;
+
+        HealingSuggestion saved = healingSuggestionRepository.save(suggestion);
+        log.info("Healing suggestion saved with id: {}", saved.getId());
+
+        verifyWithMatcher(saved, project);
+        return saved;
     }
 
     private void verifyWithMatcher(HealingSuggestion suggestion, Project project) {

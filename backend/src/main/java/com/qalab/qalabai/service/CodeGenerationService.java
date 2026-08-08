@@ -6,6 +6,7 @@ import com.qalab.qalabai.agent.testgen.TestGeneratorAgent;
 import com.qalab.qalabai.cache.AnalysisCache;
 import com.qalab.qalabai.dto.analysis.AnalysisResponse;
 import com.qalab.qalabai.dto.locator.LocatorDto;
+import com.qalab.qalabai.dto.testgen.GeneratedFile;
 import com.qalab.qalabai.dto.testgen.GeneratedTestDto;
 import com.qalab.qalabai.dto.testgen.TestGenResponse;
 import com.qalab.qalabai.model.GeneratedTest;
@@ -57,6 +58,43 @@ public class CodeGenerationService {
     public TestGenResponse generateTests(String url, Long projectId) {
         log.info("Generating tests for URL: {}", url);
 
+        List<GeneratedTest> tests = runGenerator(url, projectId);
+
+        List<GeneratedTest> saved = testRepository.saveAll(tests);
+        log.info("Saved {} tests to database", saved.size());
+
+        if (projectId != null) {
+            testWorkspaceService.writeTestFiles(projectId, saved);
+        }
+
+        List<GeneratedTestDto> dtos = saved.stream()
+                .map(this::toDto)
+                .toList();
+
+        return new TestGenResponse(dtos.size(), dtos);
+    }
+
+    public List<GeneratedTest> generateTestsEntities(String url, Long projectId) {
+        log.info("Generating tests (entities, no persist) for URL: {}", url);
+        return runGenerator(url, projectId);
+    }
+
+    /**
+     * Service-contract path: generates test source and returns it to the caller
+     * as files. Nothing is persisted and nothing is written into any workspace;
+     * the client decides where to place the files.
+     */
+    public List<GeneratedFile> generateTestsContent(String url, Long projectId) {
+        log.info("Generating test content (service path) for URL: {}", url);
+
+        List<GeneratedTest> tests = runGenerator(url, projectId);
+
+        return tests.stream()
+                .map(t -> new GeneratedFile(TestWorkspaceService.resolveFileName(t), t.getTestCode()))
+                .toList();
+    }
+
+    private List<GeneratedTest> runGenerator(String url, Long projectId) {
         AnalysisResponse analysis = analysisCache.getByUrl(url);
         if (analysis == null) {
             throw new RuntimeException("No analysis found for URL: " + url + ". Please analyze the page first.");
@@ -138,16 +176,7 @@ public class CodeGenerationService {
 
         @SuppressWarnings("unchecked")
         List<GeneratedTest> tests = (List<GeneratedTest>) result.getData().get("tests");
-
-        if (projectId != null) {
-            testWorkspaceService.writeTestFiles(projectId, tests);
-        }
-
-        List<GeneratedTestDto> dtos = tests.stream()
-                .map(this::toDto)
-                .toList();
-
-        return new TestGenResponse(dtos.size(), dtos);
+        return tests;
     }
 
     public List<GeneratedTestDto> getTestsForUrl(String pageUrl) {

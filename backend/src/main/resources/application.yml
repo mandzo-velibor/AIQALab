@@ -25,6 +25,7 @@ server:
 qalab:
   screenshots-dir: ./screenshots
   workspaces-dir: ./workspaces
+  artifacts-dir: ./artifacts
   auto-start-frontend: true
   auto-open-browser: true
   auto-install-playwright: true

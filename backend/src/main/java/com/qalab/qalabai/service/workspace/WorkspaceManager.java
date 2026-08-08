@@ -1,9 +1,12 @@
 package com.qalab.qalabai.service.workspace;
 
 import com.qalab.qalabai.agent.ProjectContext;
+import com.qalab.qalabai.model.GeneratedTest;
 import com.qalab.qalabai.model.Project;
 import com.qalab.qalabai.repository.ProjectRepository;
 import com.qalab.qalabai.service.git.GitService;
+import com.qalab.qalabai.tool.ToolContext;
+import com.qalab.qalabai.tool.playwright.PlaywrightTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,22 +19,168 @@ import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
-public class WorkspaceManager {
+public class WorkspaceManager implements WorkspaceProvider {
 
     private static final Logger log = LoggerFactory.getLogger(WorkspaceManager.class);
 
     private final ProjectRepository projectRepository;
     private final GitService gitService;
+    private final PlaywrightTool playwrightTool;
 
     @Value("${qalab.workspaces-dir:./workspaces}")
     private String workspacesDir;
 
-    public WorkspaceManager(ProjectRepository projectRepository, GitService gitService) {
+    public WorkspaceManager(ProjectRepository projectRepository,
+                            GitService gitService,
+                            PlaywrightTool playwrightTool) {
         this.projectRepository = projectRepository;
         this.gitService = gitService;
+        this.playwrightTool = playwrightTool;
+    }
+
+    @Override
+    public String getWorkspace(ProjectContext project) {
+        if (project.getWorkspacePath() != null && !project.getWorkspacePath().isBlank()) {
+            return project.getWorkspacePath();
+        }
+        if (project.getDatabaseId() != null) {
+            Path legacy = Paths.get(workspacesDir, "project-" + project.getDatabaseId());
+            return legacy.toAbsolutePath().normalize().toString();
+        }
+        throw new RuntimeException("No workspace path available for project: "
+                + project.getProjectId() + ". Provide a workspacePath to execute tests.");
+    }
+
+    @Override
+    public void prepareWorkspace(ProjectContext project) {
+        String workspace = getWorkspace(project);
+        prepareWorkspace(workspace);
+    }
+
+    @Override
+    public String writeTests(ProjectContext project, List<GeneratedTest> tests) {
+        if (tests == null || tests.isEmpty()) {
+            return null;
+        }
+        String workspace = getWorkspace(project);
+        Path root = Paths.get(workspace);
+        Path testsDir = root.resolve("tests");
+        Path pagesDir = root.resolve("pages");
+
+        try {
+            Files.createDirectories(testsDir);
+            Files.createDirectories(pagesDir);
+
+            for (GeneratedTest test : tests) {
+                String fileName = resolveFileName(test);
+                if (test.getTestCode() != null && !test.getTestCode().isBlank()) {
+                    Files.writeString(testsDir.resolve(fileName), normalizeCode(test.getTestCode()));
+                }
+                writePageObject(pagesDir, normalizeCode(test.getPageObjectCode()));
+            }
+
+            log.info("Wrote {} test files to {}", tests.size(), testsDir);
+            return workspace;
+        } catch (Exception e) {
+            log.error("Failed to write test files to workspace: {}", e.getMessage());
+            throw new RuntimeException("Failed to write test files to workspace: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public Map<String, Object> execute(ProjectContext project, String testFile, boolean runAll) {
+        String workspace = getWorkspace(project);
+        ToolContext context = new ToolContext().put("workspacePath", workspace);
+        if (testFile != null && !testFile.isBlank()) {
+            context.put("testFile", testFile);
+        }
+        context.put("runAll", runAll);
+        return toMap(playwrightTool.execute(context));
+    }
+
+    @Override
+    public Map<String, String> collectArtifacts(ProjectContext project) {
+        return new HashMap<>();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> toMap(Object raw) {
+        if (raw instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "ERROR");
+        result.put("error", "Unexpected result from PlaywrightTool");
+        return result;
+    }
+
+    private void writePageObject(Path pagesDir, String pageObjectCode) throws IOException {
+        if (pageObjectCode == null || pageObjectCode.isBlank()) {
+            return;
+        }
+        String className = extractClassName(pageObjectCode);
+        if (className != null) {
+            Files.writeString(pagesDir.resolve(className + ".ts"), pageObjectCode);
+        }
+    }
+
+    /**
+     * Decodes double-encoded line breaks (literal "\n" backslash sequences in a
+     * single-line string) back into real newlines so the written file is valid
+     * source code. No-op when the code already contains real line breaks.
+     */
+    private String normalizeCode(String code) {
+        if (code == null || code.isEmpty() || code.indexOf('\\') < 0) {
+            return code;
+        }
+        int literalNewlines = countOccurrences(code, "\\n");
+        int realNewlines = countOccurrences(code, "\n");
+        if (literalNewlines > 0 && realNewlines == 0) {
+            return code
+                    .replace("\\r\\n", "\n")
+                    .replace("\\n", "\n")
+                    .replace("\\t", "\t");
+        }
+        return code;
+    }
+
+    private int countOccurrences(String text, String needle) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(needle, idx)) >= 0) {
+            count++;
+            idx += needle.length();
+        }
+        return count;
+    }
+
+    private String extractClassName(String code) {
+        Pattern pattern = Pattern.compile("export\\s+class\\s+(\\w+)");
+        Matcher matcher = pattern.matcher(code);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    public static String resolveFileName(GeneratedTest test) {
+        if (test.getTestFileName() != null && !test.getTestFileName().isBlank()) {
+            return test.getTestFileName();
+        }
+        String base = test.getScenarioName() == null ? "test" : test.getScenarioName().trim();
+        String fileName = base
+                .toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (fileName.isBlank()) {
+            fileName = "test";
+        }
+        return fileName + ".spec.ts";
     }
 
     public ProjectContext getProjectContext(Long projectId) {
