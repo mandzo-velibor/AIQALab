@@ -9,8 +9,11 @@ import com.qalab.qalabai.dto.analysis.AnalysisResponse;
 import com.qalab.qalabai.dto.locator.LocatorResponse;
 import com.qalab.qalabai.dto.planner.TestPlanResponse;
 import com.qalab.qalabai.dto.testgen.GeneratedFile;
+import com.qalab.qalabai.healing.model.FailureContext;
+import com.qalab.qalabai.healing.model.HealingProposal;
+import com.qalab.qalabai.healing.service.HealingAnalysisService;
+import com.qalab.qalabai.healing.service.HealingOutcome;
 import com.qalab.qalabai.model.FailureAnalysis;
-import com.qalab.qalabai.model.HealingSuggestion;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.service.workspace.WorkspaceProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +41,7 @@ class QaWorkflowServiceTest {
     private final CodeGenerationService codeGenerationService = mock(CodeGenerationService.class);
     private final ExecutionService executionService = mock(ExecutionService.class);
     private final FailureAnalysisService failureAnalysisService = mock(FailureAnalysisService.class);
-    private final HealingService healingService = mock(HealingService.class);
+    private final HealingAnalysisService healingAnalysisService = mock(HealingAnalysisService.class);
     private final WorkspaceProvider workspaceProvider = mock(WorkspaceProvider.class);
 
     private QaWorkflowService workflow;
@@ -50,7 +53,7 @@ class QaWorkflowServiceTest {
     void setUp() {
         workflow = new QaWorkflowService(contextResolver, explorerService, locatorService,
                 planningService, codeGenerationService, executionService,
-                failureAnalysisService, healingService, workspaceProvider);
+                failureAnalysisService, healingAnalysisService, workspaceProvider);
 
         info = ProjectInfo.of("internet-tests", "https://the-internet.herokuapp.com/login", "PLAYWRIGHT", "TYPESCRIPT");
         project = new ProjectContext();
@@ -122,12 +125,24 @@ class QaWorkflowServiceTest {
         analysis.setHealingCandidate(true);
         when(failureAnalysisService.analyzeExecution(eq(10L), eq(3L))).thenReturn(analysis);
 
-        HealingSuggestion suggestion = new HealingSuggestion();
-        suggestion.setElementName("#login");
-        suggestion.setOldLocator("#login");
-        suggestion.setNewLocator("getByRole('button', { name: 'Login' })");
-        suggestion.setConfidence(90);
-        when(healingService.generateHealingSuggestion(eq(10L))).thenReturn(suggestion);
+        HealingProposal proposal = new HealingProposal();
+        proposal.setProposalId("prop-10");
+        proposal.setOriginalLocator("#login");
+        proposal.setRecommendedLocator("getByRole('button', { name: 'Login' })");
+        proposal.setConfidence(0.9);
+        proposal.setConfidenceLabel("HIGH");
+        proposal.setSafeToApply(true);
+        proposal.setStatus("PROPOSED");
+        FailureContext context = new FailureContext();
+        context.setProjectId(3L);
+        HealingOutcome outcome = new HealingOutcome(
+                context,
+                new HealingOutcome.FailureClassificationView("LOCATOR_FAILURE", 0.9, "locator broken"),
+                List.of(),
+                proposal,
+                true,
+                "locator repaired");
+        when(healingAnalysisService.analyzeExecution(eq(10L), eq(3L))).thenReturn(outcome);
 
         V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null));
 
@@ -135,7 +150,7 @@ class QaWorkflowServiceTest {
         assertStepStatus(response, "failureAnalysis", "COMPLETED");
         assertStepStatus(response, "healing", "COMPLETED");
         verify(failureAnalysisService).analyzeExecution(eq(10L), eq(3L));
-        verify(healingService).generateHealingSuggestion(eq(10L));
+        verify(healingAnalysisService).analyzeExecution(eq(10L), eq(3L));
     }
 
     @Test
@@ -158,7 +173,7 @@ class QaWorkflowServiceTest {
 
         assertStepStatus(response, "failureAnalysis", "COMPLETED");
         assertStepStatus(response, "healing", "SKIPPED");
-        verify(healingService, never()).generateHealingSuggestion(any());
+        verify(healingAnalysisService, never()).analyzeExecution(any(), any());
     }
 
     @Test

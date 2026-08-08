@@ -3,9 +3,11 @@ package com.qalab.qalabai.api.v1;
 import com.qalab.qalabai.agent.ProjectContext;
 import com.qalab.qalabai.api.ApiException;
 import com.qalab.qalabai.api.OperationStatus;
+import com.qalab.qalabai.api.v1.dto.V1HealingOutcomeResponse;
 import com.qalab.qalabai.api.v1.dto.V1RunRequest;
 import com.qalab.qalabai.api.v1.dto.V1RunResponse;
 import com.qalab.qalabai.dto.executor.ExecutionResponse;
+import com.qalab.qalabai.healing.service.HealingOutcome;
 import com.qalab.qalabai.service.ExecutionService;
 import com.qalab.qalabai.service.ProjectContextResolver;
 import org.slf4j.Logger;
@@ -38,29 +40,43 @@ public class V1ExecutionController extends AbstractV1Controller {
         String operationId = operationId();
         Long dbId = databaseId(request.project());
 
-        ExecutionResponse result;
+        ExecutionService.RunResult result;
+        boolean healingAnalysis = Boolean.TRUE.equals(request.healingAnalysis());
         if (Boolean.TRUE.equals(request.runAll())) {
             if (dbId == null) {
                 throw ApiException.invalidRequest("runAll requires a registered project (databaseId)");
             }
-            log.info("POST /api/v1/run operationId={} runAll=true project={}", operationId, project.getProjectId());
-            result = executionService.runAllTests(dbId);
+            log.info("POST /api/v1/run operationId={} runAll=true project={} healingAnalysis={}",
+                    operationId, project.getProjectId(), healingAnalysis);
+            result = executionService.runAllTests(dbId, healingAnalysis);
         } else if (request.testId() != null) {
-            log.info("POST /api/v1/run operationId={} testId={}", operationId, request.testId());
-            result = executionService.runTest(request.testId(), dbId);
+            log.info("POST /api/v1/run operationId={} testId={} healingAnalysis={}",
+                    operationId, request.testId(), healingAnalysis);
+            result = executionService.runTest(request.testId(), dbId, healingAnalysis);
         } else {
             throw ApiException.invalidRequest("testId or runAll is required");
+        }
+        ExecutionResponse exec = result.response();
+
+        V1HealingOutcomeResponse healing = null;
+        if (healingAnalysis && "FAILED".equals(exec.status()) && dbId != null) {
+            HealingOutcome outcome = result.healing();
+            if (outcome == null) {
+                outcome = executionService.analyzeExecutionHealing(exec.executionId(), dbId);
+            }
+            healing = V1HealingOutcomeResponse.from(operationId, outcome);
         }
 
         V1RunResponse response = new V1RunResponse(
                 operationId,
                 OperationStatus.COMPLETED,
                 project.getProjectId(),
-                result.executionId(),
-                result.status(),
-                result.duration(),
-                result.errorMessage(),
-                result.consoleLogs(),
+                exec.executionId(),
+                exec.status(),
+                exec.duration(),
+                exec.errorMessage(),
+                exec.consoleLogs(),
+                healing,
                 LocalDateTime.now()
         );
         return ResponseEntity.ok(response);

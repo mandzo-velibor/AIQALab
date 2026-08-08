@@ -13,6 +13,7 @@ public record V1RunResponse(
         Long duration,
         String errorMessage,
         String output,
+        V1HealingOutcomeResponse healing,
         LocalDateTime createdAt
 ) {
 }

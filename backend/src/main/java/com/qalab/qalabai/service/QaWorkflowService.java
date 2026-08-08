@@ -10,7 +10,6 @@ import com.qalab.qalabai.dto.planner.TestPlanResponse;
 import com.qalab.qalabai.dto.testgen.GeneratedFile;
 import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.GeneratedTest;
-import com.qalab.qalabai.model.HealingSuggestion;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.service.workspace.WorkspaceProvider;
 import org.slf4j.Logger;
@@ -54,7 +53,7 @@ public class QaWorkflowService {
     private final CodeGenerationService codeGenerationService;
     private final ExecutionService executionService;
     private final FailureAnalysisService failureAnalysisService;
-    private final HealingService healingService;
+    private final com.qalab.qalabai.healing.service.HealingAnalysisService healingAnalysisService;
     private final WorkspaceProvider workspaceProvider;
 
     public QaWorkflowService(ProjectContextResolver contextResolver,
@@ -64,7 +63,7 @@ public class QaWorkflowService {
                              CodeGenerationService codeGenerationService,
                              ExecutionService executionService,
                              FailureAnalysisService failureAnalysisService,
-                             HealingService healingService,
+                             com.qalab.qalabai.healing.service.HealingAnalysisService healingAnalysisService,
                              WorkspaceProvider workspaceProvider) {
         this.contextResolver = contextResolver;
         this.explorerService = explorerService;
@@ -73,7 +72,7 @@ public class QaWorkflowService {
         this.codeGenerationService = codeGenerationService;
         this.executionService = executionService;
         this.failureAnalysisService = failureAnalysisService;
-        this.healingService = healingService;
+        this.healingAnalysisService = healingAnalysisService;
         this.workspaceProvider = workspaceProvider;
     }
 
@@ -170,12 +169,23 @@ public class QaWorkflowService {
             steps.put("failureAnalysis", step("COMPLETED", faData));
 
             if (Boolean.TRUE.equals(analysis.getHealingCandidate())) {
-                HealingSuggestion suggestion = healingService.generateHealingSuggestion(executionId);
+                com.qalab.qalabai.healing.service.HealingOutcome healingOutcome =
+                        healingAnalysisService.analyzeExecution(executionId, dbId);
                 Map<String, Object> healingData = new LinkedHashMap<>();
-                healingData.put("elementName", suggestion.getElementName());
-                healingData.put("oldLocator", suggestion.getOldLocator());
-                healingData.put("newLocator", suggestion.getNewLocator());
-                healingData.put("confidence", suggestion.getConfidence());
+                healingData.put("classification", healingOutcome.classification() != null
+                        ? healingOutcome.classification().type() : "UNKNOWN");
+                healingData.put("healingAttempted", healingOutcome.healingAttempted());
+                healingData.put("message", healingOutcome.message());
+                if (healingOutcome.proposal() != null) {
+                    com.qalab.qalabai.healing.model.HealingProposal p = healingOutcome.proposal();
+                    healingData.put("proposalId", p.getProposalId());
+                    healingData.put("originalLocator", p.getOriginalLocator());
+                    healingData.put("recommendedLocator", p.getRecommendedLocator());
+                    healingData.put("confidence", p.getConfidence());
+                    healingData.put("confidenceLabel", p.getConfidenceLabel());
+                    healingData.put("safeToApply", p.getSafeToApply());
+                    healingData.put("proposalStatus", p.getStatus());
+                }
                 steps.put("healing", step("COMPLETED", healingData));
             } else {
                 steps.put("healing", step("SKIPPED", Map.of("reason", "NOT_HEALING_CANDIDATE")));

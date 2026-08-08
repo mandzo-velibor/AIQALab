@@ -143,6 +143,39 @@ public final class QalabClient {
         return patch("/api/v1/account/budget-policy", payload.toString());
     }
 
+    /**
+     * Runs the self-healing pipeline on a failed execution and, when the
+     * failure is locator-related, produces a human-reviewable proposal.
+     */
+    public ApiResult analyzeHealing(long executionId) {
+        return post("/api/v1/healing/propose", body().put("executionId", executionId).toString());
+    }
+
+    /** Fetches a single healing proposal by id. */
+    public ApiResult healingProposal(String proposalId) {
+        return get("/api/v1/healing/" + proposalId);
+    }
+
+    /** Lists proposals produced for a run (executionId). */
+    public ApiResult proposalsByRun(String runId) {
+        return get("/api/v1/healing?runId=" + runId);
+    }
+
+    /** Lists the healing proposal history of a project. */
+    public ApiResult healingHistory(long projectId) {
+        return get("/api/v1/projects/" + projectId + "/healing");
+    }
+
+    /** Marks a proposal as accepted (approved for later application). */
+    public ApiResult acceptProposal(String proposalId) {
+        return post("/api/v1/healing/" + proposalId + "/accept", "{}");
+    }
+
+    /** Marks a proposal as rejected. */
+    public ApiResult rejectProposal(String proposalId) {
+        return post("/api/v1/healing/" + proposalId + "/reject", "{}");
+    }
+
     /** The operation id of the last response, when present. */
     public Optional<String> operationId(ApiResult result) {
         return Optional.ofNullable(result.operationId());

@@ -61,9 +61,14 @@ Every operation returns an `operationId` and an `OperationStatus`
 | Generate locators | `POST /api/v1/locators` | Generate stable Playwright locators |
 | Generate test plan | `POST /api/v1/test-plan` | Generate test scenarios |
 | Generate tests | `POST /api/v1/tests` | Generate Playwright code, returned as files |
-| Run tests | `POST /api/v1/run` | Run a test or the full suite in the target workspace |
+| Run tests | `POST /api/v1/run` | Run a test or the full suite in the target workspace (`healingAnalysis: true` to heal on failure) |
 | Analyze failure | `POST /api/v1/failures/analyze` | Root-cause analysis of a failed execution |
-| Healing | `POST /api/v1/healing/analyze` | Propose a replacement locator for a broken element |
+| Healing (analyze) | `POST /api/v1/healing/analyze` | Run the self-healing pipeline on a failed execution |
+| Healing (propose) | `POST /api/v1/healing/propose` | Produce a healing proposal for an execution or a raw failure context |
+| Healing (get) | `GET /api/v1/healing/{proposalId}` | Fetch a single healing proposal |
+| Healing (by run) | `GET /api/v1/healing?runId=<executionId>` | List proposals produced for a run |
+| Healing (history) | `GET /api/v1/projects/{projectId}/healing` | Healing proposal history of a project |
+| Healing (review) | `POST /api/v1/healing/{proposalId}/accept` / `.../reject` | Approve or reject a proposal (review is always human) |
 | Full QA workflow | `POST /api/v1/workflows/full-test` | Explore → analyze → locators → plan → generate → run → failure analysis → healing |
 | Intent detection | `POST /api/v1/intent` | Detect what a natural-language request wants |
 | Intent execution | `POST /api/v1/intent/run` | Detect the intent, then dispatch to the matching operation |
@@ -158,14 +163,28 @@ computes a confidence score, identifies the affected element, and decides whethe
 failure is a healing candidate.
 
 ### Self-Healing Agent
-Proposes replacement locators for broken elements using two complementary strategies:
-1. **AI-based**: inspects the current DOM and proposes the most probable replacement
-2. **Deterministic**: `ElementMatcherService` ranks live-page candidates by
-   `LocatorSimilarityService`
+Produces **explainable, human-reviewable healing proposals** when a test fails on a
+locator (`LOCATOR_FAILURE`). The pipeline (`HealingAnalysisService`) runs on the real
+Playwright output of a failed execution:
 
-Safeguards: it **never** modifies test code automatically; suggestions start as `PENDING`
-and require explicit approval/apply to become active, while the full locator history is
-preserved.
+1. **Classify** the failure (`FailureClassifier`): `LOCATOR_FAILURE`, `ASSERTION_FAILURE`,
+   `NETWORK_FAILURE`, `APPLICATION_ERROR`, `TIMEOUT`, `UNKNOWN` — with a confidence score.
+2. **Recover context** — the failing locator and test title are parsed from the actual
+   output, and the live DOM of the project page is fetched with the Browser Tool
+   (`DomContextExtractor`).
+3. **Generate candidates** (`LocatorCandidateGenerator`): role+name, text, id, `name`,
+   tag+type, `data-testid`, … each validated for uniqueness/visibility/enabled state.
+4. **Rank and evaluate** (`CandidateRanker`, `HealingAiEvaluator`): the AI evaluator scores
+   the top candidates; when the AI is unavailable (e.g. budget exhausted) a deterministic
+   ranking selects the best validated candidate.
+5. **Persist a proposal** (`HealingProposalService`): `PROPOSED` status with the
+   recommended locator, confidence (`HIGH`/`MEDIUM`/`LOW`), `safeToApply`, an
+   explainable reason, and ranked alternatives.
+
+Safeguards: the Core **never modifies test source** — proposals start as `PROPOSED` and a
+human accepts or rejects them. `healingAnalysis: true` on `POST /api/v1/run` runs healing
+automatically on failed executions; the result is embedded in the run response and in the
+execution report's `Self-Healing` section (JSON and Markdown).
 
 ## Services
 
@@ -180,7 +199,7 @@ Application logic lives in focused services (no monolithic `QaService`):
 | `CodeGenerationService` | TEST GENERATION (content-only and entity variants) |
 | `ExecutionService` | RUN capability + execution records |
 | `FailureAnalysisService` | FAILURE ANALYSIS + project memory |
-| `HealingService` | HEALING + suggestion lifecycle |
+| `HealingService` / `HealingAnalysisService` | HEALING + proposal lifecycle (classify → candidates → evaluate → propose) |
 | `QaWorkflowService` | FULL_TEST orchestration with branching |
 
 `ProjectContextResolver` converts the client `project` block into a `ProjectContext` (an
@@ -288,11 +307,15 @@ The engine ships with a CLI and a Java SDK for scripted/CI use.
 # CLI
 export QALAB_BASE_URL=https://the-internet.herokuapp.com/login
 export QALAB_WORKSPACE=/home/dev/my-internet-tests
+export QALAB_DB_ID=1        # registered project id (needed for run/heal)
 
 cli/qalab init ~/qa-project            # create a .qalab.json config
 cli/qalab explore                      # page map
 cli/qalab generate                     # Playwright test files
-cli/qalab execute                      # run in the configured workspace
+cli/qalab execute --all --healing-analysis  # run suite + healing on failure
+cli/qalab execute --test <id> --healing-analysis
+cli/qalab heal <executionId>           # analyze a failed run → healing proposal
+cli/qalab heal-status <proposalId>     # show a proposal
 cli/qalab report                       # list reports
 cli/qalab report 12                    # one report
 cli/qalab intent "generate tests for the login page"   # natural language
@@ -312,6 +335,14 @@ qalab.generate("https://the-internet.herokuapp.com/login");
 qalab.executeAll();
 qalab.report(1L);
 qalab.updateBudgetPolicy("SOFT");
+
+// self-healing (Sprint 13)
+qalab.analyzeHealing(19L);                 // heal a failed execution
+qalab.healingProposal("heal-ab12cd34");    // fetch a proposal
+qalab.proposalsByRun("19");                // proposals for a run
+qalab.healingHistory(4L);                  // project healing history
+qalab.acceptProposal("heal-ab12cd34");     // human review: accept
+qalab.rejectProposal("heal-ab12cd34");     // human review: reject
 ```
 
 Every generated test run stores artifacts (screenshots, traces, videos, console
@@ -344,6 +375,12 @@ builds (push only).
   token usage accounting and budget enforcement (`AI_BUDGET_EXCEEDED`)
 - Sprint 12: Budget policy (`HARD`/`SOFT`/`NONE`), natural-language intent detection,
   execution reports + artifact store, and the `qalab` CLI + Java SDK
+- Sprint 13: Self-healing pipeline — failure classification, live-DOM locator candidate
+  generation/validation/ranking, AI + deterministic evaluation, explainable healing
+  proposals with human accept/reject review, and healing embedded in runs + reports.
+  Verified end-to-end against a **real Playwright locator failure** in an external
+  repository (correct `getByRole` replacement proposed, `LOCATOR_FAILURE` 0.99,
+  HIGH confidence, `safeToApply`, no source modification).
 
 ### Next
 - Vector memory

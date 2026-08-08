@@ -28,6 +28,14 @@ ApiResult report  = qalab.report(1L);
 // budget policy
 qalab.budgetPolicy();
 qalab.updateBudgetPolicy("SOFT");   // HARD | SOFT | NONE
+
+// self-healing (Sprint 13)
+qalab.analyzeHealing(19L);                // heal a failed execution → proposal
+qalab.healingProposal("heal-ab12cd34");   // fetch a single proposal
+qalab.proposalsByRun("19");               // proposals for a run
+qalab.healingHistory(4L);                 // project healing history
+qalab.acceptProposal("heal-ab12cd34");    // human review: accept
+qalab.rejectProposal("heal-ab12cd34");    // human review: reject
 ```
 
 Every method returns an `ApiResult(status, body, operationId)` where `body` is
@@ -62,6 +70,12 @@ classpath at runtime).
 | `report(executionId)` | `GET /api/v1/reports/{id}` |
 | `budgetPolicy()` | `GET /api/v1/account/budget-policy` |
 | `updateBudgetPolicy(policy)` | `PATCH /api/v1/account/budget-policy` |
+| `analyzeHealing(executionId)` | `POST /api/v1/healing/propose` |
+| `healingProposal(proposalId)` | `GET /api/v1/healing/{id}` |
+| `proposalsByRun(runId)` | `GET /api/v1/healing?runId=` |
+| `healingHistory(projectId)` | `GET /api/v1/projects/{id}/healing` |
+| `acceptProposal(proposalId)` | `POST /api/v1/healing/{id}/accept` |
+| `rejectProposal(proposalId)` | `POST /api/v1/healing/{id}/reject` |
 
 All operations run through the `AiGateway`, so managed-token budgets are
 enforced before any provider call regardless of which surface invokes them.

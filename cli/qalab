@@ -12,12 +12,18 @@
 #   intent "<prompt>"     detect intent and run the matching operation
 #   budget-policy         show the current budget policy
 #   budget-policy set <HARD|SOFT|NONE>  update the budget policy
+#   execute --all --healing-analysis   run all tests with self-healing analysis
+#   execute --test <id> --healing-analysis  run one test with healing analysis
+#   heal <executionId>    analyze a failed run and produce a healing proposal
+#   heal-status <proposalId>  show a healing proposal
+#   test <url>            run the full workflow incl. healing analysis
 #
 # Configuration (environment):
 #   QALAB_API_URL   default http://localhost:8080
 #   QALAB_PROJECT_ID   logical project id
 #   QALAB_BASE_URL     app base url
 #   QALAB_WORKSPACE    workspace path for execution
+#   QALAB_DB_ID        registered project id (database) for run/heal
 #
 set -euo pipefail
 
@@ -25,6 +31,7 @@ API_URL="${QALAB_API_URL:-http://localhost:8080}"
 PROJECT_ID="${QALAB_PROJECT_ID:-qalab-cli}"
 BASE_URL="${QALAB_BASE_URL:-}"
 WORKSPACE="${QALAB_WORKSPACE:-}"
+DB_ID="${QALAB_DB_ID:-}"
 
 json_get() {
   # json_get <json> <key>
@@ -36,14 +43,64 @@ json_get() {
   fi
 }
 
+json_id() {
+  # json_id <id> - echoes the raw id (quotes stripped)
+  local id="$1"
+  printf '%s' "${id//\"/}"
+}
+
+print_healing() {
+  # print_healing <json> - human readable healing outcome/proposal
+  local json
+  if [ -n "${1:-}" ]; then
+    json="$1"
+  else
+    json="$(cat)"
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '%s' "$json"
+    return
+  fi
+  local cls conf reason attempt pid
+  cls="$(printf '%s' "$json" | jq -r '.classification // empty')"
+  conf="$(printf '%s' "$json" | jq -r '.classificationConfidence // empty')"
+  reason="$(printf '%s' "$json" | jq -r '.classificationReason // empty')"
+  attempt="$(printf '%s' "$json" | jq -r '.healingAttempted // empty')"
+  pid="$(printf '%s' "$json" | jq -r '.proposal.proposalId // empty')"
+  echo "AI QA SELF-HEALING"
+  if [ -z "$cls" ]; then
+    printf '%s' "$json"
+    return
+  fi
+  echo "Classification: $cls (confidence: ${conf:-n/a})"
+  echo "Reason: ${reason:-n/a}"
+  echo "Healing attempted: ${attempt:-false}"
+  if [ -n "$pid" ]; then
+    echo ""
+    echo "Proposal: $pid"
+    echo "  Original:    $(printf '%s' "$json" | jq -r '.proposal.originalLocator')"
+    echo "  Recommended: $(printf '%s' "$json" | jq -r '.proposal.recommendedLocator')"
+    echo "  Confidence:  $(printf '%s' "$json" | jq -r '.proposal.confidence') ($(printf '%s' "$json" | jq -r '.proposal.confidenceLabel'))"
+    echo "  Safe to apply: $(printf '%s' "$json" | jq -r '.proposal.safeToApply')"
+    echo "  Status:      $(printf '%s' "$json" | jq -r '.proposal.status')"
+    echo "  Reason:      $(printf '%s' "$json" | jq -r '.proposal.reason')"
+  else
+    echo "No healing proposal created."
+  fi
+}
+
 project_payload() {
+  local db=""
+  if [ -n "$DB_ID" ]; then
+    db=", \"databaseId\": $DB_ID"
+  fi
   cat <<EOF
   {
     "projectId": "$PROJECT_ID",
     "baseUrl": "$BASE_URL",
     "framework": "PLAYWRIGHT",
     "language": "TYPESCRIPT",
-    "workspacePath": "$WORKSPACE"
+    "workspacePath": "$WORKSPACE"$db
   }
 EOF
 }
@@ -97,15 +154,49 @@ EOF
       -d "{\"project\":$payload,\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
     ;;
   execute)
+    healing="false"
+    test_id=""
+    run_all="false"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --healing-analysis) healing="true"; shift ;;
+        --all) run_all="true"; shift ;;
+        --test) test_id="${2:-}"; shift 2 ;;
+        *) test_id="${test_id:-$1}"; shift ;;
+      esac
+    done
     payload="$(project_payload)"
-    if [ -n "$WORKSPACE" ]; then
+    if [ -n "$test_id" ]; then
       curl -sS -X POST "$API_URL/api/v1/run" \
         -H 'Content-Type: application/json' \
-        -d "{\"project\":$payload,\"runAll\":true}" | jq . 2>/dev/null || true
+        -d "{\"project\":$payload,\"testId\":$(json_id "$test_id"),\"healingAnalysis\":$healing}" | jq . 2>/dev/null || true
+    elif [ "$run_all" = "true" ] || [ -n "$WORKSPACE" ]; then
+      curl -sS -X POST "$API_URL/api/v1/run" \
+        -H 'Content-Type: application/json' \
+        -d "{\"project\":$payload,\"runAll\":true,\"healingAnalysis\":$healing}" | jq . 2>/dev/null || true
     else
-      echo "error: execution requires QALAB_WORKSPACE" >&2
+      echo "error: execution requires QALAB_WORKSPACE (or --test <id>)" >&2
       exit 1
     fi
+    ;;
+  heal)
+    run_id="${2:?usage: qalab heal <executionId>}"
+    payload="$(project_payload)"
+    curl -sS -X POST "$API_URL/api/v1/healing/propose" \
+      -H 'Content-Type: application/json' \
+      -d "{\"project\":$payload,\"executionId\":$(json_id "$run_id")}" \
+      | print_healing
+    ;;
+  heal-status)
+    proposal_id="${2:?usage: qalab heal-status <proposalId>}"
+    curl -sS "$API_URL/api/v1/healing/$(json_id "$proposal_id")" | jq . 2>/dev/null || true
+    ;;
+  test)
+    url="${2:?usage: qalab test <url>}"
+    payload="$(project_payload)"
+    curl -sS -X POST "$API_URL/api/v1/workflows/full-test" \
+      -H 'Content-Type: application/json' \
+      -d "{\"project\":$payload,\"steps\":[\"explore\",\"analyze\",\"locators\",\"testPlan\",\"generate\",\"run\",\"healing\"],\"healingAnalysis\":true}" | jq . 2>/dev/null || true
     ;;
   report)
     if [ -n "${2:-}" ]; then

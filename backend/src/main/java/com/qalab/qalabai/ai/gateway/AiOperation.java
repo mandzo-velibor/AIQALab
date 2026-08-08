@@ -13,6 +13,7 @@ public enum AiOperation {
     TEST_GENERATION,
     FAILURE_ANALYSIS,
     SELF_HEALING,
+    HEALING_EVALUATION,
     FULL_WORKFLOW;
 
     public static AiOperation from(String value) {
