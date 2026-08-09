@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,12 +27,13 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
   const [analyzing, setAnalyzing] = useState(false);
   const [healing, setHealing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const errorRef = useRef<HTMLDivElement>(null);
 
-  // Errors (e.g. an exhausted token budget) are rendered in a banner near the
-  // top of the page, so surface it even when the user is scrolled down.
+  // Errors are rendered in a banner near the top of the page, so surface it
+  // even when the user is scrolled down at the point where they clicked.
   useEffect(() => {
     if (error) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [error]);
 
@@ -101,11 +102,13 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
       </div>
 
       {error && (
-        <Card className="border-red-500">
-          <CardContent className="pt-6">
-            <p className="text-red-500">{error}</p>
-          </CardContent>
-        </Card>
+        <div ref={errorRef} className="scroll-mt-4">
+          <Card className="border-red-500 bg-red-50 dark:bg-red-950/20">
+            <CardContent className="pt-6" role="alert">
+              <p className="text-red-600 dark:text-red-400">{error}</p>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {project?.baseUrl && (

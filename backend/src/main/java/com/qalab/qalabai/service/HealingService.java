@@ -13,12 +13,14 @@ import com.qalab.qalabai.repository.LocatorHistoryRepository;
 import com.qalab.qalabai.repository.ProjectRepository;
 import com.qalab.qalabai.repository.TestExecutionRepository;
 import com.qalab.qalabai.service.healing.ElementMatcherService;
+import com.qalab.qalabai.service.healing.FailedLocatorExtractor;
 import com.qalab.qalabai.service.healing.HealingApplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -90,12 +92,26 @@ public class HealingService {
     }
 
     private HealingSuggestion generateWithAiAgent(FailureAnalysis analysis, Project project) {
-        LocatorHistory oldLocator = locatorHistoryRepository
+        String elementName = analysis.getAffectedElement();
+        String oldLocator = null;
+
+        LocatorHistory history = locatorHistoryRepository
                 .findByProjectIdAndElementNameAndStatus(project.getId(), analysis.getAffectedElement(), "ACTIVE")
                 .orElse(null);
 
-        if (oldLocator == null) {
-            log.warn("No active locator found for element: {}", analysis.getAffectedElement());
+        if (history != null) {
+            elementName = history.getElementName();
+            oldLocator = history.getLocator();
+        } else {
+            log.warn("No active locator history for element: {}, using locator extracted from the failure",
+                    analysis.getAffectedElement());
+            oldLocator = extractFailedLocator(analysis.getExecutionId())
+                    .or(() -> Optional.ofNullable(analysis.getAffectedElement()).filter(s -> !s.isBlank()))
+                    .orElse(null);
+        }
+
+        if (oldLocator == null || oldLocator.isBlank()) {
+            log.warn("No usable old locator for element: {}", analysis.getAffectedElement());
             return null;
         }
 
@@ -104,8 +120,8 @@ public class HealingService {
         task.putContext("executionId", analysis.getExecutionId());
         task.putContext("projectId", project.getId());
         task.putContext("baseUrl", project.getBaseUrl());
-        task.putContext("elementName", oldLocator.getElementName());
-        task.putContext("oldLocator", oldLocator.getLocator());
+        task.putContext("elementName", elementName);
+        task.putContext("oldLocator", oldLocator);
         task.putContext("failureSummary", analysis.getSummary());
 
         var result = selfHealingAgent.execute(task);
@@ -126,6 +142,14 @@ public class HealingService {
 
         verifyWithMatcher(saved, project);
         return saved;
+    }
+
+    private Optional<String> extractFailedLocator(Long executionId) {
+        if (executionId == null) {
+            return Optional.empty();
+        }
+        return testExecutionRepository.findById(executionId)
+                .flatMap(exec -> FailedLocatorExtractor.extract(exec.getErrorMessage(), exec.getConsoleLogs()));
     }
 
     private void verifyWithMatcher(HealingSuggestion suggestion, Project project) {
@@ -149,8 +173,10 @@ public class HealingService {
     }
 
     private HealingSuggestion generateWithElementMatcher(FailureAnalysis analysis, Project project) {
+        String brokenLocator = extractFailedLocator(analysis.getExecutionId())
+                .orElse(analysis.getAffectedElement());
         List<ElementMatcherService.Candidate> candidates = elementMatcherService.findCandidates(
-                project.getBaseUrl(), analysis.getAffectedElement(), analysis.getAffectedElement());
+                project.getBaseUrl(), brokenLocator, analysis.getAffectedElement());
 
         if (candidates.isEmpty()) {
             return null;
@@ -162,7 +188,7 @@ public class HealingService {
         suggestion.setExecutionId(analysis.getExecutionId());
         suggestion.setFailureAnalysisId(analysis.getId());
         suggestion.setElementName(analysis.getAffectedElement());
-        suggestion.setOldLocator(analysis.getAffectedElement());
+        suggestion.setOldLocator(brokenLocator != null ? brokenLocator : analysis.getAffectedElement());
         suggestion.setNewLocator(best.locator());
         suggestion.setConfidence((int) (best.score() * 100));
         suggestion.setReason("Deterministic fallback (AI agent failed): matched role " + best.role());

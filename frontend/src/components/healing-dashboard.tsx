@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { HealingSuggestion } from "@/lib/healing-api";
 import { approveSuggestion, rejectSuggestion, applySuggestion } from "@/lib/healing-api";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface HealingDashboardProps {
   suggestions: HealingSuggestion[];
@@ -28,6 +28,13 @@ function statusVariant(status: string): "success" | "failed" | "running" | "seco
 export function HealingDashboard({ suggestions, onSuggestionChanged }: HealingDashboardProps) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [error]);
 
   const handleApprove = async (id: number) => {
     setBusyId(id);
@@ -74,7 +81,11 @@ export function HealingDashboard({ suggestions, onSuggestionChanged }: HealingDa
         <CardTitle>Healing Dashboard ({suggestions.length})</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && (
+          <p ref={errorRef} role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        )}
         {suggestions.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No healing suggestions yet. Analyze a failed execution to generate locator suggestions.
