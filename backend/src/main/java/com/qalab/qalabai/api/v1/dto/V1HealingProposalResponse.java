@@ -22,7 +22,14 @@ public record V1HealingProposalResponse(
         String reviewAction,
         LocalDateTime reviewedAt,
         List<V1LocatorCandidateDto> alternatives,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String originalLocatorHealth,
+        Double originalLocatorStability,
+        String recommendedLocatorHealth,
+        Double recommendedLocatorStability,
+        String recommendedStabilityLevel,
+        Double recommendedSemanticScore,
+        Double recommendedQualityScore
 ) {
 
     public static V1HealingProposalResponse from(HealingProposal p) {
@@ -33,7 +40,11 @@ public record V1HealingProposalResponse(
                 p.getConfidence() != null ? p.getConfidence() : 0.0,
                 p.getConfidenceLabel(), Boolean.TRUE.equals(p.getSafeToApply()),
                 p.getReason(), p.getStatus(), p.getReviewAction(), p.getReviewedAt(),
-                alternativesOf(p), p.getCreatedAt());
+                alternativesOf(p), p.getCreatedAt(),
+                p.getOriginalLocatorHealth(), p.getOriginalLocatorStability(),
+                p.getRecommendedLocatorHealth(), p.getRecommendedLocatorStability(),
+                p.getRecommendedStabilityLevel(), p.getRecommendedSemanticScore(),
+                p.getRecommendedQualityScore());
     }
 
     private static List<V1LocatorCandidateDto> alternativesOf(HealingProposal p) {

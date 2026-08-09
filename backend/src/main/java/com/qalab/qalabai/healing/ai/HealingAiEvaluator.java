@@ -83,11 +83,19 @@ public class HealingAiEvaluator {
                         .append(", unique=").append(c.unique())
                         .append(", visible=").append(c.visible())
                         .append(", enabled=").append(c.enabled())
+                        .append(", intelligence=").append(truncate(c.reason(), 140))
                         .append("]\n");
             }
         }
         sb.append("\nRecommend the best replacement locator. Only choose from the candidate list unless the correct replacement is absent.");
         return sb.toString();
+    }
+
+    private String truncate(String value, int max) {
+        if (value == null) {
+            return "n/a";
+        }
+        return value.length() > max ? value.substring(0, max) + "..." : value;
     }
 
     private CandidateEvaluation parse(String aiResponse) throws RuntimeException {

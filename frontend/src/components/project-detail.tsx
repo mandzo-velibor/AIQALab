@@ -8,6 +8,7 @@ import { getProjectHistory, type ProjectResponse, type ProjectHistoryResponse } 
 import { getSuggestions, analyzeExecution, generateHealing, type HealingSuggestion } from "@/lib/healing-api";
 import { ProjectHistory } from "@/components/project-history";
 import { HealingDashboard } from "@/components/healing-dashboard";
+import { LocatorIntelligencePanel } from "@/components/locator-intelligence-panel";
 import { QaWorkflow } from "@/components/qa-workflow";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -185,6 +186,8 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
         />
 
         <HealingDashboard suggestions={suggestions} onSuggestionChanged={refresh} />
+
+        <LocatorIntelligencePanel defaultUrl={project?.baseUrl} projectId={projectId} />
       </div>
     </div>
   );

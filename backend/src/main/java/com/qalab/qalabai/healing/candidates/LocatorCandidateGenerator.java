@@ -121,12 +121,12 @@ public class LocatorCandidateGenerator {
         String id = element.attribute("id");
         if (id != null && !id.isBlank()) {
             put(byLocator, locator("locator('#" + HtmlElements.escape(id) + "')"),
-                    LocatorStrategy.CSS, "Element id.");
+                    LocatorStrategy.ID, "Element id.");
         }
         String nameAttr = element.attribute("name");
         if (nameAttr != null && !nameAttr.isBlank()) {
             put(byLocator, locator("locator('[name=\"" + nameAttr + "\"]')"),
-                    LocatorStrategy.CSS, "Stable name attribute.");
+                    LocatorStrategy.NAME, "Stable name attribute.");
         }
     }
 

@@ -42,6 +42,8 @@ public class CandidateRanker {
         weights.put(LocatorStrategy.LABEL.name(), 0.8);
         weights.put(LocatorStrategy.PLACEHOLDER.name(), 0.7);
         weights.put(LocatorStrategy.TEXT.name(), 0.65);
+        weights.put(LocatorStrategy.NAME.name(), 0.6);
+        weights.put(LocatorStrategy.ID.name(), 0.55);
         weights.put(LocatorStrategy.CSS.name(), 0.5);
         weights.put(LocatorStrategy.XPATH.name(), 0.3);
         return weights;

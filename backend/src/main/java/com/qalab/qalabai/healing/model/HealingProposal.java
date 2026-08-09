@@ -60,6 +60,27 @@ public class HealingProposal {
     @Column(columnDefinition = "TEXT")
     private String alternativesJson;
 
+    @Column
+    private String originalLocatorHealth;
+
+    @Column
+    private Double originalLocatorStability;
+
+    @Column
+    private String recommendedLocatorHealth;
+
+    @Column
+    private Double recommendedLocatorStability;
+
+    @Column
+    private String recommendedStabilityLevel;
+
+    @Column
+    private Double recommendedSemanticScore;
+
+    @Column
+    private Double recommendedQualityScore;
+
     @Column(nullable = false)
     private String status;
 
@@ -185,6 +206,62 @@ public class HealingProposal {
 
     public void setAlternativesJson(String alternativesJson) {
         this.alternativesJson = alternativesJson;
+    }
+
+    public String getOriginalLocatorHealth() {
+        return originalLocatorHealth;
+    }
+
+    public void setOriginalLocatorHealth(String originalLocatorHealth) {
+        this.originalLocatorHealth = originalLocatorHealth;
+    }
+
+    public Double getOriginalLocatorStability() {
+        return originalLocatorStability;
+    }
+
+    public void setOriginalLocatorStability(Double originalLocatorStability) {
+        this.originalLocatorStability = originalLocatorStability;
+    }
+
+    public String getRecommendedLocatorHealth() {
+        return recommendedLocatorHealth;
+    }
+
+    public void setRecommendedLocatorHealth(String recommendedLocatorHealth) {
+        this.recommendedLocatorHealth = recommendedLocatorHealth;
+    }
+
+    public Double getRecommendedLocatorStability() {
+        return recommendedLocatorStability;
+    }
+
+    public void setRecommendedLocatorStability(Double recommendedLocatorStability) {
+        this.recommendedLocatorStability = recommendedLocatorStability;
+    }
+
+    public String getRecommendedStabilityLevel() {
+        return recommendedStabilityLevel;
+    }
+
+    public void setRecommendedStabilityLevel(String recommendedStabilityLevel) {
+        this.recommendedStabilityLevel = recommendedStabilityLevel;
+    }
+
+    public Double getRecommendedSemanticScore() {
+        return recommendedSemanticScore;
+    }
+
+    public void setRecommendedSemanticScore(Double recommendedSemanticScore) {
+        this.recommendedSemanticScore = recommendedSemanticScore;
+    }
+
+    public Double getRecommendedQualityScore() {
+        return recommendedQualityScore;
+    }
+
+    public void setRecommendedQualityScore(Double recommendedQualityScore) {
+        this.recommendedQualityScore = recommendedQualityScore;
     }
 
     public String getStatus() {

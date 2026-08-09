@@ -96,6 +96,15 @@ public class ReportService {
             proposal.put("safeToApply", p.getSafeToApply());
             proposal.put("reason", p.getReason());
             proposal.put("status", p.getStatus());
+            Map<String, Object> intelligence = new LinkedHashMap<>();
+            intelligence.put("originalLocatorHealth", p.getOriginalLocatorHealth());
+            intelligence.put("originalLocatorStability", p.getOriginalLocatorStability());
+            intelligence.put("recommendedLocatorHealth", p.getRecommendedLocatorHealth());
+            intelligence.put("recommendedLocatorStability", p.getRecommendedLocatorStability());
+            intelligence.put("recommendedStabilityLevel", p.getRecommendedStabilityLevel());
+            intelligence.put("recommendedSemanticScore", p.getRecommendedSemanticScore());
+            intelligence.put("recommendedQualityScore", p.getRecommendedQualityScore());
+            proposal.put("locatorIntelligence", intelligence);
             section.put("proposal", proposal);
         }
         return section;
@@ -139,6 +148,18 @@ public class ReportService {
                 sb.append("- **Safe to apply:** ").append(value(proposal.get("safeToApply"))).append("\n");
                 sb.append("- **Reason:** ").append(value(proposal.get("reason"))).append("\n");
                 sb.append("- **Status:** ").append(value(proposal.get("status"))).append("\n");
+                @SuppressWarnings("unchecked")
+                Map<String, Object> intelligence = (Map<String, Object>) proposal.get("locatorIntelligence");
+                if (intelligence != null && !intelligence.isEmpty()) {
+                    sb.append("- **Original health:** ").append(value(intelligence.get("originalLocatorHealth")))
+                            .append(" (stability ").append(value(intelligence.get("originalLocatorStability")))
+                            .append("/25)\n");
+                    sb.append("- **Recommended health:** ").append(value(intelligence.get("recommendedLocatorHealth")))
+                            .append(" (stability ").append(value(intelligence.get("recommendedLocatorStability")))
+                            .append("/25, semantic ").append(value(intelligence.get("recommendedSemanticScore")))
+                            .append("/25, quality ").append(value(intelligence.get("recommendedQualityScore")))
+                            .append("/100)\n");
+                }
             }
         }
         return sb.toString();

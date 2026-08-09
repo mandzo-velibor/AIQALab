@@ -18,6 +18,15 @@ import com.qalab.qalabai.healing.model.HealingProposal;
 import com.qalab.qalabai.healing.model.LocatorCandidate;
 import com.qalab.qalabai.healing.model.LocatorStrategy;
 import com.qalab.qalabai.healing.service.HealingOutcome.FailureClassificationView;
+import com.qalab.qalabai.locator.intelligence.LocatorHealthService;
+import com.qalab.qalabai.locator.intelligence.LocatorQualityScorer;
+import com.qalab.qalabai.locator.intelligence.LocatorSemanticAnalyzer;
+import com.qalab.qalabai.locator.intelligence.LocatorStabilityAnalyzer;
+import com.qalab.qalabai.locator.intelligence.LocatorStrategyDetector;
+import com.qalab.qalabai.locator.intelligence.model.LocatorHealth;
+import com.qalab.qalabai.locator.intelligence.model.QualityScore;
+import com.qalab.qalabai.locator.intelligence.model.SemanticResult;
+import com.qalab.qalabai.locator.intelligence.model.StabilityResult;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.repository.TestExecutionRepository;
 import com.qalab.qalabai.repository.ProjectRepository;
@@ -55,6 +64,11 @@ public class HealingAnalysisService {
     private final TestExecutionRepository executionRepository;
     private final ProjectRepository projectRepository;
     private final ObjectMapper objectMapper;
+    private final LocatorStrategyDetector strategyDetector;
+    private final LocatorStabilityAnalyzer stabilityAnalyzer;
+    private final LocatorSemanticAnalyzer semanticAnalyzer;
+    private final LocatorQualityScorer qualityScorer;
+    private final LocatorHealthService healthService;
 
     public HealingAnalysisService(FailureClassifier classifier,
                                   FailureContextFactory contextFactory,
@@ -66,7 +80,12 @@ public class HealingAnalysisService {
                                   HealingProposalService proposalService,
                                   TestExecutionRepository executionRepository,
                                   ProjectRepository projectRepository,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  LocatorStrategyDetector strategyDetector,
+                                  LocatorStabilityAnalyzer stabilityAnalyzer,
+                                  LocatorSemanticAnalyzer semanticAnalyzer,
+                                  LocatorQualityScorer qualityScorer,
+                                  LocatorHealthService healthService) {
         this.classifier = classifier;
         this.contextFactory = contextFactory;
         this.domContextExtractor = domContextExtractor;
@@ -78,6 +97,11 @@ public class HealingAnalysisService {
         this.executionRepository = executionRepository;
         this.projectRepository = projectRepository;
         this.objectMapper = objectMapper;
+        this.strategyDetector = strategyDetector;
+        this.stabilityAnalyzer = stabilityAnalyzer;
+        this.semanticAnalyzer = semanticAnalyzer;
+        this.qualityScorer = qualityScorer;
+        this.healthService = healthService;
     }
 
     /** Runs the pipeline for a failure context posted directly to the API. */
@@ -179,18 +203,20 @@ public class HealingAnalysisService {
                                           List<LocatorCandidate> candidates,
                                           ProjectContext project,
                                           FailureClassificationView view) {
+        List<LocatorCandidate> enriched = enrichWithIntelligence(candidates);
+
         CandidateEvaluation aiEval = null;
         String aiRiskNote = "";
         try {
             aiEval = aiEvaluator.evaluate(context.getOriginalLocator(), context.getError(), snapshot,
-                    candidates, project, "op-healing-" + UUID.randomUUID().toString().substring(0, 8));
+                    enriched, project, "op-healing-" + UUID.randomUUID().toString().substring(0, 8));
         } catch (Exception e) {
             log.warn("AI evaluation failed for run {}; using deterministic ranking only: {}",
                     context.getRunId(), e.getMessage());
             aiRiskNote = " (AI evaluation unavailable: " + e.getMessage() + ")";
         }
 
-        LocatorCandidate recommended = pickRecommended(candidates, aiEval);
+        LocatorCandidate recommended = pickRecommended(enriched, aiEval);
         if (recommended == null) {
             return null;
         }
@@ -204,7 +230,11 @@ public class HealingAnalysisService {
                 && (aiEval == null || aiEval.safeToApply())
                 && confidence >= 0.70;
 
-        String reason = buildReason(recommended, aiEval, deterministicScore, aiRiskNote);
+        LocatorIntelligenceFields original = intelligenceOf(context.getOriginalLocator(), null);
+        LocatorIntelligenceFields recommendedInt = intelligenceOf(recommended.locator(), recommended.strategy());
+
+        String reason = buildReason(recommended, aiEval, deterministicScore, aiRiskNote,
+                recommendedInt, original);
 
         HealingProposal proposal = new HealingProposal();
         proposal.setProposalId("heal-" + UUID.randomUUID().toString().substring(0, 8));
@@ -220,9 +250,50 @@ public class HealingAnalysisService {
         proposal.setConfidenceLabel(HealingConfidence.from(confidence).name());
         proposal.setSafeToApply(safeToApply);
         proposal.setReason(reason);
-        proposal.setAlternativesJson(alternativesJson(candidates, recommended.locator()));
+        proposal.setAlternativesJson(alternativesJson(enriched, recommended.locator()));
+        proposal.setOriginalLocatorHealth(original.health().name());
+        proposal.setOriginalLocatorStability(original.stability().score());
+        proposal.setRecommendedLocatorHealth(recommendedInt.health().name());
+        proposal.setRecommendedLocatorStability(recommendedInt.stability().score());
+        proposal.setRecommendedStabilityLevel(recommendedInt.stability().level().name());
+        proposal.setRecommendedSemanticScore(recommendedInt.semantic().score());
+        proposal.setRecommendedQualityScore(recommendedInt.quality().total());
 
         return proposalService.create(proposal);
+    }
+
+    /**
+     * Appends deterministic intelligence (stability, semantic, quality) to each
+     * candidate's reason so the AI evaluation prompt carries the quality scores.
+     */
+    private List<LocatorCandidate> enrichWithIntelligence(List<LocatorCandidate> candidates) {
+        return candidates.stream().map(c -> {
+            LocatorIntelligenceFields info = intelligenceOf(c.locator(), c.strategy());
+            String suffix = ", stability=" + String.format("%.0f/25", info.stability().score())
+                    + " (" + info.stability().level() + "), semantic="
+                    + String.format("%.0f/25", info.semantic().score())
+                    + ", quality=" + String.format("%.0f/100", info.quality().total());
+            return new LocatorCandidate(c.locator(), c.strategy(), c.score(), c.unique(), c.visible(),
+                    c.enabled(), c.matchedElementCount(), c.reason() + suffix);
+        }).toList();
+    }
+
+    private LocatorIntelligenceFields intelligenceOf(String locator, LocatorStrategy strategyHint) {
+        LocatorStrategy strategy = strategyHint != null ? strategyHint : strategyDetector.detect(locator);
+        StabilityResult stability = stabilityAnalyzer.analyze(locator);
+        SemanticResult semantic = semanticAnalyzer.analyze(locator, strategy, null);
+        QualityScore quality = qualityScorer.score(
+                qualityScorer.uniquenessFromCount(1), semantic.score(), stability.score(),
+                qualityScorer.maintainability(strategy), qualityScorer.resilience(strategy));
+        LocatorHealth health = healthService.classify(stability.score(), null, 0, true);
+        return new LocatorIntelligenceFields(strategy, stability, semantic, quality, health);
+    }
+
+    private record LocatorIntelligenceFields(LocatorStrategy strategy,
+                                             StabilityResult stability,
+                                             SemanticResult semantic,
+                                             QualityScore quality,
+                                             LocatorHealth health) {
     }
 
     private LocatorCandidate pickRecommended(List<LocatorCandidate> candidates, CandidateEvaluation aiEval) {
@@ -250,7 +321,9 @@ public class HealingAnalysisService {
     }
 
     private String buildReason(LocatorCandidate recommended, CandidateEvaluation aiEval,
-                               double deterministicScore, String aiRiskNote) {
+                               double deterministicScore, String aiRiskNote,
+                               LocatorIntelligenceFields recommendedInt,
+                               LocatorIntelligenceFields originalInt) {
         StringBuilder sb = new StringBuilder();
         if (aiEval != null && aiEval.reason() != null && !aiEval.reason().isBlank()) {
             sb.append(aiEval.reason());
@@ -262,6 +335,13 @@ public class HealingAnalysisService {
                 .append(", unique: ").append(recommended.unique())
                 .append(", visible: ").append(recommended.visible())
                 .append(", enabled: ").append(recommended.enabled()).append("]");
+        sb.append(" Intelligence: original health=").append(originalInt.health())
+                .append(" (stability ").append(String.format("%.0f/25", originalInt.stability().score()))
+                .append("), recommended health=").append(recommendedInt.health())
+                .append(" (stability ").append(String.format("%.0f/25", recommendedInt.stability().score()))
+                .append(", semantic ").append(String.format("%.0f/25", recommendedInt.semantic().score()))
+                .append(", quality ").append(String.format("%.0f/100", recommendedInt.quality().total()))
+                .append(").");
         if (aiEval != null && aiEval.risks() != null && !aiEval.risks().isEmpty()) {
             sb.append(" Risks: ").append(String.join("; ", aiEval.risks())).append(".");
         }

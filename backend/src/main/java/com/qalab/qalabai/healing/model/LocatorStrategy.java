@@ -10,6 +10,8 @@ public enum LocatorStrategy {
     LABEL,
     PLACEHOLDER,
     TEXT,
+    NAME,
+    ID,
     CSS,
     XPATH
 }

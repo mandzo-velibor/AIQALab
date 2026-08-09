@@ -16,6 +16,8 @@
 #   execute --test <id> --healing-analysis  run one test with healing analysis
 #   heal <executionId>    analyze a failed run and produce a healing proposal
 #   heal-status <proposalId>  show a healing proposal
+#   locator analyze --url <url> --locator '<locator>'  analyze a locator (live uniqueness + quality)
+#   locator history [<projectId>] [<fingerprint>]  show locator observation history
 #   test <url>            run the full workflow incl. healing analysis
 #
 # Configuration (environment):
@@ -190,6 +192,52 @@ EOF
   heal-status)
     proposal_id="${2:?usage: qalab heal-status <proposalId>}"
     curl -sS "$API_URL/api/v1/healing/$(json_id "$proposal_id")" | jq . 2>/dev/null || true
+    ;;
+  locator)
+    action="${2:-}"
+    case "$action" in
+      analyze)
+        url=""
+        locator=""
+        shift 2
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --url) url="${2:-}"; shift 2 ;;
+            --locator) locator="${2:-}"; shift 2 ;;
+            *) echo "unknown locator analyze option: $1" >&2; exit 1 ;;
+          esac
+        done
+        if [ -z "$url" ] || [ -z "$locator" ]; then
+          echo "usage: qalab locator analyze --url <url> --locator '<locator>'" >&2
+          exit 1
+        fi
+        payload="$(project_payload)"
+        curl -sS -X POST "$API_URL/api/v1/locators/analyze" \
+          -H 'Content-Type: application/json' \
+          -d "{\"url\":\"$url\",\"locator\":\"$locator\",\"projectId\":${DB_ID:-null}}" \
+          | jq . 2>/dev/null || true
+        ;;
+      history)
+        pid="${3:-${DB_ID:-}}"
+        fingerprint="${4:-}"
+        if [ -z "$pid" ]; then
+          echo "error: locator history requires a project id (or QALAB_DB_ID)" >&2
+          exit 1
+        fi
+        if [ -n "$fingerprint" ]; then
+          curl -sS "$API_URL/api/v1/projects/$pid/locators/$fingerprint/history" | jq . 2>/dev/null || true
+        else
+          curl -sS "$API_URL/api/v1/projects/$pid/locators/history" | jq . 2>/dev/null || true
+        fi
+        ;;
+      help|-h|--help|"")
+        echo "usage: qalab locator analyze|history" >&2
+        ;;
+      *)
+        echo "unknown locator action: $action" >&2
+        exit 1
+        ;;
+    esac
     ;;
   test)
     url="${2:?usage: qalab test <url>}"
