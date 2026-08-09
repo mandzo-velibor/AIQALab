@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/config";
+import { httpRequest } from "@/lib/http";
 export interface DetectedForm {
   name: string;
   inputs: string[];
@@ -58,16 +59,11 @@ export async function analyzeUrl(
   username?: string,
   password?: string,
 ): Promise<AnalysisResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/analyze`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, forceRefresh, projectId, username, password } satisfies AnalyzeRequest),
   });
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Analysis failed: ${res.status}`);
-  }
 
   return res.json();
 }

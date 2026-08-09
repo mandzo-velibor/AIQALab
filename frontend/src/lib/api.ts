@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/config";
+import { httpRequest } from "@/lib/http";
 export interface ExploreRequest {
   url: string;
 }
@@ -15,15 +16,11 @@ export interface ExploreResponse {
 }
 
 export async function exploreUrl(url: string): Promise<ExploreResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/explore`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/explore`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url } satisfies ExploreRequest),
   });
-
-  if (!res.ok) {
-    throw new Error(`Explore failed: ${res.status}`);
-  }
 
   return res.json();
 }

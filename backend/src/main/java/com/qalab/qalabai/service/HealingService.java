@@ -61,7 +61,7 @@ public class HealingService {
     public HealingSuggestion generateHealingSuggestion(Long executionId) {
         log.info("Generating healing suggestion for execution {}", executionId);
 
-        FailureAnalysis analysis = failureAnalysisRepository.findByExecutionId(executionId)
+        FailureAnalysis analysis = failureAnalysisRepository.findFirstByExecutionIdOrderByIdDesc(executionId)
                 .orElseGet(() -> analyzeExecution(executionId));
 
         Project project = projectRepository.findById(analysis.getProjectId())

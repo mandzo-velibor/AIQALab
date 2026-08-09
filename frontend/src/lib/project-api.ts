@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/config";
+import { httpRequest } from "@/lib/http";
 export interface ProjectResponse {
   id: number;
   name: string;
@@ -20,27 +21,21 @@ export interface CreateProjectRequest {
 }
 
 export async function getProjects(): Promise<ProjectResponse[]> {
-  const res = await fetch(`${API_BASE_URL}/api/projects`);
-  if (!res.ok) throw new Error(`Failed to fetch projects: ${res.status}`);
+  const res = await httpRequest(`${API_BASE_URL}/api/projects`);
   return res.json();
 }
 
 export async function getProject(id: number): Promise<ProjectResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/projects/${id}`);
-  if (!res.ok) throw new Error(`Failed to fetch project: ${res.status}`);
+  const res = await httpRequest(`${API_BASE_URL}/api/projects/${id}`);
   return res.json();
 }
 
 export async function createProject(request: CreateProjectRequest): Promise<ProjectResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/projects`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/projects`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Failed to create project: ${res.status}`);
-  }
   return res.json();
 }
 
@@ -101,17 +96,12 @@ export interface HealingSuggestionEntry {
 }
 
 export async function getProjectHistory(id: number): Promise<ProjectHistoryResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/projects/${id}/history`);
-  if (!res.ok) throw new Error(`Failed to fetch project history: ${res.status}`);
+  const res = await httpRequest(`${API_BASE_URL}/api/projects/${id}/history`);
   return res.json();
 }
 
 export async function deleteProject(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/api/projects/${id}`, {
+  await httpRequest(`${API_BASE_URL}/api/projects/${id}`, {
     method: "DELETE",
   });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Failed to delete project: ${res.status}`);
-  }
 }

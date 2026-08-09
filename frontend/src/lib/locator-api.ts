@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/config";
+import { httpRequest } from "@/lib/http";
 export interface LocatorDto {
   id: number;
   elementName: string;
@@ -16,26 +17,17 @@ export interface LocatorResponse {
 }
 
 export async function generateLocators(url: string, projectId?: number): Promise<LocatorResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/locators/generate`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/locators/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, projectId }),
   });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Locator generation failed: ${res.status}`);
-  }
-
   return res.json();
 }
 
 export async function getLocators(url: string): Promise<LocatorDto[]> {
-  const res = await fetch(`${API_BASE_URL}/api/locators?url=${encodeURIComponent(url)}`);
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch locators: ${res.status}`);
-  }
+  const res = await httpRequest(`${API_BASE_URL}/api/locators?url=${encodeURIComponent(url)}`);
 
   return res.json();
 }
@@ -104,26 +96,17 @@ export interface LocatorAnalyzeResponse {
 }
 
 export async function analyzeLocator(url: string, locator: string, projectId?: number): Promise<LocatorAnalyzeResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/locators/analyze`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/locators/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, locator, projectId: projectId ?? null }),
   });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Locator analysis failed: ${res.status}`);
-  }
-
   return res.json();
 }
 
 export async function getLocatorHistory(projectId: number): Promise<HistoricalObservation[]> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/locators/history`);
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch locator history: ${res.status}`);
-  }
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/projects/${projectId}/locators/history`);
 
   return res.json();
 }

@@ -10,7 +10,7 @@ import java.util.Optional;
 @Repository
 public interface FailureAnalysisRepository extends JpaRepository<FailureAnalysis, Long> {
     List<FailureAnalysis> findByProjectIdOrderByCreatedAtDesc(Long projectId);
-    Optional<FailureAnalysis> findByExecutionId(Long executionId);
+    Optional<FailureAnalysis> findFirstByExecutionIdOrderByIdDesc(Long executionId);
 
     void deleteByProjectId(Long projectId);
 }

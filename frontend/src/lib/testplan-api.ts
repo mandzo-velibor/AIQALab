@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/config";
+import { httpRequest } from "@/lib/http";
 export interface TestScenarioDto {
   id: number;
   name: string;
@@ -15,26 +16,17 @@ export interface TestPlanResponse {
 }
 
 export async function generateTestPlan(url: string, projectId?: number): Promise<TestPlanResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/test-plans/generate`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/test-plans/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, projectId }),
   });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Test plan generation failed: ${res.status}`);
-  }
-
   return res.json();
 }
 
 export async function getTestPlans(url: string): Promise<TestPlanResponse[]> {
-  const res = await fetch(`${API_BASE_URL}/api/test-plans?url=${encodeURIComponent(url)}`);
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch test plans: ${res.status}`);
-  }
+  const res = await httpRequest(`${API_BASE_URL}/api/test-plans?url=${encodeURIComponent(url)}`);
 
   return res.json();
 }

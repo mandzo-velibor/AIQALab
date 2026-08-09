@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/config";
+import { httpRequest } from "@/lib/http";
 export interface FailureAnalysis {
   id: number;
   projectId: number;
@@ -29,67 +30,42 @@ export interface HealingSuggestion {
 }
 
 export async function analyzeExecution(executionId: number, projectId: number): Promise<FailureAnalysis> {
-  const res = await fetch(
+  const res = await httpRequest(
     `${API_BASE_URL}/api/executions/${executionId}/analyze?projectId=${projectId}`,
     { method: "POST" }
   );
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Analysis failed: ${res.status}`);
-  }
 
   return res.json();
 }
 
 export async function generateHealing(executionId: number): Promise<HealingSuggestion> {
-  const res = await fetch(`${API_BASE_URL}/api/healing/analyze/${executionId}`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/healing/analyze/${executionId}`, {
     method: "POST",
   });
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Healing generation failed: ${res.status}`);
-  }
 
   return res.json();
 }
 
 export async function approveSuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await fetch(`${API_BASE_URL}/api/healing/${id}/approve`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/healing/${id}/approve`, {
     method: "POST",
   });
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Approval failed: ${res.status}`);
-  }
 
   return res.json();
 }
 
 export async function rejectSuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await fetch(`${API_BASE_URL}/api/healing/${id}/reject`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/healing/${id}/reject`, {
     method: "POST",
   });
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Rejection failed: ${res.status}`);
-  }
 
   return res.json();
 }
 
 export async function applySuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await fetch(`${API_BASE_URL}/api/healing/${id}/apply`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/healing/${id}/apply`, {
     method: "POST",
   });
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Apply failed: ${res.status}`);
-  }
 
   return res.json();
 }
@@ -99,7 +75,6 @@ export async function getSuggestions(projectId?: number): Promise<HealingSuggest
     ? `${API_BASE_URL}/api/healing/suggestions?projectId=${projectId}`
     : `${API_BASE_URL}/api/healing/suggestions`;
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch suggestions: ${res.status}`);
+  const res = await httpRequest(url);
   return res.json();
 }

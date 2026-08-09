@@ -24,10 +24,6 @@ export function ProjectsPage() {
 
   const [deleting, setDeleting] = useState<number | null>(null);
 
-  useEffect(() => {
-    loadProjects();
-  }, []);
-
   const loadProjects = async () => {
     try {
       const data = await getProjects();
@@ -38,6 +34,23 @@ export function ProjectsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let ignore = false;
+    getProjects()
+      .then((data) => {
+        if (!ignore) setProjects(data);
+      })
+      .catch((err) => {
+        if (!ignore) setError(err instanceof Error ? err.message : "Failed to load projects");
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

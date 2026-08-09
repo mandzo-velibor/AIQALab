@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProjectHistory, type ProjectResponse, type ProjectHistoryResponse } from "@/lib/project-api";
 import { getSuggestions, analyzeExecution, generateHealing, type HealingSuggestion } from "@/lib/healing-api";
+import { useAction } from "@/lib/use-action";
+import { ActionProgress } from "@/components/action/action-progress";
 import { ProjectHistory } from "@/components/project-history";
 import { HealingDashboard } from "@/components/healing-dashboard";
 import { LocatorIntelligencePanel } from "@/components/locator-intelligence-panel";
@@ -25,10 +27,21 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
   const [history, setHistory] = useState<ProjectHistoryResponse | null>(initialHistory);
   const [suggestions, setSuggestions] = useState<HealingSuggestion[]>(initialSuggestions);
   const [error, setError] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [healing, setHealing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
+
+  const analyzeAction = useAction({
+    name: "Analyze failure",
+    label: "Analyzing failure...",
+    aiUsed: true,
+    steps: ["Reading failure details", "Extracting broken locator", "Diagnosing root cause"],
+  });
+  const healingAction = useAction({
+    name: "Generate healing",
+    label: "Generating healing suggestion...",
+    aiUsed: true,
+    steps: ["Analyzing failed execution", "Finding candidate locators", "Verifying suggestion"],
+  });
 
   // Errors are rendered in a banner near the top of the page, so surface it
   // even when the user is scrolled down at the point where they clicked.
@@ -53,28 +66,26 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
   };
 
   const handleAnalyzeFailure = async (executionId: number) => {
-    setAnalyzing(true);
-    setError(null);
     try {
-      await analyzeExecution(executionId, projectId);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Analysis failed");
-    } finally {
-      setAnalyzing(false);
+      await analyzeAction.run(async () => {
+        await analyzeExecution(executionId, projectId);
+        await refresh();
+        return undefined;
+      });
+    } catch {
+      // Error is surfaced by ActionProgress.
     }
   };
 
   const handleGenerateHealing = async (executionId: number) => {
-    setHealing(true);
-    setError(null);
     try {
-      await generateHealing(executionId);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Healing generation failed");
-    } finally {
-      setHealing(false);
+      await healingAction.run(async () => {
+        await generateHealing(executionId);
+        await refresh();
+        return undefined;
+      });
+    } catch {
+      // Error is surfaced by ActionProgress.
     }
   };
 
@@ -136,6 +147,9 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
             </Button>
           </CardHeader>
           <CardContent className="space-y-2">
+            {(analyzeAction.state || healingAction.state) && (
+              <ActionProgress action={analyzeAction.state ?? healingAction.state!} />
+            )}
             {(history?.executions.length ?? 0) === 0 ? (
               <p className="text-sm text-muted-foreground">No executions for this project yet.</p>
             ) : (
@@ -159,11 +173,11 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
                   </p>
                   {exec.status === "FAILED" && (
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" disabled={analyzing} onClick={() => handleAnalyzeFailure(exec.id)}>
-                        {analyzing ? "Analyzing..." : "Analyze"}
+                      <Button variant="outline" size="sm" disabled={analyzeAction.busy} onClick={() => handleAnalyzeFailure(exec.id)}>
+                        {analyzeAction.busy ? "Analyzing..." : "Analyze"}
                       </Button>
-                      <Button variant="outline" size="sm" disabled={healing} onClick={() => handleGenerateHealing(exec.id)}>
-                        {healing ? "Healing..." : "Generate Healing"}
+                      <Button variant="outline" size="sm" disabled={healingAction.busy} onClick={() => handleGenerateHealing(exec.id)}>
+                        {healingAction.busy ? "Healing..." : "Generate Healing"}
                       </Button>
                     </div>
                   )}
@@ -182,7 +196,7 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
           history={history}
           onGenerateHealing={handleGenerateHealing}
           onRefresh={refresh}
-          healing={healing}
+          healing={healingAction.busy}
         />
 
         <HealingDashboard suggestions={suggestions} onSuggestionChanged={refresh} />

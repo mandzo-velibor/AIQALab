@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/config";
+import { httpRequest } from "@/lib/http";
 export interface ExecutionResponse {
   executionId: number;
   status: string;
@@ -22,31 +23,21 @@ export interface TestExecution {
 }
 
 export async function runTest(testId: number, projectId?: number): Promise<ExecutionResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/executions/run`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/executions/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ testId, projectId: projectId ?? null }),
   });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Execution failed: ${res.status}`);
-  }
-
   return res.json();
 }
 
 export async function runAllTests(projectId?: number): Promise<ExecutionResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/executions/run`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/executions/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ runAll: true, projectId: projectId ?? null }),
   });
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Execution failed: ${res.status}`);
-  }
 
   return res.json();
 }
@@ -56,11 +47,7 @@ export async function getExecutionHistory(projectId?: number): Promise<TestExecu
     ? `${API_BASE_URL}/api/executions/history?projectId=${projectId}`
     : `${API_BASE_URL}/api/executions/history`;
 
-  const res = await fetch(url);
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch execution history: ${res.status}`);
-  }
+  const res = await httpRequest(url);
 
   return res.json();
 }

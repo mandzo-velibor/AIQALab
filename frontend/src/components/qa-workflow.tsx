@@ -10,6 +10,8 @@ import { generateLocators, getLocators, type LocatorDto } from "@/lib/locator-ap
 import { generateTestPlan, getTestPlans, type TestScenarioDto } from "@/lib/testplan-api";
 import { generateTests, getTests, type GeneratedTestDto } from "@/lib/testgen-api";
 import { runTest, runAllTests, getExecutionHistory, type TestExecution } from "@/lib/execution-api";
+import { useAction } from "@/lib/use-action";
+import { ActionProgress } from "@/components/action/action-progress";
 import { LocatorRepository } from "@/components/locator-repository";
 import { TestPlanSection } from "@/components/test-plan-section";
 import { GeneratedTestsSection } from "@/components/generated-tests-section";
@@ -21,29 +23,34 @@ interface QaWorkflowProps {
   onHistoryChanged?: () => void;
 }
 
+const ANALYZE_STEPS = ["Exploring page", "Detecting elements", "Generating analysis"];
+const LOCATOR_STEPS = ["Scanning elements", "Extracting locators", "Scoring quality"];
+const PLAN_STEPS = ["Mapping flows", "Drafting scenarios", "Assessing risk"];
+const TEST_STEPS = ["Reading page", "Writing tests", "Validating assertions"];
+const RUN_STEPS = ["Installing browsers", "Executing tests", "Collecting results"];
+
 export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaWorkflowProps) {
   const [url, setUrl] = useState(initialUrl);
   const [prevUrl, setPrevUrl] = useState(initialUrl);
   const [prevProjectId, setPrevProjectId] = useState(projectId);
-  const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [analyzeUsername, setAnalyzeUsername] = useState("");
   const [analyzePassword, setAnalyzePassword] = useState("");
 
   const [locators, setLocators] = useState<LocatorDto[]>([]);
-  const [locatorsLoading, setLocatorsLoading] = useState(false);
-
   const [scenarios, setScenarios] = useState<TestScenarioDto[]>([]);
-  const [scenariosLoading, setScenariosLoading] = useState(false);
-
   const [tests, setTests] = useState<GeneratedTestDto[]>([]);
-  const [testsLoading, setTestsLoading] = useState(false);
-
   const [executions, setExecutions] = useState<TestExecution[]>([]);
-  const [executionsLoading, setExecutionsLoading] = useState(false);
   const [highlightExecutionId, setHighlightExecutionId] = useState<number | null>(null);
   const executionSectionRef = useRef<HTMLDivElement>(null);
+
+  const analyzeAction = useAction({ name: "Analyze", label: "Analyzing page...", aiUsed: true, steps: ANALYZE_STEPS });
+  const locatorsAction = useAction({ name: "Generate locators", label: "Generating locators...", aiUsed: true, steps: LOCATOR_STEPS });
+  const planAction = useAction({ name: "Generate test plan", label: "Generating test plan...", aiUsed: true, steps: PLAN_STEPS });
+  const testsAction = useAction({ name: "Generate tests", label: "Generating tests...", aiUsed: true, steps: TEST_STEPS });
+  const runAllAction = useAction({ name: "Run all tests", label: "Running all tests...", aiUsed: false, steps: RUN_STEPS });
+  const runOneAction = useAction({ name: "Run test", label: "Running test...", aiUsed: false, steps: RUN_STEPS });
 
   if (initialUrl !== prevUrl || projectId !== prevProjectId) {
     setPrevUrl(initialUrl);
@@ -60,13 +67,13 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
           getTests(pageUrl),
           getExecutionHistory(projectId),
         ]);
-        setError(null);
+        setLoadError(null);
         setLocators(loc);
         setScenarios(plans.length > 0 ? plans[0].scenarios : []);
         setTests(savedTests);
         setExecutions(execs);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load saved data");
+        setLoadError(err instanceof Error ? err.message : "Failed to load saved data");
       }
     },
     [projectId],
@@ -82,8 +89,6 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     e.preventDefault();
     if (!url.trim()) return;
 
-    setLoading(true);
-    setError(null);
     setResult(null);
     setLocators([]);
     setScenarios([]);
@@ -91,93 +96,86 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     setExecutions([]);
 
     try {
-      const response = await analyzeUrl(url.trim(), false, projectId, analyzeUsername.trim() || undefined, analyzePassword || undefined);
-      setResult(response);
-      onHistoryChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Analysis failed");
-    } finally {
-      setLoading(false);
+      await analyzeAction.run(async () => {
+        const response = await analyzeUrl(url.trim(), false, projectId, analyzeUsername.trim() || undefined, analyzePassword || undefined);
+        setResult(response);
+        onHistoryChanged?.();
+        return response;
+      });
+    } catch {
+      // Error is surfaced by ActionProgress.
     }
   };
 
   const handleGenerateLocators = async () => {
     if (!url.trim()) return;
-
-    setLocatorsLoading(true);
-    setError(null);
     try {
-      const response = await generateLocators(url.trim(), projectId);
-      setLocators(response.locators);
-      onHistoryChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Locator generation failed");
-    } finally {
-      setLocatorsLoading(false);
+      await locatorsAction.run(async () => {
+        const response = await generateLocators(url.trim(), projectId);
+        setLocators(response.locators);
+        onHistoryChanged?.();
+        return response;
+      });
+    } catch {
+      // Error is surfaced by ActionProgress.
     }
   };
 
   const handleGenerateTestPlan = async () => {
     if (!url.trim()) return;
-
-    setScenariosLoading(true);
-    setError(null);
     try {
-      const response = await generateTestPlan(url.trim(), projectId);
-      setScenarios(response.scenarios);
-      onHistoryChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Test plan generation failed");
-    } finally {
-      setScenariosLoading(false);
+      await planAction.run(async () => {
+        const response = await generateTestPlan(url.trim(), projectId);
+        setScenarios(response.scenarios);
+        onHistoryChanged?.();
+        return response;
+      });
+    } catch {
+      // Error is surfaced by ActionProgress.
     }
   };
 
   const handleGenerateTests = async () => {
     if (!url.trim()) return;
-
-    setTestsLoading(true);
-    setError(null);
     try {
-      const response = await generateTests(url.trim(), projectId);
-      setTests(response.tests);
-      onHistoryChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Test generation failed");
-    } finally {
-      setTestsLoading(false);
+      await testsAction.run(async () => {
+        const response = await generateTests(url.trim(), projectId);
+        setTests(response.tests);
+        onHistoryChanged?.();
+        return response;
+      });
+    } catch {
+      // Error is surfaced by ActionProgress.
     }
   };
 
   const handleRunAllTests = async () => {
-    setExecutionsLoading(true);
-    setError(null);
     try {
-      await runAllTests(projectId);
-      const history = await getExecutionHistory(projectId);
-      setExecutions(history);
-      highlightNewExecution(history);
-      onHistoryChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Execution failed");
-    } finally {
-      setExecutionsLoading(false);
+      await runAllAction.run(async () => {
+        await runAllTests(projectId);
+        const history = await getExecutionHistory(projectId);
+        setExecutions(history);
+        highlightNewExecution(history);
+        onHistoryChanged?.();
+        return history;
+      });
+    } catch {
+      // Error is surfaced by ActionProgress.
     }
   };
 
   const handleRunTest = async (testId: number) => {
-    setExecutionsLoading(true);
-    setError(null);
     try {
-      await runTest(testId, projectId);
-      const history = await getExecutionHistory(projectId);
-      setExecutions(history);
-      highlightNewExecution(history);
-      onHistoryChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Execution failed");
-    } finally {
-      setExecutionsLoading(false);
+      await runOneAction.run(async () => {
+        await runTest(testId, projectId);
+        const history = await getExecutionHistory(projectId);
+        setExecutions(history);
+        highlightNewExecution(history);
+        onHistoryChanged?.();
+        return history;
+      });
+    } catch {
+      // Error is surfaced by ActionProgress.
     }
   };
 
@@ -190,6 +188,8 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     }, 100);
   };
 
+  const analyzeBusy = analyzeAction.busy;
+
   return (
     <div className="space-y-4">
       <Card className="relative overflow-hidden border-violet-500/30">
@@ -197,7 +197,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
         <CardHeader>
           <CardTitle className="relative">Enter URL to Analyze</CardTitle>
         </CardHeader>
-        <CardContent className="relative">
+        <CardContent className="relative space-y-3">
           <form onSubmit={handleSubmit} className="space-y-2">
             <Input
               type="url"
@@ -223,20 +223,16 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
                 className="flex-1 border-violet-500/30 bg-background/60"
               />
             </div>
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading ? "Analyzing..." : "Analyze"}
+            <Button type="submit" disabled={analyzeBusy} className="w-full">
+              {analyzeBusy ? "Analyzing..." : "Analyze"}
             </Button>
           </form>
+
+          {analyzeAction.state && <ActionProgress action={analyzeAction.state} />}
+
+          {loadError && <p className="text-sm text-red-500">{loadError}</p>}
         </CardContent>
       </Card>
-
-      {error && (
-        <Card className="border-red-500">
-          <CardContent className="pt-6">
-            <p className="text-red-500">{error}</p>
-          </CardContent>
-        </Card>
-      )}
 
       {result && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -397,29 +393,41 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
 
       {url.trim() && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <LocatorRepository
-            locators={locators}
-            loading={locatorsLoading}
-            onGenerate={handleGenerateLocators}
-          />
+          <div className="space-y-3">
+            {locatorsAction.state && <ActionProgress action={locatorsAction.state} />}
+            <LocatorRepository
+              locators={locators}
+              loading={locatorsAction.busy}
+              onGenerate={handleGenerateLocators}
+            />
+          </div>
 
-          <TestPlanSection
-            scenarios={scenarios}
-            loading={scenariosLoading}
-            onGenerate={handleGenerateTestPlan}
-          />
+          <div className="space-y-3">
+            {planAction.state && <ActionProgress action={planAction.state} />}
+            <TestPlanSection
+              scenarios={scenarios}
+              loading={planAction.busy}
+              onGenerate={handleGenerateTestPlan}
+            />
+          </div>
 
-          <GeneratedTestsSection
-            tests={tests}
-            loading={testsLoading}
-            onGenerate={handleGenerateTests}
-            onRunTest={handleRunTest}
-          />
+          <div className="space-y-3">
+            {testsAction.state && <ActionProgress action={testsAction.state} />}
+            <GeneratedTestsSection
+              tests={tests}
+              loading={testsAction.busy}
+              onGenerate={handleGenerateTests}
+              onRunTest={handleRunTest}
+            />
+          </div>
 
-          <div ref={executionSectionRef} className="md:col-span-2 lg:col-span-3 scroll-mt-4">
+          <div ref={executionSectionRef} className="md:col-span-2 lg:col-span-3 scroll-mt-4 space-y-3">
+            {(runAllAction.state || runOneAction.state) && (
+              <ActionProgress action={runAllAction.state ?? runOneAction.state!} />
+            )}
             <ExecutionDashboard
               executions={executions}
-              loading={executionsLoading}
+              loading={runAllAction.busy || runOneAction.busy}
               onRunAll={handleRunAllTests}
               highlightExecutionId={highlightExecutionId}
             />

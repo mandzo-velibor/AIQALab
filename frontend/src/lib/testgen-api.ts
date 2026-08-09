@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/config";
+import { httpRequest } from "@/lib/http";
 export interface GeneratedTestDto {
   id: number;
   scenarioName: string;
@@ -12,26 +13,17 @@ export interface TestGenResponse {
 }
 
 export async function generateTests(url: string, projectId?: number): Promise<TestGenResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/tests/generate`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/tests/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, projectId }),
   });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.message || error.error || `Test generation failed: ${res.status}`);
-  }
-
   return res.json();
 }
 
 export async function getTests(url: string): Promise<GeneratedTestDto[]> {
-  const res = await fetch(`${API_BASE_URL}/api/tests?url=${encodeURIComponent(url)}`);
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch tests: ${res.status}`);
-  }
+  const res = await httpRequest(`${API_BASE_URL}/api/tests?url=${encodeURIComponent(url)}`);
 
   return res.json();
 }
