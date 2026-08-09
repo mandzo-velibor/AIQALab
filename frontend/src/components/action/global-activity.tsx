@@ -1,20 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useActions } from "@/lib/action-context";
 import { ActionProgress } from "@/components/action/action-progress";
 import { Badge } from "@/components/ui/badge";
 import { formatDuration, formatTime } from "@/lib/utils";
 import { Check, History, Loader2, X } from "lucide-react";
+
 /**
- * Global activity widget (fixed bottom-right). Shows the currently running
- * action live and the recent action history, so an operation never silently
- * vanishes when the user navigates or scrolls away.
+ * Global activity widget (fixed bottom-right). Auto-expands when an action
+ * starts so the user can see what is happening, then auto-minimizes 5s after
+ * the action finishes. Also lists recent actions, so an operation never
+ * silently vanishes when the user navigates or scrolls away.
  */
 export function GlobalActivity() {
   const { actions, activeAction, clearAction } = useActions();
   const [open, setOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const lastActiveIdRef = useRef<string | null>(null);
+  const dismissTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const activeId = activeAction?.id ?? null;
+
+    if (activeId) {
+      // A running action: reveal the panel when it first appears and cancel any
+      // pending auto-dismiss from the previous action.
+      if (activeId !== lastActiveIdRef.current) {
+        setOpen(true);
+      }
+      if (dismissTimerRef.current) {
+        window.clearTimeout(dismissTimerRef.current);
+        dismissTimerRef.current = null;
+      }
+      lastActiveIdRef.current = activeId;
+    } else if (lastActiveIdRef.current) {
+      // The running action just finished: minimize the panel after 5s.
+      const finishedId = lastActiveIdRef.current;
+      lastActiveIdRef.current = null;
+      const finished = actions.find((a) => a.id === finishedId);
+      if (finished && (finished.status === "completed" || finished.status === "failed")) {
+        dismissTimerRef.current = window.setTimeout(() => {
+          setOpen(false);
+          dismissTimerRef.current = null;
+        }, 5000);
+      }
+    }
+  }, [activeAction?.id, actions]);
 
   const recent = actions.filter((a) => a.status !== "starting" && a.status !== "running");
 

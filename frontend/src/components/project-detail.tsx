@@ -29,6 +29,7 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
+  const healingSectionRef = useRef<HTMLDivElement>(null);
 
   const analyzeAction = useAction({
     name: "Analyze failure",
@@ -42,6 +43,14 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
     aiUsed: true,
     steps: ["Analyzing failed execution", "Finding candidate locators", "Verifying suggestion"],
   });
+
+  // When healing completes, bring the user straight to the suggestions so the
+  // generated healing is immediately visible.
+  useEffect(() => {
+    if (healingAction.state?.status === "completed") {
+      healingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [healingAction.state?.status]);
 
   // Errors are rendered in a banner near the top of the page, so surface it
   // even when the user is scrolled down at the point where they clicked.
@@ -199,7 +208,9 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
           healing={healingAction.busy}
         />
 
-        <HealingDashboard suggestions={suggestions} onSuggestionChanged={refresh} />
+        <div ref={healingSectionRef} className="scroll-mt-20">
+          <HealingDashboard suggestions={suggestions} onSuggestionChanged={refresh} />
+        </div>
 
         <LocatorIntelligencePanel defaultUrl={project?.baseUrl} projectId={projectId} />
       </div>
