@@ -19,6 +19,7 @@ import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -97,13 +98,77 @@ public class WorkspaceManager implements WorkspaceProvider {
 
     @Override
     public Map<String, Object> execute(ProjectContext project, String testFile, boolean runAll) {
+        return execute(project, testFile, runAll, null);
+    }
+
+    @Override
+    public Map<String, Object> execute(ProjectContext project, String testFile, boolean runAll, String testType) {
         String workspace = getWorkspace(project);
         ToolContext context = new ToolContext().put("workspacePath", workspace);
-        if (testFile != null && !testFile.isBlank()) {
-            context.put("testFile", testFile);
+
+        String marker = testTypeMarker(testType);
+        if (marker != null && runAll) {
+            List<String> matching = findSpecFilesByType(workspace, marker);
+            if (matching.isEmpty()) {
+                return Map.of(
+                        "status", "PASSED",
+                        "duration", 0L,
+                        "output", "No tests of type '" + marker + "' found in workspace " + workspace
+                );
+            }
+            context.put("testFiles", matching);
+        } else {
+            if (testFile != null && !testFile.isBlank()) {
+                context.put("testFile", testFile);
+            }
+            context.put("runAll", runAll);
         }
-        context.put("runAll", runAll);
         return toMap(playwrightTool.execute(context));
+    }
+
+    /**
+     * Deterministic, LLM-free selection of the spec files whose name carries the
+     * given type marker (e.g. {@code .ui.}, {@code .e2e.}, {@code .api.}). Paths
+     * are returned relative to the workspace so Playwright resolves them from its
+     * working directory.
+     */
+    private List<String> findSpecFilesByType(String workspace, String marker) {
+        Path testsDir = Paths.get(workspace, "tests");
+        List<String> files = new ArrayList<>();
+        if (!Files.exists(testsDir)) {
+            return files;
+        }
+        try (var stream = Files.walk(testsDir)) {
+            files = stream.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().matches(".*\\." + Pattern.quote(marker) + "\\.spec\\.[tj]s$"))
+                    .map(p -> {
+                        Path relative = testsDir.getParent().relativize(p);
+                        return relative.toString().replace(File.separatorChar, '/');
+                    })
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            log.warn("Failed to list spec files by type '{}' in {}: {}", marker, workspace, e.getMessage());
+        }
+        return files;
+    }
+
+    /** Maps a user-provided test type (ALL/UI/E2E/API) to the deterministic file marker. */
+    public static String testTypeMarker(String testType) {
+        if (testType == null) {
+            return null;
+        }
+        String lower = testType.trim().toLowerCase();
+        if (lower.contains("api")) {
+            return "api";
+        }
+        if (lower.contains("e2e")) {
+            return "e2e";
+        }
+        if (lower.contains("ui")) {
+            return "ui";
+        }
+        return null;
     }
 
     @Override
@@ -169,18 +234,24 @@ public class WorkspaceManager implements WorkspaceProvider {
     }
 
     public static String resolveFileName(GeneratedTest test) {
-        if (test.getTestFileName() != null && !test.getTestFileName().isBlank()) {
-            return test.getTestFileName();
+        String base;
+        if (test.getScenarioName() != null && !test.getScenarioName().isBlank()) {
+            base = slug(test.getScenarioName());
+        } else if (test.getTestFileName() != null && !test.getTestFileName().isBlank()) {
+            base = test.getTestFileName().replaceFirst("\\.spec\\.[tj]s$", "").replaceFirst("\\.[a-z]+$", "");
+        } else {
+            base = "test";
         }
-        String base = test.getScenarioName() == null ? "test" : test.getScenarioName().trim();
-        String fileName = base
+        String marker = testTypeMarker(test.getTestType());
+        return marker != null ? base + "." + marker + ".spec.ts" : base + ".spec.ts";
+    }
+
+    private static String slug(String raw) {
+        String value = raw.trim()
                 .toLowerCase()
                 .replaceAll("[^a-z0-9]+", "-")
                 .replaceAll("^-+|-+$", "");
-        if (fileName.isBlank()) {
-            fileName = "test";
-        }
-        return fileName + ".spec.ts";
+        return value.isBlank() ? "test" : value;
     }
 
     public ProjectContext getProjectContext(Long projectId) {

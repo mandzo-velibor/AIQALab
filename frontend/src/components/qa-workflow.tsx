@@ -10,6 +10,7 @@ import { generateLocators, getLocators, type LocatorDto } from "@/lib/locator-ap
 import { generateTestPlan, getTestPlans, type TestScenarioDto } from "@/lib/testplan-api";
 import { generateTests, getTests, type GeneratedTestDto } from "@/lib/testgen-api";
 import { runTest, runAllTests, getExecutionHistory, type TestExecution } from "@/lib/execution-api";
+import type { TestTypeValue } from "@/components/advanced-options";
 import { useAction } from "@/lib/use-action";
 import { ActionProgress } from "@/components/action/action-progress";
 import { LocatorRepository } from "@/components/locator-repository";
@@ -45,12 +46,19 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
   const [highlightExecutionId, setHighlightExecutionId] = useState<number | null>(null);
   const executionSectionRef = useRef<HTMLDivElement>(null);
 
+  const [locatorsInstruction, setLocatorsInstruction] = useState("");
+  const [planInstruction, setPlanInstruction] = useState("");
+  const [testsInstruction, setTestsInstruction] = useState("");
+  const [testsTestType, setTestsTestType] = useState<TestTypeValue>("");
+  const [runInstruction, setRunInstruction] = useState("");
+  const [runTestType, setRunTestType] = useState<TestTypeValue>("");
+
   const analyzeAction = useAction({ name: "Analyze", label: "Analyzing page...", aiUsed: true, steps: ANALYZE_STEPS });
-  const locatorsAction = useAction({ name: "Generate locators", label: "Generating locators...", aiUsed: true, steps: LOCATOR_STEPS });
-  const planAction = useAction({ name: "Generate test plan", label: "Generating test plan...", aiUsed: true, steps: PLAN_STEPS });
-  const testsAction = useAction({ name: "Generate tests", label: "Generating tests...", aiUsed: true, steps: TEST_STEPS });
-  const runAllAction = useAction({ name: "Run all tests", label: "Running all tests...", aiUsed: false, steps: RUN_STEPS });
-  const runOneAction = useAction({ name: "Run test", label: "Running test...", aiUsed: false, steps: RUN_STEPS });
+  const locatorsAction = useAction({ name: "Generate locators", label: "Generating locators...", aiUsed: true, steps: LOCATOR_STEPS, instruction: locatorsInstruction });
+  const planAction = useAction({ name: "Generate test plan", label: "Generating test plan...", aiUsed: true, steps: PLAN_STEPS, instruction: planInstruction });
+  const testsAction = useAction({ name: "Generate tests", label: "Generating tests...", aiUsed: true, steps: TEST_STEPS, instruction: testsInstruction, testType: testsTestType || undefined });
+  const runAllAction = useAction({ name: "Run all tests", label: "Running all tests...", aiUsed: false, steps: RUN_STEPS, instruction: runInstruction, testType: runTestType || undefined });
+  const runOneAction = useAction({ name: "Run test", label: "Running test...", aiUsed: false, steps: RUN_STEPS, instruction: runInstruction, testType: runTestType || undefined });
 
   if (initialUrl !== prevUrl || projectId !== prevProjectId) {
     setPrevUrl(initialUrl);
@@ -111,7 +119,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     if (!url.trim()) return;
     try {
       await locatorsAction.run(async () => {
-        const response = await generateLocators(url.trim(), projectId);
+        const response = await generateLocators(url.trim(), projectId, locatorsInstruction.trim() || undefined);
         setLocators(response.locators);
         onHistoryChanged?.();
         return response;
@@ -125,7 +133,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     if (!url.trim()) return;
     try {
       await planAction.run(async () => {
-        const response = await generateTestPlan(url.trim(), projectId);
+        const response = await generateTestPlan(url.trim(), projectId, planInstruction.trim() || undefined);
         setScenarios(response.scenarios);
         onHistoryChanged?.();
         return response;
@@ -139,7 +147,12 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
     if (!url.trim()) return;
     try {
       await testsAction.run(async () => {
-        const response = await generateTests(url.trim(), projectId);
+        const response = await generateTests(
+          url.trim(),
+          projectId,
+          testsInstruction.trim() || undefined,
+          testsTestType || undefined,
+        );
         setTests(response.tests);
         onHistoryChanged?.();
         return response;
@@ -152,7 +165,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
   const handleRunAllTests = async () => {
     try {
       await runAllAction.run(async () => {
-        await runAllTests(projectId);
+        await runAllTests(projectId, runTestType || undefined, runInstruction.trim() || undefined);
         const history = await getExecutionHistory(projectId);
         setExecutions(history);
         highlightNewExecution(history);
@@ -167,7 +180,7 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
   const handleRunTest = async (testId: number) => {
     try {
       await runOneAction.run(async () => {
-        await runTest(testId, projectId);
+        await runTest(testId, projectId, runTestType || undefined, runInstruction.trim() || undefined);
         const history = await getExecutionHistory(projectId);
         setExecutions(history);
         highlightNewExecution(history);
@@ -399,6 +412,8 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
               locators={locators}
               loading={locatorsAction.busy}
               onGenerate={handleGenerateLocators}
+              instruction={locatorsInstruction}
+              onInstructionChange={setLocatorsInstruction}
             />
           </div>
 
@@ -408,6 +423,8 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
               scenarios={scenarios}
               loading={planAction.busy}
               onGenerate={handleGenerateTestPlan}
+              instruction={planInstruction}
+              onInstructionChange={setPlanInstruction}
             />
           </div>
 
@@ -418,6 +435,10 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
               loading={testsAction.busy}
               onGenerate={handleGenerateTests}
               onRunTest={handleRunTest}
+              instruction={testsInstruction}
+              testType={testsTestType}
+              onInstructionChange={setTestsInstruction}
+              onTestTypeChange={setTestsTestType}
             />
           </div>
 
@@ -430,6 +451,10 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
               loading={runAllAction.busy || runOneAction.busy}
               onRunAll={handleRunAllTests}
               highlightExecutionId={highlightExecutionId}
+              instruction={runInstruction}
+              testType={runTestType}
+              onInstructionChange={setRunInstruction}
+              onTestTypeChange={setRunTestType}
             />
           </div>
         </div>

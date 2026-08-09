@@ -31,7 +31,7 @@ public class TestPlanController {
         }
 
         try {
-            TestPlanResponse response = planningService.generateTestPlan(request.url(), request.projectId());
+            TestPlanResponse response = planningService.generateTestPlan(request.url(), request.projectId(), request.instruction());
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Test plan generation failed for URL {}: {}", request.url(), e.getMessage(), e);

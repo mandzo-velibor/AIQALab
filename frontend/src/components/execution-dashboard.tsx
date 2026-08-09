@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
+import { AdvancedOptions, type TestTypeValue } from "@/components/advanced-options";
 import type { TestExecution } from "@/lib/execution-api";
 import { useState } from "react";
 
@@ -11,6 +12,10 @@ interface ExecutionDashboardProps {
   loading: boolean;
   onRunAll: () => void;
   highlightExecutionId?: number | null;
+  instruction?: string;
+  testType?: TestTypeValue;
+  onInstructionChange?: (value: string) => void;
+  onTestTypeChange?: (value: TestTypeValue) => void;
 }
 
 function getStatusColor(status: string) {
@@ -28,7 +33,7 @@ function getStatusColor(status: string) {
   }
 }
 
-export function ExecutionDashboard({ executions, loading, onRunAll, highlightExecutionId }: ExecutionDashboardProps) {
+export function ExecutionDashboard({ executions, loading, onRunAll, highlightExecutionId, instruction = "", testType = "", onInstructionChange, onTestTypeChange }: ExecutionDashboardProps) {
   const [expandedExec, setExpandedExec] = useState<number | null>(null);
 
   return (
@@ -41,6 +46,17 @@ export function ExecutionDashboard({ executions, loading, onRunAll, highlightExe
         </Button>
       }
     >
+      {onInstructionChange && (
+        <div className="mb-3">
+          <AdvancedOptions
+            showTestType
+            instruction={instruction}
+            testType={testType}
+            onInstructionChange={onInstructionChange}
+            onTestTypeChange={onTestTypeChange ?? (() => {})}
+          />
+        </div>
+      )}
       {executions.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No executions yet. Click &quot;Run All Tests&quot; to execute generated tests.

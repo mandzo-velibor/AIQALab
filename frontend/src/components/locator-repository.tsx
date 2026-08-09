@@ -3,12 +3,15 @@
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AdvancedOptions } from "@/components/advanced-options";
 import type { LocatorDto } from "@/lib/locator-api";
 
 interface LocatorRepositoryProps {
   locators: LocatorDto[];
   loading: boolean;
   onGenerate: () => void;
+  instruction?: string;
+  onInstructionChange?: (value: string) => void;
 }
 
 function getStrategyColor(strategy: string) {
@@ -30,7 +33,7 @@ function getStrategyColor(strategy: string) {
   }
 }
 
-export function LocatorRepository({ locators, loading, onGenerate }: LocatorRepositoryProps) {
+export function LocatorRepository({ locators, loading, onGenerate, instruction = "", onInstructionChange }: LocatorRepositoryProps) {
   return (
     <CollapsibleCard
       title={`Locator Repository (${locators.length})`}
@@ -41,6 +44,16 @@ export function LocatorRepository({ locators, loading, onGenerate }: LocatorRepo
         </Button>
       }
     >
+      {onInstructionChange && (
+        <div className="mb-3">
+          <AdvancedOptions
+            instruction={instruction}
+            testType=""
+            onInstructionChange={onInstructionChange}
+            onTestTypeChange={() => {}}
+          />
+        </div>
+      )}
       {locators.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No locators generated yet. Click &quot;Generate Locators&quot; to create stable Playwright locators.

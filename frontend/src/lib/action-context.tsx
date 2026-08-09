@@ -97,6 +97,8 @@ export function ActionProvider({ children }: { children: React.ReactNode }) {
       activity: [{ time: Date.now(), message: `Started ${name}`, tone: "neutral" }],
       startedAt: Date.now(),
       aiUsed: options?.aiUsed ?? false,
+      instruction: options?.instruction,
+      testType: options?.testType,
     };
     activeIdRef.current[name] = id;
     setActions((prev) => [action, ...prev]);

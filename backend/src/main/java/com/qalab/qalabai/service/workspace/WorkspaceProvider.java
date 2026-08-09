@@ -34,6 +34,15 @@ public interface WorkspaceProvider {
      */
     Map<String, Object> execute(ProjectContext project, String testFile, boolean runAll);
 
+    /**
+     * Executes tests in the given workspace, applying a deterministic structured
+     * test-type filter (ALL/UI/E2E/API) before invoking the runner. A {@code null}
+     * or blank {@code testType} behaves exactly like {@link #execute}.
+     */
+    default Map<String, Object> execute(ProjectContext project, String testFile, boolean runAll, String testType) {
+        return execute(project, testFile, runAll);
+    }
+
     /** Collects artifacts (screenshots, traces, videos) produced by the last execution. */
     Map<String, String> collectArtifacts(ProjectContext project);
 }

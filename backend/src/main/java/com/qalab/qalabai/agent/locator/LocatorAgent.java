@@ -3,6 +3,7 @@ package com.qalab.qalabai.agent.locator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.AgentResult;
+import com.qalab.qalabai.agent.PromptBlocks;
 import com.qalab.qalabai.agent.ProjectContextUtil;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
@@ -66,7 +67,8 @@ public class LocatorAgent implements QaAgent {
         }
 
         try {
-            String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson);
+            String instruction = (String) task.getContextValue("instruction");
+            String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson, instruction);
             log.info("Sending request to AI for locator generation");
 
             AiRequest request = AiRequest.builder(AiOperation.LOCATOR_GENERATION, locatorPrompt, userPrompt)
@@ -90,8 +92,8 @@ public class LocatorAgent implements QaAgent {
         }
     }
 
-    private String buildUserPrompt(String pageUrl, String pageAnalysisJson) {
-        return String.format("""
+    private String buildUserPrompt(String pageUrl, String pageAnalysisJson, String instruction) {
+        String prompt = String.format("""
                 Page URL: %s
 
                 Page Analysis JSON:
@@ -99,6 +101,7 @@ public class LocatorAgent implements QaAgent {
 
                 Generate stable Playwright locators for all detectable elements on this page.
                 """, pageUrl, pageAnalysisJson);
+        return prompt + PromptBlocks.userInstructions(instruction);
     }
 
     private List<LocatorDefinition> parseResponse(String aiResponse, String pageUrl) throws Exception {

@@ -106,6 +106,23 @@ export function ActionProgress({
             Object.entries(action.meta).map(([key, value]) => <Meta key={key} label={key} value={value} />)}
         </div>
 
+        {(action.instruction || action.testType) && (
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 space-y-1">
+            {action.testType && (
+              <p className="text-xs">
+                <span className="font-medium uppercase tracking-widest text-muted-foreground mr-2">Test type</span>
+                <Badge variant="outline">{action.testType.toUpperCase()}</Badge>
+              </p>
+            )}
+            {action.instruction && (
+              <p className="text-xs">
+                <span className="font-medium uppercase tracking-widest text-muted-foreground mr-2">Instruction</span>
+                <span className="break-words text-foreground">{action.instruction}</span>
+              </p>
+            )}
+          </div>
+        )}
+
         {action.steps.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Steps</p>

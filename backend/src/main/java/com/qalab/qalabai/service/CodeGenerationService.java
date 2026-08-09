@@ -11,6 +11,7 @@ import com.qalab.qalabai.dto.testgen.GeneratedTestDto;
 import com.qalab.qalabai.dto.testgen.TestGenResponse;
 import com.qalab.qalabai.model.GeneratedTest;
 import com.qalab.qalabai.model.TestPlan;
+import com.qalab.qalabai.model.TestScenario;
 import com.qalab.qalabai.repository.GeneratedTestRepository;
 import com.qalab.qalabai.repository.LocatorRepository;
 import com.qalab.qalabai.repository.TestPlanRepository;
@@ -26,6 +27,8 @@ import java.util.UUID;
 public class CodeGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(CodeGenerationService.class);
+
+    private static final Set<String> API_SCENARIO_TYPES = Set.of("security", "validation", "api");
 
     private final TestGeneratorAgent testGeneratorAgent;
     private final GeneratedTestRepository testRepository;
@@ -52,13 +55,23 @@ public class CodeGenerationService {
     }
 
     public TestGenResponse generateTests(String url) {
-        return generateTests(url, null);
+        return generateTests(url, null, null, null);
     }
 
     public TestGenResponse generateTests(String url, Long projectId) {
-        log.info("Generating tests for URL: {}", url);
+        return generateTests(url, projectId, null, null);
+    }
 
-        List<GeneratedTest> tests = runGenerator(url, projectId);
+    public TestGenResponse generateTests(String url, Long projectId, String instruction, String testType) {
+        log.info("Generating tests for URL: {} (testType={})", url, testType);
+
+        String normalizedInstruction = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
+        String normalizedType = normalizeTestType(testType);
+        if (normalizedInstruction != null) {
+            log.info("Applying user instruction for test generation: {}", normalizedInstruction);
+        }
+
+        List<GeneratedTest> tests = runGenerator(url, projectId, normalizedInstruction, normalizedType);
 
         List<GeneratedTest> saved = testRepository.saveAll(tests);
         log.info("Saved {} tests to database", saved.size());
@@ -71,12 +84,19 @@ public class CodeGenerationService {
                 .map(this::toDto)
                 .toList();
 
-        return new TestGenResponse(dtos.size(), dtos);
+        String note = buildNote(normalizedType, normalizedInstruction, dtos.size());
+
+        return new TestGenResponse(dtos.size(), dtos, normalizedInstruction, normalizedType, note);
     }
 
     public List<GeneratedTest> generateTestsEntities(String url, Long projectId) {
+        return generateTestsEntities(url, projectId, null, null);
+    }
+
+    public List<GeneratedTest> generateTestsEntities(String url, Long projectId, String instruction, String testType) {
         log.info("Generating tests (entities, no persist) for URL: {}", url);
-        return runGenerator(url, projectId);
+        String normalizedType = normalizeTestType(testType);
+        return runGenerator(url, projectId, com.qalab.qalabai.util.UserInstructions.normalize(instruction), normalizedType);
     }
 
     /**
@@ -85,16 +105,20 @@ public class CodeGenerationService {
      * the client decides where to place the files.
      */
     public List<GeneratedFile> generateTestsContent(String url, Long projectId) {
+        return generateTestsContent(url, projectId, null, null);
+    }
+
+    public List<GeneratedFile> generateTestsContent(String url, Long projectId, String instruction, String testType) {
         log.info("Generating test content (service path) for URL: {}", url);
 
-        List<GeneratedTest> tests = runGenerator(url, projectId);
+        List<GeneratedTest> tests = runGenerator(url, projectId, com.qalab.qalabai.util.UserInstructions.normalize(instruction), normalizeTestType(testType));
 
         return tests.stream()
                 .map(t -> new GeneratedFile(TestWorkspaceService.resolveFileName(t), t.getTestCode()))
                 .toList();
     }
 
-    private List<GeneratedTest> runGenerator(String url, Long projectId) {
+    private List<GeneratedTest> runGenerator(String url, Long projectId, String instruction, String testType) {
         AnalysisResponse analysis = analysisCache.getByUrl(url);
         if (analysis == null) {
             throw new RuntimeException("No analysis found for URL: " + url + ". Please analyze the page first.");
@@ -107,6 +131,17 @@ public class CodeGenerationService {
 
         TestPlan testPlan = testPlans.get(0);
 
+        List<TestScenario> scenarios = testPlan.getScenarios();
+        if (testType != null) {
+            List<TestScenario> filtered = scenarios.stream()
+                    .filter(s -> scenarioMatchesType(s, testType))
+                    .toList();
+            if (!filtered.isEmpty()) {
+                log.info("Filtering {} scenarios by testType={}: kept {}", scenarios.size(), testType, filtered.size());
+                scenarios = filtered;
+            }
+        }
+
         String testPlanJson;
         String locatorJson = "[]";
         String pageContentHtml = analysisCache.getSimplifiedHtmlByUrl(url);
@@ -118,7 +153,7 @@ public class CodeGenerationService {
             testPlanMap.put("pageUrl", testPlan.getPageUrl());
             testPlanMap.put("pageType", testPlan.getPageType());
 
-            List<Map<String, Object>> scenarioMaps = testPlan.getScenarios().stream()
+            List<Map<String, Object>> scenarioMaps = scenarios.stream()
                     .map(s -> {
                         Map<String, Object> m = new HashMap<>();
                         m.put("id", s.getId());
@@ -167,6 +202,12 @@ public class CodeGenerationService {
         if (projectId != null) {
             task.putContext("projectId", projectId);
         }
+        if (instruction != null) {
+            task.putContext("instruction", instruction);
+        }
+        if (testType != null) {
+            task.putContext("testType", testType);
+        }
 
         var result = testGeneratorAgent.execute(task);
 
@@ -176,7 +217,75 @@ public class CodeGenerationService {
 
         @SuppressWarnings("unchecked")
         List<GeneratedTest> tests = (List<GeneratedTest>) result.getData().get("tests");
+        if (testType != null) {
+            for (GeneratedTest t : tests) {
+                t.setTestType(testType);
+            }
+        }
         return tests;
+    }
+
+    /**
+     * Deterministic scenario-to-test-type mapping. No AI is involved; the mapping
+     * is a fixed, documented rule set.
+     */
+    static boolean scenarioMatchesType(TestScenario scenario, String testType) {
+        String type = scenario.getType() == null ? "" : scenario.getType().trim().toLowerCase();
+        return switch (testType == null ? "all" : testType.trim().toLowerCase()) {
+            case "api" -> API_SCENARIO_TYPES.contains(type) || type.contains("api");
+            case "ui", "e2e" -> !type.contains("api");
+            default -> true;
+        };
+    }
+
+    /** Normalizes the structured test type to UI/E2E/API or null for ALL. */
+    static String normalizeTestType(String testType) {
+        if (testType == null || testType.isBlank()) {
+            return null;
+        }
+        String normalized = testType.trim().toUpperCase();
+        if ("ALL".equals(normalized)) {
+            return null;
+        }
+        return switch (normalized) {
+            case "UI" -> "ui";
+            case "E2E" -> "e2e";
+            case "API" -> "api";
+            default -> null;
+        };
+    }
+
+    private String buildNote(String testType, String instruction, int generatedCount) {
+        List<String> parts = new ArrayList<>();
+        if (testType != null) {
+            parts.add("The structured " + testType.toUpperCase() + " filter limited generation to matching scenarios.");
+        }
+        if (instruction != null) {
+            String mentioned = mentionedTestType(instruction);
+            if (mentioned != null && testType != null && !testType.equalsIgnoreCase(mentioned)) {
+                parts.add("Conflict: the textual instruction mentions " + mentioned.toUpperCase()
+                        + " tests but the structured filter is " + testType.toUpperCase()
+                        + "; the structured filter wins because it is deterministic.");
+            }
+        }
+        if (generatedCount == 0) {
+            parts.add("No tests were generated.");
+        }
+        return parts.isEmpty() ? null : String.join(" ", parts);
+    }
+
+    private String mentionedTestType(String instruction) {
+        String lower = instruction.toLowerCase();
+        if (lower.contains("api")) {
+            return "api";
+        }
+        if (lower.contains("e2e")) {
+            return "e2e";
+        }
+        if (lower.contains("ui")) {
+            return "ui";
+        }
+        return null;
     }
 
     public List<GeneratedTestDto> getTestsForUrl(String pageUrl) {
@@ -189,6 +298,7 @@ public class CodeGenerationService {
         return new GeneratedTestDto(
                 entity.getId(),
                 entity.getScenarioName(),
+                entity.getTestType(),
                 entity.getTestCode(),
                 entity.getPageObjectCode()
         );

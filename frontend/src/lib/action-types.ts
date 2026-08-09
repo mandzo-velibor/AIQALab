@@ -66,6 +66,10 @@ export interface ActionState {
   operationId?: string | null;
   /** Extra metadata surfaced in the header (target url, execution id...). */
   meta?: Record<string, string>;
+  /** User-provided natural-language instruction for this operation, if any. */
+  instruction?: string;
+  /** Structured test type (ui | e2e | api) requested by the user, if any. */
+  testType?: string;
 }
 
 export interface ActionSnapshot {
@@ -93,13 +97,19 @@ export type ActionUpdate = Partial<Pick<ActionState,
   | "aiUnavailable"
   | "tokenUsage"
   | "operationId"
-  | "meta">>;
+  | "meta"
+  | "instruction"
+  | "testType">>;
 
 export interface RunActionOptions {
   /** True when the operation is known to involve an AI call. */
   aiUsed?: boolean;
   /** Estimated phase timeline for operations whose backend cannot stream progress. */
   steps?: string[];
+  /** User-provided natural-language instruction forwarded to the backend. */
+  instruction?: string;
+  /** Structured test type (ui | e2e | api) forwarded to the backend. */
+  testType?: string;
 }
 
 /** Result descriptor used by ActionProgress to render a compact summary. */

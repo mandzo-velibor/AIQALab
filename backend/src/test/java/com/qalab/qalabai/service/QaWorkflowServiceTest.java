@@ -64,8 +64,8 @@ class QaWorkflowServiceTest {
 
         when(explorerService.analyze(any(), anyBoolean(), any(), any(), any())).thenReturn(
                 new AnalysisResponse("LOGIN", "summary", 95, null, null, null, null, null, null, null, null));
-        when(locatorService.generateLocators(any(), any())).thenReturn(new LocatorResponse(0, List.of()));
-        when(planningService.generateTestPlan(any(), any())).thenReturn(new TestPlanResponse(0, List.of()));
+        when(locatorService.generateLocators(any(), any())).thenReturn(new LocatorResponse(0, List.of(), null, List.of()));
+        when(planningService.generateTestPlan(any(), any())).thenReturn(new TestPlanResponse(0, List.of(), null));
         when(codeGenerationService.generateTestsContent(any(), any())).thenReturn(
                 List.of(new GeneratedFile("login.spec.ts", "test('x', async () => {});")));
     }

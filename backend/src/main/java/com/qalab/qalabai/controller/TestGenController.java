@@ -31,7 +31,7 @@ public class TestGenController {
         }
 
         try {
-            TestGenResponse response = codeGenerationService.generateTests(request.url(), request.projectId());
+            TestGenResponse response = codeGenerationService.generateTests(request.url(), request.projectId(), request.instruction(), request.testType());
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Test generation failed for URL {}: {}", request.url(), e.getMessage(), e);

@@ -13,13 +13,14 @@ export interface TestScenarioDto {
 export interface TestPlanResponse {
   scenarioCount: number;
   scenarios: TestScenarioDto[];
+  instruction?: string | null;
 }
 
-export async function generateTestPlan(url: string, projectId?: number): Promise<TestPlanResponse> {
+export async function generateTestPlan(url: string, projectId?: number, instruction?: string): Promise<TestPlanResponse> {
   const res = await httpRequest(`${API_BASE_URL}/api/test-plans/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, projectId }),
+    body: JSON.stringify({ url, projectId: projectId ?? null, instruction: instruction ?? null }),
   });
 
   return res.json();

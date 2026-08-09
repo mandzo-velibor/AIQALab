@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -59,11 +60,18 @@ public class ExecutionService {
     }
 
     public ExecutionResponse runTest(Long testId, Long projectId) {
-        return runTest(testId, projectId, false).response();
+        return runTest(testId, projectId, false, null, null).response();
     }
 
     public RunResult runTest(Long testId, Long projectId, boolean healingAnalysis) {
-        log.info("Running test with id: {}, project: {}, healingAnalysis: {}", testId, projectId, healingAnalysis);
+        return runTest(testId, projectId, healingAnalysis, null, null);
+    }
+
+    public RunResult runTest(Long testId, Long projectId, boolean healingAnalysis, String testType, String instruction) {
+        String normalizedType = CodeGenerationService.normalizeTestType(testType);
+        String normalizedInstruction = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
+        log.info("Running test with id: {}, project: {}, healingAnalysis: {}, testType: {}",
+                testId, projectId, healingAnalysis, normalizedType);
 
         GeneratedTest test = testRepository.findById(testId)
                 .orElseThrow(() -> new RuntimeException("Test not found: " + testId));
@@ -80,15 +88,28 @@ public class ExecutionService {
             task.putContext("testFile", testFile);
             task.putContext("runAll", false);
             task.putContext("projectContext", projectContext);
-        }, resolvedProjectId, healingAnalysis);
+            if (normalizedType != null) {
+                task.putContext("testType", normalizedType);
+            }
+            if (normalizedInstruction != null) {
+                task.putContext("instruction", normalizedInstruction);
+            }
+        }, resolvedProjectId, healingAnalysis, normalizedType, normalizedInstruction);
     }
 
     public ExecutionResponse runAllTests(Long projectId) {
-        return runAllTests(projectId, false).response();
+        return runAllTests(projectId, false, null, null).response();
     }
 
     public RunResult runAllTests(Long projectId, boolean healingAnalysis) {
-        log.info("Running all tests for project: {}, healingAnalysis: {}", projectId, healingAnalysis);
+        return runAllTests(projectId, healingAnalysis, null, null);
+    }
+
+    public RunResult runAllTests(Long projectId, boolean healingAnalysis, String testType, String instruction) {
+        String normalizedType = CodeGenerationService.normalizeTestType(testType);
+        String normalizedInstruction = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
+        log.info("Running all tests for project: {}, healingAnalysis: {}, testType: {}",
+                projectId, healingAnalysis, normalizedType);
 
         if (projectId != null) {
             List<GeneratedTest> tests = testRepository.findByProjectId(projectId);
@@ -100,14 +121,21 @@ public class ExecutionService {
         return run(task -> {
             task.putContext("runAll", true);
             task.putContext("projectContext", projectContext);
-        }, projectId, healingAnalysis);
+            if (normalizedType != null) {
+                task.putContext("testType", normalizedType);
+            }
+            if (normalizedInstruction != null) {
+                task.putContext("instruction", normalizedInstruction);
+            }
+        }, projectId, healingAnalysis, normalizedType, normalizedInstruction);
     }
 
     private interface TaskConfigurer {
         void configure(Task task);
     }
 
-    private RunResult run(TaskConfigurer configurer, Long projectId, boolean healingAnalysis) {
+    private RunResult run(TaskConfigurer configurer, Long projectId, boolean healingAnalysis,
+                          String testType, String instruction) {
         Task task = new Task(UUID.randomUUID().toString(), "RUN_TEST", null);
         configurer.configure(task);
 
@@ -149,16 +177,57 @@ public class ExecutionService {
         }
         attachArtifactsAndReport(saved, projectContext, output, healingOutcome);
 
+        String note = buildNote(testType, instruction, status);
+
         return new RunResult(
                 new ExecutionResponse(
                         saved.getId(),
                         status,
                         duration,
                         saved.getErrorMessage(),
-                        output
+                        output,
+                        testType,
+                        instruction,
+                        note
                 ),
                 healingOutcome
         );
+    }
+
+    private String buildNote(String testType, String instruction, String status) {
+        List<String> parts = new ArrayList<>();
+        if (testType != null) {
+            parts.add("Ran only " + testType.toUpperCase() + " tests in the workspace.");
+        }
+        if (instruction != null) {
+            String mentioned = mentionedTestType(instruction);
+            if (mentioned != null && testType != null && !testType.equalsIgnoreCase(mentioned)) {
+                parts.add("Conflict: the textual instruction mentions " + mentioned.toUpperCase()
+                        + " tests but the structured filter is " + testType.toUpperCase()
+                        + "; the structured filter wins because it is deterministic.");
+            } else {
+                parts.add("The textual instruction was not machine-enforced beyond the structured filter.");
+            }
+        }
+        if (parts.isEmpty()) {
+            return null;
+        }
+        parts.add("Final status: " + status + ".");
+        return String.join(" ", parts);
+    }
+
+    private String mentionedTestType(String instruction) {
+        String lower = instruction.toLowerCase();
+        if (lower.contains("api")) {
+            return "api";
+        }
+        if (lower.contains("e2e")) {
+            return "e2e";
+        }
+        if (lower.contains("ui")) {
+            return "ui";
+        }
+        return null;
     }
 
     private void attachArtifactsAndReport(TestExecution execution, ProjectContext projectContext,

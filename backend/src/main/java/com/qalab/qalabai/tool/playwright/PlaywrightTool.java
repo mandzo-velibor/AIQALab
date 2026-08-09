@@ -12,7 +12,9 @@ import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -35,7 +37,11 @@ public class PlaywrightTool implements Tool {
         boolean runAll = context.get("runAll") != null && (Boolean) context.get("runAll");
         String workspacePath = context.getString("workspacePath");
 
-        log.info("PlaywrightTool executing: testFile={}, runAll={}, workspacePath={}", testFile, runAll, workspacePath);
+        @SuppressWarnings("unchecked")
+        List<String> testFiles = (List<String>) context.get("testFiles");
+
+        log.info("PlaywrightTool executing: testFile={}, testFiles={}, runAll={}, workspacePath={}",
+                testFile, testFiles, runAll, workspacePath);
 
         try {
             Path runPath = workspacePath != null && !workspacePath.isBlank()
@@ -45,14 +51,22 @@ public class PlaywrightTool implements Tool {
                 Files.createDirectories(runPath);
             }
 
-            ProcessBuilder pb;
+            List<String> command;
             if (runAll) {
-                pb = new ProcessBuilder("npx", "playwright", "test");
+                command = new ArrayList<>(List.of("npx", "playwright", "test"));
+            } else if (testFiles != null && !testFiles.isEmpty()) {
+                command = new ArrayList<>();
+                command.add("npx");
+                command.add("playwright");
+                command.add("test");
+                command.addAll(testFiles);
             } else if (testFile != null && !testFile.isBlank()) {
-                pb = new ProcessBuilder("npx", "playwright", "test", testFile);
+                command = new ArrayList<>(List.of("npx", "playwright", "test", testFile));
             } else {
                 return Map.of("error", "No test file specified and runAll is false");
             }
+
+            ProcessBuilder pb = new ProcessBuilder(command);
 
             pb.directory(runPath.toFile());
             pb.redirectErrorStream(true);

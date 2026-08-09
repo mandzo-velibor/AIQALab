@@ -23,6 +23,10 @@ public class GeneratedTest {
     @Column
     private String testFileName;
 
+    /** Structured type used for deterministic run filtering: UI, E2E or API (null when unknown). */
+    @Column
+    private String testType;
+
     @Column(nullable = false, columnDefinition = "TEXT")
     private String testCode;
 
@@ -75,6 +79,14 @@ public class GeneratedTest {
 
     public void setTestFileName(String testFileName) {
         this.testFileName = testFileName;
+    }
+
+    public String getTestType() {
+        return testType;
+    }
+
+    public void setTestType(String testType) {
+        this.testType = testType;
     }
 
     public String getTestCode() {

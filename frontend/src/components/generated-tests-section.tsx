@@ -1,7 +1,9 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
+import { AdvancedOptions, type TestTypeValue } from "@/components/advanced-options";
 import type { GeneratedTestDto } from "@/lib/testgen-api";
 import { useState } from "react";
 
@@ -10,9 +12,13 @@ interface GeneratedTestsSectionProps {
   loading: boolean;
   onGenerate: () => void;
   onRunTest?: (testId: number) => void;
+  instruction?: string;
+  testType?: TestTypeValue;
+  onInstructionChange?: (value: string) => void;
+  onTestTypeChange?: (value: TestTypeValue) => void;
 }
 
-export function GeneratedTestsSection({ tests, loading, onGenerate, onRunTest }: GeneratedTestsSectionProps) {
+export function GeneratedTestsSection({ tests, loading, onGenerate, onRunTest, instruction = "", testType = "", onInstructionChange, onTestTypeChange }: GeneratedTestsSectionProps) {
   const [expandedTest, setExpandedTest] = useState<number | null>(null);
   const [runningTest, setRunningTest] = useState<number | null>(null);
 
@@ -26,6 +32,17 @@ export function GeneratedTestsSection({ tests, loading, onGenerate, onRunTest }:
         </Button>
       }
     >
+      {onInstructionChange && (
+        <div className="mb-3">
+          <AdvancedOptions
+            showTestType
+            instruction={instruction}
+            testType={testType}
+            onInstructionChange={onInstructionChange}
+            onTestTypeChange={onTestTypeChange ?? (() => {})}
+          />
+        </div>
+      )}
       {tests.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No tests generated yet. Click &quot;Generate Tests&quot; to create Playwright tests.
@@ -37,6 +54,7 @@ export function GeneratedTestsSection({ tests, loading, onGenerate, onRunTest }:
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{test.scenarioName}</span>
                   <div className="flex items-center gap-2">
+                    {test.testType && <Badge variant="outline">{test.testType.toUpperCase()}</Badge>}
                     {onRunTest && (
                       <Button
                         variant="outline"

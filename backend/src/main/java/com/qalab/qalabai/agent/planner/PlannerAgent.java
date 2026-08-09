@@ -3,6 +3,7 @@ package com.qalab.qalabai.agent.planner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.AgentResult;
+import com.qalab.qalabai.agent.PromptBlocks;
 import com.qalab.qalabai.agent.ProjectContextUtil;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
@@ -69,7 +70,8 @@ public class PlannerAgent implements QaAgent {
         }
 
         try {
-            String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson, locatorRepositoryJson);
+            String instruction = (String) task.getContextValue("instruction");
+            String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson, locatorRepositoryJson, instruction);
             log.info("Sending request to AI for test plan generation");
 
             AiRequest request = AiRequest.builder(AiOperation.TEST_PLAN, plannerPrompt, userPrompt)
@@ -99,8 +101,8 @@ public class PlannerAgent implements QaAgent {
         }
     }
 
-    private String buildUserPrompt(String pageUrl, String pageAnalysisJson, String locatorRepositoryJson) {
-        return String.format("""
+    private String buildUserPrompt(String pageUrl, String pageAnalysisJson, String locatorRepositoryJson, String instruction) {
+        String prompt = String.format("""
                 Page URL: %s
 
                 Page Analysis JSON:
@@ -112,6 +114,7 @@ public class PlannerAgent implements QaAgent {
                 Create a comprehensive test plan for this page.
                 Include positive, negative, validation, security, and reliability scenarios.
                 """, pageUrl, pageAnalysisJson, locatorRepositoryJson != null ? locatorRepositoryJson : "Not available");
+        return prompt + PromptBlocks.userInstructions(instruction);
     }
 
     private TestPlan parseResponse(String aiResponse, String pageUrl) throws Exception {

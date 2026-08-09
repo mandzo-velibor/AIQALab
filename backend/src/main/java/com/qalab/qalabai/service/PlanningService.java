@@ -43,11 +43,20 @@ public class PlanningService {
     }
 
     public TestPlanResponse generateTestPlan(String url) {
-        return generateTestPlan(url, null);
+        return generateTestPlan(url, null, null);
     }
 
     public TestPlanResponse generateTestPlan(String url, Long projectId) {
+        return generateTestPlan(url, projectId, null);
+    }
+
+    public TestPlanResponse generateTestPlan(String url, Long projectId, String instruction) {
         log.info("Generating test plan for URL: {}", url);
+
+        String normalized = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
+        if (normalized != null) {
+            log.info("Applying user instruction for test plan generation: {}", normalized);
+        }
 
         AnalysisResponse analysis = analysisCache.getByUrl(url);
         if (analysis == null) {
@@ -84,6 +93,9 @@ public class PlanningService {
         if (projectId != null) {
             task.putContext("projectId", projectId);
         }
+        if (normalized != null) {
+            task.putContext("instruction", normalized);
+        }
 
         var result = plannerAgent.execute(task);
 
@@ -107,7 +119,7 @@ public class PlanningService {
                 ))
                 .toList();
 
-        return new TestPlanResponse(dtos.size(), dtos);
+        return new TestPlanResponse(dtos.size(), dtos, normalized);
     }
 
     public List<TestPlanResponse> getTestPlansForUrl(String pageUrl) {
@@ -124,7 +136,7 @@ public class PlanningService {
                                     s.getRequiredElements()
                             ))
                             .toList();
-                    return new TestPlanResponse(dtos.size(), dtos);
+                    return new TestPlanResponse(dtos.size(), dtos, null);
                 })
                 .toList();
     }

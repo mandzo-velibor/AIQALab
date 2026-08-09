@@ -61,6 +61,8 @@ export function useAction(options: UseActionOptions) {
       const id = startAction(opts.name, opts.label, {
         steps: opts.steps,
         aiUsed: opts.aiUsed,
+        instruction: opts.instruction,
+        testType: opts.testType,
       });
       if (!id) {
         return null;

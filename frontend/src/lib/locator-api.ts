@@ -14,13 +14,15 @@ export interface LocatorDto {
 export interface LocatorResponse {
   generated: number;
   locators: LocatorDto[];
+  instruction?: string | null;
+  strategiesUsed?: string[];
 }
 
-export async function generateLocators(url: string, projectId?: number): Promise<LocatorResponse> {
+export async function generateLocators(url: string, projectId?: number, instruction?: string): Promise<LocatorResponse> {
   const res = await httpRequest(`${API_BASE_URL}/api/locators/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, projectId }),
+    body: JSON.stringify({ url, projectId: projectId ?? null, instruction: instruction ?? null }),
   });
 
   return res.json();

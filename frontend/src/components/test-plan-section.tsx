@@ -3,12 +3,15 @@
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AdvancedOptions } from "@/components/advanced-options";
 import type { TestScenarioDto } from "@/lib/testplan-api";
 
 interface TestPlanSectionProps {
   scenarios: TestScenarioDto[];
   loading: boolean;
   onGenerate: () => void;
+  instruction?: string;
+  onInstructionChange?: (value: string) => void;
 }
 
 function getTypeColor(type: string) {
@@ -41,7 +44,7 @@ function getPriorityColor(priority: string) {
   }
 }
 
-export function TestPlanSection({ scenarios, loading, onGenerate }: TestPlanSectionProps) {
+export function TestPlanSection({ scenarios, loading, onGenerate, instruction = "", onInstructionChange }: TestPlanSectionProps) {
   return (
     <CollapsibleCard
       title={`AI Test Plan (${scenarios.length} scenarios)`}
@@ -52,6 +55,16 @@ export function TestPlanSection({ scenarios, loading, onGenerate }: TestPlanSect
         </Button>
       }
     >
+      {onInstructionChange && (
+        <div className="mb-3">
+          <AdvancedOptions
+            instruction={instruction}
+            testType=""
+            onInstructionChange={onInstructionChange}
+            onTestTypeChange={() => {}}
+          />
+        </div>
+      )}
       {scenarios.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No test plan generated yet. Click &quot;Generate Test Plan&quot; to create AI-powered test scenarios.

@@ -73,7 +73,7 @@ public class V1ExecutionController extends AbstractV1Controller {
                 project.getProjectId(),
                 exec.executionId(),
                 exec.status(),
-                exec.duration(),
+                exec.durationMs(),
                 exec.errorMessage(),
                 exec.consoleLogs(),
                 healing,

@@ -29,9 +29,9 @@ public class ExecutionController {
         try {
             ExecutionResponse response;
             if (request.runAll() != null && request.runAll()) {
-                response = executionService.runAllTests(request.projectId());
+                response = executionService.runAllTests(request.projectId(), false, request.testType(), request.instruction()).response();
             } else if (request.testId() != null) {
-                response = executionService.runTest(request.testId(), request.projectId());
+                response = executionService.runTest(request.testId(), request.projectId(), false, request.testType(), request.instruction()).response();
             } else {
                 return ResponseEntity.badRequest().body(Map.of("error", "testId or runAll is required"));
             }

@@ -3,6 +3,7 @@ package com.qalab.qalabai.agent.testgen;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.AgentResult;
+import com.qalab.qalabai.agent.PromptBlocks;
 import com.qalab.qalabai.agent.ProjectContextUtil;
 import com.qalab.qalabai.agent.QaAgent;
 import com.qalab.qalabai.agent.Task;
@@ -72,7 +73,9 @@ public class TestGeneratorAgent implements QaAgent {
         }
 
         try {
-            String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson, pageContentHtml, postLoginContentHtml, loginUsername, loginPassword);
+            String instruction = (String) task.getContextValue("instruction");
+            String testType = (String) task.getContextValue("testType");
+            String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson, pageContentHtml, postLoginContentHtml, loginUsername, loginPassword, instruction, testType);
             log.info("Sending request to AI for test generation");
 
             AiRequest request = AiRequest.builder(AiOperation.TEST_GENERATION, generatorPrompt, userPrompt)
@@ -102,7 +105,7 @@ public class TestGeneratorAgent implements QaAgent {
         }
     }
 
-    private String buildUserPrompt(String pageUrl, String testPlanJson, String locatorRepositoryJson, String pageContentHtml, String postLoginContentHtml, String loginUsername, String loginPassword) {
+    private String buildUserPrompt(String pageUrl, String testPlanJson, String locatorRepositoryJson, String pageContentHtml, String postLoginContentHtml, String loginUsername, String loginPassword, String instruction, String testType) {
         String pageContent = pageContentHtml != null && !pageContentHtml.isBlank()
                 ? pageContentHtml
                 : "Not available";
@@ -113,7 +116,7 @@ public class TestGeneratorAgent implements QaAgent {
                 ? String.format("Username: %s\nPassword: %s", loginUsername, loginPassword)
                 : "Not provided (tests must use environment variables or config)";
 
-        return String.format("""
+        String prompt = String.format("""
                 Page URL: %s
 
                 Test Plan JSON:
@@ -147,6 +150,10 @@ public class TestGeneratorAgent implements QaAgent {
                 - Use exact visible text from the relevant page content for assertions.
                 - When the test needs to log in, use the LOGIN CREDENTIALS provided above.
                 """, pageUrl, testPlanJson, locatorRepositoryJson != null ? locatorRepositoryJson : "Not available", pageContent, postLoginContent, credentialsInfo);
+
+        return prompt
+                + PromptBlocks.testTypeConstraint(testType)
+                + PromptBlocks.userInstructions(instruction);
     }
 
     private List<GeneratedTest> parseResponse(String aiResponse, String pageUrl) throws Exception {

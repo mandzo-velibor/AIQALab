@@ -43,11 +43,20 @@ public class LocatorService {
     }
 
     public LocatorResponse generateLocators(String url) {
-        return generateLocators(url, null);
+        return generateLocators(url, null, null);
     }
 
     public LocatorResponse generateLocators(String url, Long projectId) {
+        return generateLocators(url, projectId, null);
+    }
+
+    public LocatorResponse generateLocators(String url, Long projectId, String instruction) {
         log.info("Generating locators for URL: {}", url);
+
+        String normalized = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
+        if (normalized != null) {
+            log.info("Applying user instruction for locator generation: {}", normalized);
+        }
 
         AnalysisResponse analysis = analysisCache.getByUrl(url);
         if (analysis == null) {
@@ -64,6 +73,9 @@ public class LocatorService {
         Task task = new Task(UUID.randomUUID().toString(), "GENERATE_LOCATORS", url);
         task.putContext("pageUrl", url);
         task.putContext("pageAnalysisJson", analysisJson);
+        if (normalized != null) {
+            task.putContext("instruction", normalized);
+        }
 
         var result = locatorAgent.execute(task);
 
@@ -83,7 +95,14 @@ public class LocatorService {
 
         saveHistory(url, saved, projectId);
 
-        return new LocatorResponse(dtos.size(), dtos);
+        List<String> strategiesUsed = saved.stream()
+                .map(LocatorDefinition::getStrategy)
+                .filter(s -> s != null && !s.isBlank())
+                .distinct()
+                .sorted()
+                .toList();
+
+        return new LocatorResponse(dtos.size(), dtos, normalized, strategiesUsed);
     }
 
     private void saveHistory(String url, List<LocatorDefinition> locators, Long projectId) {

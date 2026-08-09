@@ -49,6 +49,11 @@ export function ActionHistory({ className }: { className?: string }) {
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{action.name}</span>
+              {action.instruction && (
+                <span className="block truncate text-xs italic text-muted-foreground" title={action.instruction}>
+                  &quot;{action.instruction}&quot;
+                </span>
+              )}
               <span className="block truncate text-xs text-muted-foreground">
                 {action.status === "completed"
                   ? `Completed ${formatTime(action.completedAt ?? action.startedAt)}`

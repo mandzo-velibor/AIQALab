@@ -1,11 +1,16 @@
 import { API_BASE_URL } from "@/lib/config";
 import { httpRequest } from "@/lib/http";
+import type { TestType } from "@/lib/testgen-api";
+
 export interface ExecutionResponse {
   executionId: number;
   status: string;
-  duration: number;
+  durationMs: number;
   errorMessage: string | null;
   consoleLogs: string;
+  testType?: string | null;
+  instruction?: string | null;
+  note?: string | null;
 }
 
 export interface TestExecution {
@@ -22,21 +27,21 @@ export interface TestExecution {
   createdAt: string;
 }
 
-export async function runTest(testId: number, projectId?: number): Promise<ExecutionResponse> {
+export async function runTest(testId: number, projectId?: number, testType?: TestType, instruction?: string): Promise<ExecutionResponse> {
   const res = await httpRequest(`${API_BASE_URL}/api/executions/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ testId, projectId: projectId ?? null }),
+    body: JSON.stringify({ testId, projectId: projectId ?? null, testType: testType ?? null, instruction: instruction ?? null }),
   });
 
   return res.json();
 }
 
-export async function runAllTests(projectId?: number): Promise<ExecutionResponse> {
+export async function runAllTests(projectId?: number, testType?: TestType, instruction?: string): Promise<ExecutionResponse> {
   const res = await httpRequest(`${API_BASE_URL}/api/executions/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ runAll: true, projectId: projectId ?? null }),
+    body: JSON.stringify({ runAll: true, projectId: projectId ?? null, testType: testType ?? null, instruction: instruction ?? null }),
   });
 
   return res.json();

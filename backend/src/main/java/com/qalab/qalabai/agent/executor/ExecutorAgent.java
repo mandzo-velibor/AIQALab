@@ -33,6 +33,8 @@ public class ExecutorAgent implements QaAgent {
 
         String testFile = (String) task.getContextValue("testFile");
         Boolean runAll = (Boolean) task.getContextValue("runAll");
+        String testType = (String) task.getContextValue("testType");
+        String instruction = (String) task.getContextValue("instruction");
         ProjectContext project = (ProjectContext) task.getContextValue("projectContext");
 
         if (project == null) {
@@ -44,8 +46,8 @@ public class ExecutorAgent implements QaAgent {
         }
 
         try {
-            log.info("Executing Playwright tests via WorkspaceProvider");
-            Map<String, Object> result = workspaceProvider.execute(project, testFile, Boolean.TRUE.equals(runAll));
+            log.info("Executing Playwright tests via WorkspaceProvider (testType={})", testType);
+            Map<String, Object> result = workspaceProvider.execute(project, testFile, Boolean.TRUE.equals(runAll), testType);
 
             String status = (String) result.get("status");
             Long duration = result.get("duration") instanceof Number n ? n.longValue() : 0L;
@@ -60,6 +62,12 @@ public class ExecutorAgent implements QaAgent {
             agentResult.putData("status", status);
             agentResult.putData("duration", duration);
             agentResult.putData("output", output);
+            if (testType != null && !testType.isBlank()) {
+                agentResult.putData("testTypeApplied", testType);
+            }
+            if (instruction != null && !instruction.isBlank()) {
+                agentResult.putData("instruction", instruction);
+            }
             if (error != null) {
                 agentResult.putData("error", error);
             }
