@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,14 @@ export function ProjectDetail({ projectId, project, history: initialHistory, sug
   const [analyzing, setAnalyzing] = useState(false);
   const [healing, setHealing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Errors (e.g. an exhausted token budget) are rendered in a banner near the
+  // top of the page, so surface it even when the user is scrolled down.
+  useEffect(() => {
+    if (error) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [error]);
 
   const refresh = async () => {
     setRefreshing(true);

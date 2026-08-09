@@ -237,6 +237,18 @@ View/update the policy with `GET/PATCH /api/v1/account/budget-policy` (or
 `qalab budget-policy`). Only MANAGED calls consume the allowance; BYOK and LOCAL calls
 are recorded but never blocked.
 
+#### Local development: no token limit
+
+Working from this repo locally, you don't want the FREE allowance to hard-stop your AI
+calls. Two supported ways:
+
+1. **Persistent (DB, no restart):** `qalab budget-policy set NONE` (or
+   `PATCH /api/v1/account/budget-policy {"policy":"NONE"}`). The allowance is no longer
+   enforced and the change survives restarts — reverse with `set HARD`.
+2. **Environment:** set `QALAB_AI_FREEMONTHLYTOKENLIMIT=0` (`0` = unlimited). Export it
+   in the shell that starts the backend, or add it to `.env` and `docker compose up`
+   (docker-compose passes it to the backend container).
+
 ## Tech Stack
 
 - **Backend**: Java 21, Spring Boot 3.3, Spring Data JPA, PostgreSQL, Playwright Java
