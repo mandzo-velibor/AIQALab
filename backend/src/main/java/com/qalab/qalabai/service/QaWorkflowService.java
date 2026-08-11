@@ -21,6 +21,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Orchestrates the full QA workflow (FULL_TEST):
@@ -45,6 +48,13 @@ import java.util.UUID;
 public class QaWorkflowService {
 
     private static final Logger log = LoggerFactory.getLogger(QaWorkflowService.class);
+
+    /**
+     * Executor for the independent LLM steps (locators + test plan, bug report
+     * while failure analysis runs). Virtual threads keep each HTTP call off the
+     * request thread with no pooling overhead.
+     */
+    private final ExecutorService aiExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     private final ProjectContextResolver contextResolver;
     private final ExplorerService explorerService;
@@ -105,15 +115,19 @@ public class QaWorkflowService {
             steps.put("explore", step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType())));
             steps.put("analyze", step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType())));
 
-            // 2. LOCATORS
-            progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_LOCATORS", "generating locators...");
-            LocatorResponse locators = locatorService.generateLocators(url, dbId);
+            // 2. + 3. LOCATORS and TEST PLAN (independent LLM steps, run in parallel)
+            progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_LOCATORS", "generating locators and test plan...");
+            CompletableFuture<LocatorResponse> locatorsFuture = CompletableFuture.supplyAsync(
+                    () -> locatorService.generateLocators(url, dbId), aiExecutor);
+            CompletableFuture<TestPlanResponse> planFuture = CompletableFuture.supplyAsync(
+                    () -> planningService.generateTestPlan(url, dbId), aiExecutor);
+            LocatorResponse locators = locatorsFuture.join();
+            TestPlanResponse plan = planFuture.join();
             steps.put("locators", step("COMPLETED", Map.of("generated", locators.generated())));
-
-            // 3. TEST PLAN
-            progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_TEST_PLAN", "generating test plan...");
-            TestPlanResponse plan = planningService.generateTestPlan(url, dbId);
-            steps.put("testPlan", step("COMPLETED", Map.of("scenarioCount", plan.scenarioCount())));
+            steps.put("testPlan", step("COMPLETED", Map.of(
+                    "scenarioCount", plan.scenarioCount(),
+                    "scenarios", plan.scenarios()
+            )));
 
             // 4. GENERATE TESTS (content returned, never auto-written into the Core)
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_TESTS", "generating tests...");
@@ -137,8 +151,12 @@ public class QaWorkflowService {
                     steps.put("healing", step("SKIPPED", Map.of("reason", "TEST_PASSED")));
                     steps.put("bugReport", step("SKIPPED", Map.of("reason", "TEST_PASSED")));
                 } else {
-                    analyzeFailure(steps, dbId, run, operationId);
-                    generateBugReport(steps, dbId, run, request.instruction(), operationId);
+                    // Failure analysis (+ healing) and the bug report are independent
+                    // LLM steps; run them concurrently to shorten the critical path.
+                    CompletableFuture<Map<String, Object>> bugReportFuture = CompletableFuture.supplyAsync(
+                            () -> generateBugReport(dbId, run, request.instruction(), operationId), aiExecutor);
+                    steps.putAll(analyzeFailure(dbId, run, operationId));
+                    steps.putAll(bugReportFuture.join());
                 }
             }
 
@@ -177,7 +195,8 @@ public class QaWorkflowService {
         return run;
     }
 
-    private void analyzeFailure(Map<String, Object> steps, Long dbId, Map<String, Object> run, String operationId) {
+    private Map<String, Object> analyzeFailure(Long dbId, Map<String, Object> run, String operationId) {
+        Map<String, Object> result = new LinkedHashMap<>();
         try {
             Long executionId = (Long) run.get("executionId");
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "ANALYZING_FAILURE", "analyzing failure...");
@@ -186,7 +205,7 @@ public class QaWorkflowService {
             faData.put("failureType", analysis.getFailureType());
             faData.put("summary", analysis.getSummary());
             faData.put("healingCandidate", Boolean.TRUE.equals(analysis.getHealingCandidate()));
-            steps.put("failureAnalysis", step("COMPLETED", faData));
+            result.put("failureAnalysis", step("COMPLETED", faData));
 
             if (Boolean.TRUE.equals(analysis.getHealingCandidate())) {
                 progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_HEALING_SUGGESTION", "generating healing suggestion...");
@@ -207,18 +226,20 @@ public class QaWorkflowService {
                     healingData.put("safeToApply", p.getSafeToApply());
                     healingData.put("proposalStatus", p.getStatus());
                 }
-                steps.put("healing", step("COMPLETED", healingData));
+                result.put("healing", step("COMPLETED", healingData));
             } else {
-                steps.put("healing", step("SKIPPED", Map.of("reason", "NOT_HEALING_CANDIDATE")));
+                result.put("healing", step("SKIPPED", Map.of("reason", "NOT_HEALING_CANDIDATE")));
             }
         } catch (Exception e) {
             log.warn("Failure analysis/healing step failed: {}", e.getMessage());
-            steps.put("failureAnalysis", step("FAILED", Map.of("error", String.valueOf(e.getMessage()))));
-            steps.put("healing", step("SKIPPED", Map.of("reason", "ANALYSIS_FAILED")));
+            result.put("failureAnalysis", step("FAILED", Map.of("error", String.valueOf(e.getMessage()))));
+            result.put("healing", step("SKIPPED", Map.of("reason", "ANALYSIS_FAILED")));
         }
+        return result;
     }
 
-    private void generateBugReport(Map<String, Object> steps, Long dbId, Map<String, Object> run, String instruction, String operationId) {
+    private Map<String, Object> generateBugReport(Long dbId, Map<String, Object> run, String instruction, String operationId) {
+        Map<String, Object> result = new LinkedHashMap<>();
         try {
             Long executionId = (Long) run.get("executionId");
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_BUG_REPORT", "generating bug report...");
@@ -229,12 +250,13 @@ public class QaWorkflowService {
             data.put("title", report.getTitle());
             data.put("severity", report.getSeverity());
             data.put("summary", report.getSummary());
-            steps.put("bugReport", step("COMPLETED", data));
+            result.put("bugReport", step("COMPLETED", data));
             log.info("Bug report {} generated for execution {}", report.getReportId(), executionId);
         } catch (Exception e) {
             log.warn("Bug report step failed: {}", e.getMessage());
-            steps.put("bugReport", step("FAILED", Map.of("error", String.valueOf(e.getMessage()))));
+            result.put("bugReport", step("FAILED", Map.of("error", String.valueOf(e.getMessage()))));
         }
+        return result;
     }
 
     private Map<String, Object> step(String status, Map<String, Object> data) {
