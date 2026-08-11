@@ -54,6 +54,7 @@ public class QaWorkflowService {
     private final ExecutionService executionService;
     private final FailureAnalysisService failureAnalysisService;
     private final com.qalab.qalabai.healing.service.HealingAnalysisService healingAnalysisService;
+    private final BugReportService bugReportService;
     private final WorkspaceProvider workspaceProvider;
 
     public QaWorkflowService(ProjectContextResolver contextResolver,
@@ -64,6 +65,7 @@ public class QaWorkflowService {
                              ExecutionService executionService,
                              FailureAnalysisService failureAnalysisService,
                              com.qalab.qalabai.healing.service.HealingAnalysisService healingAnalysisService,
+                             BugReportService bugReportService,
                              WorkspaceProvider workspaceProvider) {
         this.contextResolver = contextResolver;
         this.explorerService = explorerService;
@@ -73,6 +75,7 @@ public class QaWorkflowService {
         this.executionService = executionService;
         this.failureAnalysisService = failureAnalysisService;
         this.healingAnalysisService = healingAnalysisService;
+        this.bugReportService = bugReportService;
         this.workspaceProvider = workspaceProvider;
     }
 
@@ -113,6 +116,7 @@ public class QaWorkflowService {
                 steps.put("execution", step("SKIPPED", Map.of("reason", "NO_WORKSPACE_PATH")));
                 steps.put("failureAnalysis", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
                 steps.put("healing", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
+                steps.put("bugReport", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
             } else {
                 Map<String, Object> run = runInWorkspace(project, url, dbId, files);
                 steps.put("execution", step("COMPLETED", run));
@@ -121,11 +125,14 @@ public class QaWorkflowService {
                 if ("PASSED".equals(execStatus)) {
                     steps.put("failureAnalysis", step("SKIPPED", Map.of("reason", "TEST_PASSED")));
                     steps.put("healing", step("SKIPPED", Map.of("reason", "TEST_PASSED")));
+                    steps.put("bugReport", step("SKIPPED", Map.of("reason", "TEST_PASSED")));
                 } else if (dbId == null) {
                     steps.put("failureAnalysis", step("SKIPPED", Map.of("reason", "NO_REGISTERED_PROJECT")));
                     steps.put("healing", step("SKIPPED", Map.of("reason", "NO_REGISTERED_PROJECT")));
+                    steps.put("bugReport", step("SKIPPED", Map.of("reason", "NO_REGISTERED_PROJECT")));
                 } else {
                     analyzeFailure(steps, dbId, run);
+                    generateBugReport(steps, dbId, run, request.instruction());
                 }
             }
 
@@ -195,6 +202,24 @@ public class QaWorkflowService {
             log.warn("Failure analysis/healing step failed: {}", e.getMessage());
             steps.put("failureAnalysis", step("FAILED", Map.of("error", String.valueOf(e.getMessage()))));
             steps.put("healing", step("SKIPPED", Map.of("reason", "ANALYSIS_FAILED")));
+        }
+    }
+
+    private void generateBugReport(Map<String, Object> steps, Long dbId, Map<String, Object> run, String instruction) {
+        try {
+            Long executionId = (Long) run.get("executionId");
+            com.qalab.qalabai.model.BugReport report = bugReportService.generate(executionId, dbId, instruction);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("reportId", report.getReportId());
+            data.put("reportStatus", report.getStatus());
+            data.put("title", report.getTitle());
+            data.put("severity", report.getSeverity());
+            data.put("summary", report.getSummary());
+            steps.put("bugReport", step("COMPLETED", data));
+            log.info("Bug report {} generated for execution {}", report.getReportId(), executionId);
+        } catch (Exception e) {
+            log.warn("Bug report step failed: {}", e.getMessage());
+            steps.put("bugReport", step("FAILED", Map.of("error", String.valueOf(e.getMessage()))));
         }
     }
 

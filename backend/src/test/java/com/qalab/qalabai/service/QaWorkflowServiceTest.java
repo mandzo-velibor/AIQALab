@@ -15,6 +15,7 @@ import com.qalab.qalabai.healing.service.HealingAnalysisService;
 import com.qalab.qalabai.healing.service.HealingOutcome;
 import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.TestExecution;
+import com.qalab.qalabai.model.BugReport;
 import com.qalab.qalabai.service.workspace.WorkspaceProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,7 @@ class QaWorkflowServiceTest {
     private final ExecutionService executionService = mock(ExecutionService.class);
     private final FailureAnalysisService failureAnalysisService = mock(FailureAnalysisService.class);
     private final HealingAnalysisService healingAnalysisService = mock(HealingAnalysisService.class);
+    private final BugReportService bugReportService = mock(BugReportService.class);
     private final WorkspaceProvider workspaceProvider = mock(WorkspaceProvider.class);
 
     private QaWorkflowService workflow;
@@ -53,7 +55,7 @@ class QaWorkflowServiceTest {
     void setUp() {
         workflow = new QaWorkflowService(contextResolver, explorerService, locatorService,
                 planningService, codeGenerationService, executionService,
-                failureAnalysisService, healingAnalysisService, workspaceProvider);
+                failureAnalysisService, healingAnalysisService, bugReportService, workspaceProvider);
 
         info = ProjectInfo.of("internet-tests", "https://the-internet.herokuapp.com/login", "PLAYWRIGHT", "TYPESCRIPT");
         project = new ProjectContext();
@@ -62,7 +64,7 @@ class QaWorkflowServiceTest {
         when(contextResolver.resolve(info)).thenReturn(project);
         when(contextResolver.databaseId(info)).thenReturn(null);
 
-        when(explorerService.analyze(any(), anyBoolean(), any(), any(), any())).thenReturn(
+        when(explorerService.analyze(any(), anyBoolean(), any(), any(), any(), any())).thenReturn(
                 new AnalysisResponse("LOGIN", "summary", 95, null, null, null, null, null, null, null, null));
         when(locatorService.generateLocators(any(), any())).thenReturn(new LocatorResponse(0, List.of(), null, List.of()));
         when(planningService.generateTestPlan(any(), any())).thenReturn(new TestPlanResponse(0, List.of(), null));
@@ -72,7 +74,7 @@ class QaWorkflowServiceTest {
 
     @Test
     void skipsExecutionWhenNoWorkspacePath() {
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "explore", "COMPLETED");
@@ -98,7 +100,7 @@ class QaWorkflowServiceTest {
         record.setId(7L);
         when(executionService.recordExecution(any(), any(), any(), any(), any(), any())).thenReturn(record);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "execution", "COMPLETED");
@@ -118,6 +120,7 @@ class QaWorkflowServiceTest {
         TestExecution record = new TestExecution();
         record.setId(10L);
         when(executionService.recordExecution(any(), any(), any(), any(), any(), any())).thenReturn(record);
+        stubBugReport(10L);
 
         FailureAnalysis analysis = new FailureAnalysis();
         analysis.setFailureType("LOCATOR_INVALID");
@@ -144,13 +147,15 @@ class QaWorkflowServiceTest {
                 "locator repaired");
         when(healingAnalysisService.analyzeExecution(eq(10L), eq(3L))).thenReturn(outcome);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "failureAnalysis", "COMPLETED");
         assertStepStatus(response, "healing", "COMPLETED");
+        assertStepStatus(response, "bugReport", "COMPLETED");
         verify(failureAnalysisService).analyzeExecution(eq(10L), eq(3L));
         verify(healingAnalysisService).analyzeExecution(eq(10L), eq(3L));
+        verify(bugReportService).generate(eq(10L), eq(3L), any());
     }
 
     @Test
@@ -163,13 +168,14 @@ class QaWorkflowServiceTest {
         TestExecution record = new TestExecution();
         record.setId(11L);
         when(executionService.recordExecution(any(), any(), any(), any(), any(), any())).thenReturn(record);
+        stubBugReport(11L);
 
         FailureAnalysis analysis = new FailureAnalysis();
         analysis.setFailureType("HTTP_ERROR");
         analysis.setHealingCandidate(false);
         when(failureAnalysisService.analyzeExecution(eq(11L), eq(3L))).thenReturn(analysis);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
 
         assertStepStatus(response, "failureAnalysis", "COMPLETED");
         assertStepStatus(response, "healing", "SKIPPED");
@@ -178,10 +184,10 @@ class QaWorkflowServiceTest {
 
     @Test
     void marksWorkflowFailedWhenPipelineThrows() {
-        when(explorerService.analyze(any(), anyBoolean(), any(), any(), any()))
+        when(explorerService.analyze(any(), anyBoolean(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("AI provider unavailable"));
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
 
         assertEquals(OperationStatus.FAILED, response.status());
         assertStepStatus(response, "workflow", "FAILED");
@@ -191,5 +197,15 @@ class QaWorkflowServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> stepMap = (Map<String, Object>) response.steps().get(step);
         assertEquals(status, stepMap.get("status"), () -> "step " + step + " status");
+    }
+
+    private void stubBugReport(Long executionId) {
+        BugReport report = new BugReport();
+        report.setReportId("bug-" + executionId);
+        report.setStatus("FAILED");
+        report.setTitle("Title " + executionId);
+        report.setSeverity("HIGH");
+        report.setSummary("Summary " + executionId);
+        when(bugReportService.generate(eq(executionId), eq(3L), any())).thenReturn(report);
     }
 }

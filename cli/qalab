@@ -24,7 +24,8 @@
 #   bug-reports           list bug reports (or by project: bug-reports <projectId>)
 #   locator analyze --url <url> --locator '<locator>'  analyze a locator (live uniqueness + quality)
 #   locator history [<projectId>] [<fingerprint>]  show locator observation history
-#   test <url>            run the full workflow incl. healing analysis
+#   test <url>            run the full workflow incl. healing + bug report; writes tests
+#                          and saves report/bug-report to .qalab/reports/<timestamp>/
 #
 # Configuration (environment or .qalab.json):
 #   QALAB_API_URL       default http://localhost:8080
@@ -435,9 +436,26 @@ EOF
     [ -n "$instruction" ] && extra_args="$extra_args,\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     [ -n "$username" ] && extra_args="$extra_args,\"username\":\"$(printf '%s' "$username" | sed 's/"/\\"/g')\""
     [ -n "$password" ] && extra_args="$extra_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
-    curl -sS -X POST "$API_URL/api/v1/workflows/full-test" \
+    response="$(curl -sS -X POST "$API_URL/api/v1/workflows/full-test" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$extra_args}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$extra_args}")"
+    report_dir="${QALAB_REPORT_DIR:-$(pwd)/.qalab/reports/$(date +%Y%m%d-%H%M%S)}"
+    mkdir -p "$report_dir"
+    printf '%s' "$response" > "$report_dir/report.json"
+    echo "Saved workflow report: $report_dir/report.json"
+
+    if command -v jq >/dev/null 2>&1; then
+      files_json="$(printf '%s' "$response" | jq -c '{files: .steps.generatedTests.files}')"
+      if [ "$(printf '%s' "$files_json" | jq '.files | length')" -gt 0 ]; then
+        write_files_from_json "$files_json" "${WORKSPACE:-.}"
+      fi
+      bug_id="$(printf '%s' "$response" | jq -r '.steps.bugReport.reportId // empty')"
+      if [ -n "$bug_id" ]; then
+        curl -sS "$API_URL/api/v1/bug-reports/$bug_id" > "$report_dir/bug-report.json"
+        echo "Saved bug report: $report_dir/bug-report.json"
+      fi
+    fi
+    printf '%s' "$response" | jq . 2>/dev/null || true
     ;;
   report)
     if [ -n "${2:-}" ]; then

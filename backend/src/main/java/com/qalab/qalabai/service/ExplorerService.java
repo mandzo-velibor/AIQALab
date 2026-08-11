@@ -80,7 +80,7 @@ public class ExplorerService {
         log.info("Explorer started for URL: {}", url);
 
         String normalizedInstruction = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
-        String urlHash = cache.hashUrl(url + "\n" + (normalizedInstruction != null ? normalizedInstruction : ""));
+        String urlHash = cache.hashUrl(url);
 
         if (!forceRefresh) {
             AnalysisResponse cached = cache.get(urlHash);
