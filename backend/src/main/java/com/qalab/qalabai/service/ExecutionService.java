@@ -82,6 +82,7 @@ public class ExecutionService {
         }
 
         ProjectContext projectContext = workspaceManager.getProjectContext(resolvedProjectId);
+        workspaceManager.prepareWorkspace(projectContext);
         String testFile = TestWorkspaceService.resolveFileName(test);
 
         return run(task -> {
@@ -117,6 +118,7 @@ public class ExecutionService {
         }
 
         ProjectContext projectContext = workspaceManager.getProjectContext(projectId);
+        workspaceManager.prepareWorkspace(projectContext);
 
         return run(task -> {
             task.putContext("runAll", true);

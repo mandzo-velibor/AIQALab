@@ -381,6 +381,12 @@ public class WorkspaceManager implements WorkspaceProvider {
                 runProcess(path.toFile(), new String[]{"npm", "install"}, "npm install");
             }
 
+            if (!Files.exists(path.resolve("node_modules/@playwright/test"))) {
+                log.info("@playwright/test missing in workspace {}, installing it...", workspacePath);
+                runProcess(path.toFile(), new String[]{"npm", "install", "--no-save", "@playwright/test"},
+                        "npm install @playwright/test");
+            }
+
             Path browsersMarker = path.resolve(".playwright-ready");
             if (!Files.exists(browsersMarker)) {
                 log.info("Installing Playwright browsers for workspace {}...", workspacePath);

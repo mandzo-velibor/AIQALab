@@ -136,10 +136,6 @@ public class QaWorkflowService {
                     steps.put("failureAnalysis", step("SKIPPED", Map.of("reason", "TEST_PASSED")));
                     steps.put("healing", step("SKIPPED", Map.of("reason", "TEST_PASSED")));
                     steps.put("bugReport", step("SKIPPED", Map.of("reason", "TEST_PASSED")));
-                } else if (dbId == null) {
-                    steps.put("failureAnalysis", step("SKIPPED", Map.of("reason", "NO_REGISTERED_PROJECT")));
-                    steps.put("healing", step("SKIPPED", Map.of("reason", "NO_REGISTERED_PROJECT")));
-                    steps.put("bugReport", step("SKIPPED", Map.of("reason", "NO_REGISTERED_PROJECT")));
                 } else {
                     analyzeFailure(steps, dbId, run, operationId);
                     generateBugReport(steps, dbId, run, request.instruction(), operationId);
@@ -163,6 +159,7 @@ public class QaWorkflowService {
 
     private Map<String, Object> runInWorkspace(ProjectContext project, String url, Long dbId, List<GeneratedFile> files) {
         List<GeneratedTest> entities = codeGenerationService.generateTestsEntities(url, dbId);
+        workspaceProvider.prepareWorkspace(project);
         workspaceProvider.writeTests(project, entities);
         Map<String, Object> result = workspaceProvider.execute(project, null, true);
 
