@@ -91,7 +91,8 @@ public class QaWorkflowService {
 
         try {
             // 1. EXPLORE + ANALYZE (page capture and analysis are performed together)
-            AnalysisResponse analysis = explorerService.analyze(url, true, dbId, request.username(), request.password());
+            AnalysisResponse analysis = explorerService.analyze(
+                    url, true, dbId, request.username(), request.password(), request.instruction());
             steps.put("explore", step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType())));
             steps.put("analyze", step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType())));
 

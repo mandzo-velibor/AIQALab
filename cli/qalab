@@ -415,11 +415,29 @@ EOF
     esac
     ;;
   test)
-    url="${2:?usage: qalab test <url>}"
+    if [ -n "${2:-}" ] && [ "${2#--}" = "$2" ] && [ -z "$BASE_URL" ]; then
+      BASE_URL="$2"
+    fi
+    require_url
+    instruction=""
+    username="${QALAB_USERNAME:-}"
+    password="${QALAB_PASSWORD:-}"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --instruction) instruction="${2:-}"; shift 2 ;;
+        --username) username="${2:-}"; shift 2 ;;
+        --password) password="${2:-}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
     payload="$(project_payload)"
+    extra_args=""
+    [ -n "$instruction" ] && extra_args="$extra_args,\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
+    [ -n "$username" ] && extra_args="$extra_args,\"username\":\"$(printf '%s' "$username" | sed 's/"/\\"/g')\""
+    [ -n "$password" ] && extra_args="$extra_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
     curl -sS -X POST "$API_URL/api/v1/workflows/full-test" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"steps\":[\"explore\",\"analyze\",\"locators\",\"testPlan\",\"generate\",\"run\",\"healing\"],\"healingAnalysis\":true}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$extra_args}" | jq . 2>/dev/null || true
     ;;
   report)
     if [ -n "${2:-}" ]; then
