@@ -63,8 +63,8 @@ public class FailureAnalystAgent implements QaAgent {
         String consoleLogs = (String) task.getContextValue("consoleLogs");
         String screenshotPath = (String) task.getContextValue("screenshotPath");
 
-        if (executionId == null) {
-            return AgentResult.failure(getName(), "Missing executionId in task context");
+        if (executionId == null || projectId == null) {
+            return AgentResult.failure(getName(), "Missing executionId or projectId in task context");
         }
 
         try {

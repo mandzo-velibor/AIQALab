@@ -21,11 +21,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -83,29 +80,12 @@ public class WorkspaceManager implements WorkspaceProvider {
             Files.createDirectories(testsDir);
             Files.createDirectories(pagesDir);
 
-            Map<String, List<String>> pageObjectVariants = new LinkedHashMap<>();
-
             for (GeneratedTest test : tests) {
                 String fileName = resolveFileName(test);
-                if (test.getTestCode() == null || test.getTestCode().isBlank()) {
-                    continue;
+                if (test.getTestCode() != null && !test.getTestCode().isBlank()) {
+                    Files.writeString(testsDir.resolve(fileName), normalizeCode(test.getTestCode()));
                 }
-                String testCode = normalizeCode(test.getTestCode());
-                String pageObjectCode = normalizeCode(test.getPageObjectCode());
-                String className = extractClassName(pageObjectCode);
-                if (className != null) {
-                    String testBase = fileName.replaceFirst("\\.spec\\.[tj]s$", "");
-                    String uniquePageFile = className + "_" + testBase + ".ts";
-                    Files.writeString(pagesDir.resolve(uniquePageFile), pageObjectCode);
-                    testCode = rewritePageObjectImport(testCode, className, uniquePageFile);
-                    pageObjectVariants.computeIfAbsent(className, k -> new ArrayList<>()).add(pageObjectCode);
-                }
-                Files.writeString(testsDir.resolve(fileName), testCode);
-            }
-
-            for (Map.Entry<String, List<String>> entry : pageObjectVariants.entrySet()) {
-                Files.writeString(pagesDir.resolve(entry.getKey() + ".ts"),
-                        mergePageObjects(entry.getKey(), entry.getValue()));
+                writePageObject(pagesDir, normalizeCode(test.getPageObjectCode()));
             }
 
             log.info("Wrote {} test files to {}", tests.size(), testsDir);
@@ -207,142 +187,14 @@ public class WorkspaceManager implements WorkspaceProvider {
         return result;
     }
 
-    /**
-     * Points the import of the given page object class inside a test file to the
-     * test-specific page object file, so the test always resolves the locators
-     * it was generated against instead of a shared file that sibling tests may
-     * have overwritten. When the import cannot be matched, the code is returned
-     * unchanged and the merged shared page object acts as a fallback.
-     */
-    private String rewritePageObjectImport(String testCode, String className, String uniquePageFile) {
-        Pattern pattern = Pattern.compile(
-                "(?s)(import\\s*\\{[^}]*\\b" + Pattern.quote(className) + "\\b[^}]*\\}\\s*from\\s*['\"])([^'\"]+)(['\"])");
-        Matcher matcher = pattern.matcher(testCode);
-        if (matcher.find()) {
-            String rewritten = matcher.group(1) + "../pages/" + uniquePageFile + matcher.group(3);
-            return testCode.substring(0, matcher.start()) + rewritten + testCode.substring(matcher.end());
+    private void writePageObject(Path pagesDir, String pageObjectCode) throws IOException {
+        if (pageObjectCode == null || pageObjectCode.isBlank()) {
+            return;
         }
-        return testCode;
-    }
-
-    /**
-     * Merges the per-test page object variants that target the same page class
-     * into one shared file holding the union of locators and methods, deduplicating
-     * by declaration. This guarantees that a test whose import could not be
-     * rewritten still resolves every member it references.
-     */
-    private String mergePageObjects(String className, List<String> variants) {
-        Set<String> fields = new LinkedHashSet<>();
-        Map<String, String> constructorLines = new LinkedHashMap<>();
-        Map<String, String> methods = new LinkedHashMap<>();
-        String constructorSignature = null;
-
-        for (String variant : variants) {
-            String inner = stripOuterClass(variant);
-            for (String segment : splitTopLevelSegments(inner)) {
-                String trimmed = segment.strip();
-                if (trimmed.startsWith("readonly ") && trimmed.endsWith(";")) {
-                    fields.add(trimmed);
-                } else if (trimmed.startsWith("constructor")) {
-                    int open = trimmed.indexOf('{');
-                    if (constructorSignature == null && open > 0) {
-                        constructorSignature = trimmed.substring(0, open).strip();
-                    }
-                    String body = trimmed.substring(trimmed.indexOf('{') + 1, trimmed.lastIndexOf('}'));
-                    for (String line : body.split("\n")) {
-                        String t = line.strip();
-                        if (t.isEmpty()) {
-                            continue;
-                        }
-                        String key = t.startsWith("this.")
-                                ? t.substring(0, t.indexOf('=') > 0 ? t.indexOf('=') : t.length())
-                                : t;
-                        constructorLines.putIfAbsent(key, t);
-                    }
-                } else {
-                    methods.putIfAbsent(methodName(trimmed), trimmed);
-                }
-            }
+        String className = extractClassName(pageObjectCode);
+        if (className != null) {
+            Files.writeString(pagesDir.resolve(className + ".ts"), pageObjectCode);
         }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("import { Page, Locator } from '@playwright/test';\n\n");
-        sb.append("export class ").append(className).append(" {\n");
-        for (String field : fields) {
-            sb.append("  ").append(field).append("\n");
-        }
-        sb.append("\n  ")
-                .append(constructorSignature != null ? constructorSignature : "constructor(page: Page)")
-                .append(" {\n");
-        for (String line : constructorLines.values()) {
-            sb.append("    ").append(line).append("\n");
-        }
-        sb.append("  }\n");
-        for (String method : methods.values()) {
-            sb.append("\n");
-            for (String line : method.split("\n")) {
-                sb.append("  ").append(line).append("\n");
-            }
-        }
-        sb.append("}\n");
-        return sb.toString();
-    }
-
-    private String stripOuterClass(String code) {
-        int classIdx = code.indexOf("class ");
-        if (classIdx < 0) {
-            return code;
-        }
-        int open = code.indexOf('{', classIdx);
-        int close = code.lastIndexOf('}');
-        if (open < 0 || close <= open) {
-            return code;
-        }
-        return code.substring(open + 1, close);
-    }
-
-    private List<String> splitTopLevelSegments(String body) {
-        List<String> segments = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        int depth = 0;
-        for (String line : body.split("\n")) {
-            if (depth == 0 && current.isEmpty() && line.strip().isEmpty()) {
-                continue;
-            }
-            current.append(line).append("\n");
-            depth += occurrences(line, '{') - occurrences(line, '}');
-            if (depth <= 0) {
-                segments.add(current.toString().strip());
-                current.setLength(0);
-                depth = 0;
-            }
-        }
-        if (!current.isEmpty()) {
-            segments.add(current.toString().strip());
-        }
-        return segments;
-    }
-
-    private int occurrences(String text, char c) {
-        int count = 0;
-        for (int i = 0; i < text.length(); i++) {
-            if (text.charAt(i) == c) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private String methodName(String trimmed) {
-        int open = trimmed.indexOf('{');
-        String signature = (open > 0 ? trimmed.substring(0, open) : trimmed).strip();
-        if (signature.startsWith("async ")) {
-            signature = signature.substring("async ".length()).strip();
-        }
-        int paren = signature.indexOf('(');
-        String name = paren > 0 ? signature.substring(0, paren) : signature;
-        String[] parts = name.split("\\s+");
-        return parts.length > 0 ? parts[parts.length - 1] : name;
     }
 
     /**
