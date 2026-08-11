@@ -1,0 +1,22 @@
+{
+  "name": "qalab",
+  "version": "0.1.0",
+  "description": "CLI client for AI QA Lab Core API",
+  "bin": {
+    "qalab": "./qalab"
+  },
+  "files": [
+    "qalab"
+  ],
+  "keywords": [
+    "qa",
+    "testing",
+    "playwright",
+    "ai",
+    "automation"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

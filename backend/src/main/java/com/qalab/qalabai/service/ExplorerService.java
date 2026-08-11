@@ -73,9 +73,14 @@ public class ExplorerService {
     }
 
     public AnalysisResponse analyze(String url, boolean forceRefresh, Long projectId, String username, String password) {
+        return analyze(url, forceRefresh, projectId, username, password, null);
+    }
+
+    public AnalysisResponse analyze(String url, boolean forceRefresh, Long projectId, String username, String password, String instruction) {
         log.info("Explorer started for URL: {}", url);
 
-        String urlHash = cache.hashUrl(url);
+        String normalizedInstruction = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
+        String urlHash = cache.hashUrl(url + "\n" + (normalizedInstruction != null ? normalizedInstruction : ""));
 
         if (!forceRefresh) {
             AnalysisResponse cached = cache.get(urlHash);
@@ -109,7 +114,7 @@ public class ExplorerService {
         String simplifiedHtml = domSimplifier.simplify(html);
         log.info("HTML simplified from {} to {} chars", html.length(), simplifiedHtml.length());
 
-        String userPrompt = buildUserPrompt(title, currentUrl, simplifiedHtml, accessibilityTree);
+        String userPrompt = buildUserPrompt(title, currentUrl, simplifiedHtml, accessibilityTree, normalizedInstruction);
         log.info("Prompt created, length: {} chars", userPrompt.length());
 
         String llmResponse = callLlmWithRetry(userPrompt, projectId);
@@ -177,7 +182,7 @@ public class ExplorerService {
         }
     }
 
-    private String buildUserPrompt(String title, String url, String html, String accessibilityTree) {
+    private String buildUserPrompt(String title, String url, String html, String accessibilityTree, String instruction) {
         return String.format("""
                 Page Title: %s
                 URL: %s
@@ -187,7 +192,8 @@ public class ExplorerService {
 
                 Accessibility Tree:
                 %s
-                """, title, url, html, accessibilityTree);
+                """, title, url, html, accessibilityTree)
+                + com.qalab.qalabai.agent.PromptBlocks.userInstructions(instruction);
     }
 
     private String callLlmWithRetry(String userPrompt, Long projectId) {

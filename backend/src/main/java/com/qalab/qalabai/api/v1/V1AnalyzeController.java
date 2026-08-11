@@ -43,7 +43,8 @@ public class V1AnalyzeController extends AbstractV1Controller {
                 Boolean.TRUE.equals(request.forceRefresh()),
                 databaseId(request.project()),
                 request.username(),
-                request.password()
+                request.password(),
+                request.instruction()
         );
 
         V1AnalyzeResponse response = new V1AnalyzeResponse(

@@ -38,7 +38,7 @@ public class V1TestPlanController extends AbstractV1Controller {
         String operationId = operationId();
         log.info("POST /api/v1/test-plan operationId={} url={}", operationId, request.url());
 
-        TestPlanResponse result = planningService.generateTestPlan(request.url(), databaseId(request.project()));
+        TestPlanResponse result = planningService.generateTestPlan(request.url(), databaseId(request.project()), request.instruction());
 
         V1TestPlanResponse response = new V1TestPlanResponse(
                 operationId,
@@ -47,6 +47,7 @@ public class V1TestPlanController extends AbstractV1Controller {
                 request.url(),
                 result.scenarioCount(),
                 result.scenarios(),
+                result.instruction(),
                 LocalDateTime.now()
         );
         return ResponseEntity.ok(response);

@@ -36,7 +36,9 @@ public class V1ExploreController extends AbstractV1Controller {
         requireUrl(request.url());
         ProjectContext project = project(request.project());
         String operationId = operationId();
-        log.info("POST /api/v1/explore operationId={} url={}", operationId, request.url());
+        log.info("POST /api/v1/explore operationId={} url={} instruction={}", operationId, request.url(),
+                com.qalab.qalabai.util.UserInstructions.isPresent(request.instruction())
+                        ? "\"" + request.instruction() + "\"" : "none");
 
         ExploreResponse snapshot = explorationService.explore(request.url());
 

@@ -368,6 +368,213 @@ Node 20, Playwright Chromium, `mvn -B verify`), frontend build (typecheck + `nex
 a security check that fails if `.env` or hardcoded API keys are committed, and Docker image
 builds (push only).
 
+## Using AI QA Lab from an External QA Repository
+
+The AI QA Lab Core runs as a service (`http://localhost:8080`) and communicates
+with external QA repositories via REST API. The external repository owns its
+Playwright tests, config, and source code — the Core never writes into it unless
+explicitly asked.
+
+### 1. Start AI QA Lab Core
+
+```bash
+# In AIQALab repository
+docker compose up --build
+# Backend at http://localhost:8080
+```
+
+### 2. Prepare the External QA Repository
+
+In your external QA repo (e.g. `quiz-app-tests/`):
+
+```bash
+cd quiz-app-tests
+
+# Install the CLI locally (from AIQALab root)
+npm install ../AIQALab/cli
+
+# Or link globally for direct `qalab` command
+npm link ../AIQALab/cli
+```
+
+### 3. Configure the External Repository
+
+Create a `.qalab.json` in your external repo root:
+
+```bash
+qalab init
+```
+
+This creates `.qalab.json` with your settings. Edit it to match your project:
+
+```json
+{
+  "projectId": "quiz-app-tests",
+  "baseUrl": "http://localhost:3000",
+  "framework": "PLAYWRIGHT_TYPESCRIPT",
+  "language": "TypeScript",
+  "workspacePath": "/absolute/path/to/quiz-app-tests",
+  "apiUrl": "http://localhost:8080",
+  "databaseId": ""
+}
+```
+
+Fields:
+- `projectId` — logical identifier for your project
+- `baseUrl` — the application under test (e.g. `http://localhost:3000` or `https://the-internet.herokuapp.com`)
+- `framework` — `PLAYWRIGHT_TYPESCRIPT` (Playwright + TypeScript)
+- `language` — `TypeScript`
+- `workspacePath` — absolute path to your external repo (required for test execution)
+- `apiUrl` — AI QA Lab Core URL (default `http://localhost:8080`)
+- `databaseId` — optional: registered project ID from Core (set after registration)
+
+### 4. Register the Project in Core (optional but recommended)
+
+```bash
+# Using CLI (requires databaseId to be set in .qalab.json after this)
+curl -X POST http://localhost:8080/api/projects \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Quiz App Tests","baseUrl":"http://localhost:3000","framework":"PLAYWRIGHT_TYPESCRIPT"}'
+
+# Note the returned "id" and update databaseId in .qalab.json
+```
+
+### 5. Run the QA Workflow
+
+From your external repo (`quiz-app-tests/`):
+
+```bash
+# Explore the application
+qalab explore
+
+# Analyze the page
+qalab analyze
+
+# Generate locators
+qalab locator analyze --url "http://localhost:3000/login" --locator 'button[type="submit"]'
+
+# Generate test plan
+qalab plan
+
+# Generate test plan with user guidance (e.g. only API tests, requirement doc)
+qalab plan --instruction "only API tests, based on the attached requirement document"
+
+# Generate tests AND write them to your workspace
+qalab generate --write
+
+# Generate tests with a deterministic type filter and user guidance
+qalab generate --instruction "cover registration edge cases" --test-type api --write
+
+# Execute all tests in your workspace (with self-healing on failure)
+qalab execute --all --healing-analysis
+
+# Or execute a specific test
+qalab execute --test login.spec.ts --healing-analysis
+```
+
+Supported `--test-type` values: `api`, `ui`, `e2e` (the Core filters scenarios and
+only generates matching tests — no AI involved). The `instruction` text is passed
+verbatim into the planner/generator prompt, so you can reference requirement
+documents, constraint lists, or "only X tests". The response echoes the normalized
+instruction/testType and a `note` when the structured filter conflicts with the
+instruction text.
+
+### 6. Failure Analysis & Self-Healing
+
+```bash
+# After a failed run, analyze and get healing proposal
+qalab heal <executionId>
+
+# View a specific proposal
+qalab heal-status <proposalId>
+```
+
+Proposals are `PROPOSED` by default — the Core **never modifies your test source**.
+Review and apply manually, or use the UI at `http://localhost:3000` to accept/reject.
+
+### 7. Bug Reports from Failed Tests
+
+Turn a failed execution into an LLM-generated, developer-actionable bug report:
+
+```bash
+# Generate a bug report for a failed execution
+qalab bug-report <executionId>
+
+# List bug reports (optionally filter by Core project id)
+qalab bug-reports
+qalab bug-reports <projectId>
+```
+
+The Core builds a failure context from the execution (error message, console
+logs, failing locator, deterministic classification), asks the AI to write a
+structured report (`title`, `severity`, `summary`, `stepsToReproduce`,
+`expected/actual`, `affectedElement`, `failureType`, `suggestedFix`) and persists
+it. If the AI call fails, a deterministic fallback report is saved so the failure
+is never lost. Passing executions (`PASSED`/`SKIPPED`) are rejected.
+
+```bash
+# Direct REST
+curl -X POST http://localhost:8080/api/v1/bug-reports \
+  -H 'Content-Type: application/json' \
+  -d '{"project":{"projectId":"quiz-app-tests","databaseId":1},"executionId":42}'
+```
+
+### External Repository Structure
+
+```
+quiz-app-tests/
+├── .qalab.json           # Project configuration
+├── package.json          # Your Playwright project
+├── playwright.config.ts  # Playwright config
+├── tests/                # Generated test files go here
+│   └── login.spec.ts
+├── test-data/            # Test data files
+└── ...
+```
+
+### Alternative: Direct REST API
+
+If you prefer not to use the CLI, call the API directly:
+
+```bash
+# Explore
+curl -X POST http://localhost:8080/api/v1/explore \
+  -H 'Content-Type: application/json' \
+  -d '{"project":{"projectId":"quiz-app-tests","baseUrl":"http://localhost:3000","framework":"PLAYWRIGHT_TYPESCRIPT","language":"TypeScript","workspacePath":"/abs/path/to/quiz-app-tests"},"url":"http://localhost:3000/login"}'
+
+# Generate tests
+curl -X POST http://localhost:8080/api/v1/tests \
+  -H 'Content-Type: application/json' \
+  -d '{"project":{"projectId":"quiz-app-tests",...},"url":"http://localhost:3000/login"}'
+
+# Run tests
+curl -X POST http://localhost:8080/api/v1/run \
+  -H 'Content-Type: application/json' \
+  -d '{"project":{"projectId":"quiz-app-tests","workspacePath":"/abs/path/to/quiz-app-tests","databaseId":1},"runAll":true,"healingAnalysis":true}'
+```
+
+### Using the Java SDK
+
+```xml
+<!-- In your external project's pom.xml -->
+<dependency>
+  <groupId>com.qalab</groupId>
+  <artifactId>qalab-sdk</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+```java
+QalabClient qalab = new QalabClient("http://localhost:8080")
+        .projectId("quiz-app-tests")
+        .baseUrl("http://localhost:3000")
+        .workspacePath("/abs/path/to/quiz-app-tests");
+
+qalab.generate("http://localhost:3000/login");  // Returns files array
+qalab.executeAll();                              // Runs tests in workspace
+qalab.analyzeHealing(executionId);               // Self-healing analysis
+```
+
 ## Roadmap
 
 ### Completed

@@ -42,17 +42,20 @@ public class V1ExecutionController extends AbstractV1Controller {
 
         ExecutionService.RunResult result;
         boolean healingAnalysis = Boolean.TRUE.equals(request.healingAnalysis());
+        String instruction = com.qalab.qalabai.util.UserInstructions.normalize(request.instruction());
         if (Boolean.TRUE.equals(request.runAll())) {
             if (dbId == null) {
                 throw ApiException.invalidRequest("runAll requires a registered project (databaseId)");
             }
-            log.info("POST /api/v1/run operationId={} runAll=true project={} healingAnalysis={}",
-                    operationId, project.getProjectId(), healingAnalysis);
-            result = executionService.runAllTests(dbId, healingAnalysis);
+            log.info("POST /api/v1/run operationId={} runAll=true project={} healingAnalysis={} instruction={}",
+                    operationId, project.getProjectId(), healingAnalysis,
+                    instruction != null ? "\"" + instruction + "\"" : "none");
+            result = executionService.runAllTests(dbId, healingAnalysis, null, instruction);
         } else if (request.testId() != null) {
-            log.info("POST /api/v1/run operationId={} testId={} healingAnalysis={}",
-                    operationId, request.testId(), healingAnalysis);
-            result = executionService.runTest(request.testId(), dbId, healingAnalysis);
+            log.info("POST /api/v1/run operationId={} testId={} healingAnalysis={} instruction={}",
+                    operationId, request.testId(), healingAnalysis,
+                    instruction != null ? "\"" + instruction + "\"" : "none");
+            result = executionService.runTest(request.testId(), dbId, healingAnalysis, null, instruction);
         } else {
             throw ApiException.invalidRequest("testId or runAll is required");
         }

@@ -14,6 +14,7 @@ public enum AiOperation {
     FAILURE_ANALYSIS,
     SELF_HEALING,
     HEALING_EVALUATION,
+    BUG_REPORT,
     FULL_WORKFLOW;
 
     public static AiOperation from(String value) {

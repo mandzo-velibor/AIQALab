@@ -13,6 +13,7 @@ public record V1TestPlanResponse(
         String url,
         int scenarioCount,
         List<TestScenarioDto> scenarios,
+        String instruction,
         LocalDateTime createdAt
 ) {
 }

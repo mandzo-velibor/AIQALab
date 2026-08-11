@@ -109,13 +109,32 @@ public class CodeGenerationService {
     }
 
     public List<GeneratedFile> generateTestsContent(String url, Long projectId, String instruction, String testType) {
+        return generateContent(url, projectId, instruction, testType).files();
+    }
+
+    /**
+     * Service-contract path with traceability: returns the generated files plus
+     * the normalized instruction/test type and an explainable note (e.g. when the
+     * deterministic type filter conflicts with the textual instruction).
+     */
+    public GeneratedContent generateContent(String url, Long projectId, String instruction, String testType) {
         log.info("Generating test content (service path) for URL: {}", url);
 
-        List<GeneratedTest> tests = runGenerator(url, projectId, com.qalab.qalabai.util.UserInstructions.normalize(instruction), normalizeTestType(testType));
+        String normalizedInstruction = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
+        String normalizedType = normalizeTestType(testType);
 
-        return tests.stream()
+        List<GeneratedTest> tests = runGenerator(url, projectId, normalizedInstruction, normalizedType);
+
+        List<GeneratedFile> files = tests.stream()
                 .map(t -> new GeneratedFile(TestWorkspaceService.resolveFileName(t), t.getTestCode()))
                 .toList();
+
+        String note = buildNote(normalizedType, normalizedInstruction, files.size());
+
+        return new GeneratedContent(files, normalizedInstruction, normalizedType, note);
+    }
+
+    public record GeneratedContent(List<GeneratedFile> files, String instruction, String testType, String note) {
     }
 
     private List<GeneratedTest> runGenerator(String url, Long projectId, String instruction, String testType) {

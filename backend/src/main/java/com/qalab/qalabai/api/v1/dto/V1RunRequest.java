@@ -5,6 +5,7 @@ public record V1RunRequest(
         Long testId,
         Boolean runAll,
         String workspacePath,
-        Boolean healingAnalysis
+        Boolean healingAnalysis,
+        String instruction
 ) {
 }

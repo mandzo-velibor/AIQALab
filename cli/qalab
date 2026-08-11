@@ -5,8 +5,12 @@
 # Commands:
 #   init <dir>            create a .qalab.json project config
 #   generate --url <url>  generate Playwright tests for a page
+#   generate --write      generate and write test files to workspace
+#   generate --instruction "<text>" --test-type <api|ui|e2e>  add user guidance/type filter
 #   plan --url <url>      generate a test plan
+#   plan --instruction "<text>"  pass user guidance to the planner
 #   explore --url <url>   explore/analyze a page
+#   analyze [--force]     AI analysis of the page
 #   execute [--all|--test <id>]  run tests (needs a registered project)
 #   report [<executionId>]       list or show a test report
 #   intent "<prompt>"     detect intent and run the matching operation
@@ -16,24 +20,89 @@
 #   execute --test <id> --healing-analysis  run one test with healing analysis
 #   heal <executionId>    analyze a failed run and produce a healing proposal
 #   heal-status <proposalId>  show a healing proposal
+#   bug-report <executionId>  generate a bug report from a failed test run
+#   bug-reports           list bug reports (or by project: bug-reports <projectId>)
 #   locator analyze --url <url> --locator '<locator>'  analyze a locator (live uniqueness + quality)
 #   locator history [<projectId>] [<fingerprint>]  show locator observation history
 #   test <url>            run the full workflow incl. healing analysis
 #
-# Configuration (environment):
-#   QALAB_API_URL   default http://localhost:8080
-#   QALAB_PROJECT_ID   logical project id
-#   QALAB_BASE_URL     app base url
-#   QALAB_WORKSPACE    workspace path for execution
-#   QALAB_DB_ID        registered project id (database) for run/heal
+# Configuration (environment or .qalab.json):
+#   QALAB_API_URL       default http://localhost:8080
+#   QALAB_PROJECT_ID    logical project id
+#   QALAB_BASE_URL      app base url
+#   QALAB_WORKSPACE     workspace path for execution
+#   QALAB_DB_ID         registered project id (database) for run/heal
 #
 set -euo pipefail
 
-API_URL="${QALAB_API_URL:-http://localhost:8080}"
-PROJECT_ID="${QALAB_PROJECT_ID:-qalab-cli}"
-BASE_URL="${QALAB_BASE_URL:-}"
-WORKSPACE="${QALAB_WORKSPACE:-}"
-DB_ID="${QALAB_DB_ID:-}"
+load_config() {
+  local dir="$(pwd)"
+  while [ "$dir" != "/" ]; do
+    local cfg=""
+    if [ -f "$dir/.qalab.json" ]; then
+      cfg="$dir/.qalab.json"
+    elif [ -f "$dir/qalab.config.json" ]; then
+      cfg="$dir/qalab.config.json"
+    fi
+    if [ -n "$cfg" ]; then
+      if command -v jq >/dev/null 2>&1; then
+        local api_url project_id base_url workspace db_id framework language
+        api_url="$(jq -r '.apiUrl // .coreUrl // empty' "$cfg")"
+        project_id="$(jq -r '.projectId // empty' "$cfg")"
+        base_url="$(jq -r '.baseUrl // empty' "$cfg")"
+        workspace="$(jq -r '.workspacePath // empty' "$cfg")"
+        db_id="$(jq -r '.databaseId // empty' "$cfg")"
+        framework="$(jq -r '.framework // empty' "$cfg")"
+        language="$(jq -r '.language // empty' "$cfg")"
+        [ -n "$api_url" ] && API_URL="${QALAB_API_URL:-${API_URL:-$api_url}}"
+        [ -n "$project_id" ] && PROJECT_ID="${QALAB_PROJECT_ID:-${PROJECT_ID:-$project_id}}"
+        [ -n "$base_url" ] && BASE_URL="${QALAB_BASE_URL:-${BASE_URL:-$base_url}}"
+        [ -n "$workspace" ] && WORKSPACE="${QALAB_WORKSPACE:-${WORKSPACE:-$workspace}}"
+        [ -n "$db_id" ] && DB_ID="${QALAB_DB_ID:-${DB_ID:-$db_id}}"
+        [ -n "$framework" ] && FRAMEWORK="${FRAMEWORK:-$framework}"
+        [ -n "$language" ] && LANGUAGE="${LANGUAGE:-$language}"
+      else
+        API_URL="${QALAB_API_URL:-${API_URL:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('apiUrl') or d.get('coreUrl'); print(v) if v else ''")}}"
+        PROJECT_ID="${QALAB_PROJECT_ID:-${PROJECT_ID:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('projectId'); print(v) if v else ''")}}"
+        BASE_URL="${QALAB_BASE_URL:-${BASE_URL:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('baseUrl'); print(v) if v else ''")}}"
+        WORKSPACE="${QALAB_WORKSPACE:-${WORKSPACE:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('workspacePath'); print(v) if v else ''")}}"
+        DB_ID="${QALAB_DB_ID:-${DB_ID:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('databaseId'); print(v) if v else ''")}}"
+        FRAMEWORK="${FRAMEWORK:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('framework'); print(v) if v else 'PLAYWRIGHT_TYPESCRIPT'")}"
+        LANGUAGE="${LANGUAGE:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('language'); print(v) if v else 'TypeScript'")}"
+      fi
+      break
+    fi
+    dir="$(dirname "$dir")"
+  done
+}
+
+load_config
+
+API_URL="${QALAB_API_URL:-${API_URL:-http://localhost:8080}}"
+PROJECT_ID="${QALAB_PROJECT_ID:-${PROJECT_ID:-qalab-cli}}"
+BASE_URL="${QALAB_BASE_URL:-${BASE_URL:-}}"
+WORKSPACE="${QALAB_WORKSPACE:-${WORKSPACE:-}}"
+DB_ID="${QALAB_DB_ID:-${DB_ID:-}}"
+FRAMEWORK="${FRAMEWORK:-PLAYWRIGHT_TYPESCRIPT}"
+LANGUAGE="${LANGUAGE:-TypeScript}"
+
+# Allow --url <value> on any command to override the app base URL:
+#   qalab explore --url http://localhost:3000
+i=1
+while [ $i -le $# ]; do
+  arg="${!i}"
+  if [ "$arg" = "--url" ]; then
+    n=$((i + 1))
+    if [ $n -le $# ]; then
+      BASE_URL="${!n}"
+    else
+      echo "error: --url requires a value" >&2
+      exit 1
+    fi
+    break
+  fi
+  i=$((i + 1))
+done
 
 json_get() {
   # json_get <json> <key>
@@ -49,6 +118,37 @@ json_id() {
   # json_id <id> - echoes the raw id (quotes stripped)
   local id="$1"
   printf '%s' "${id//\"/}"
+}
+
+write_files_from_json() {
+  local json="$1"
+  local target_dir="${2:-.}"
+  
+  if command -v jq >/dev/null 2>&1; then
+    local count
+    count="$(printf '%s' "$json" | jq '.files | length')"
+    for ((i=0; i<count; i++)); do
+      local path content
+      path="$(printf '%s' "$json" | jq -r ".files[$i].path")"
+      content="$(printf '%s' "$json" | jq -r ".files[$i].content")"
+      mkdir -p "$target_dir/$(dirname "$path")"
+      printf '%s' "$content" > "$target_dir/$path"
+      echo "Wrote $target_dir/$path"
+    done
+  else
+    printf '%s' "$json" | python3 -c "
+import sys, json, os
+d = json.load(sys.stdin)
+target = sys.argv[1]
+for f in d.get('files', []):
+    p = f['path']
+    full = os.path.join(target, p)
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    with open(full, 'w') as out:
+        out.write(f['content'])
+    print(f'Wrote {full}')
+" "$target_dir"
+  fi
 }
 
 print_healing() {
@@ -100,8 +200,8 @@ project_payload() {
   {
     "projectId": "$PROJECT_ID",
     "baseUrl": "$BASE_URL",
-    "framework": "PLAYWRIGHT",
-    "language": "TYPESCRIPT",
+    "framework": "$FRAMEWORK",
+    "language": "$LANGUAGE",
     "workspacePath": "$WORKSPACE"$db
   }
 EOF
@@ -126,56 +226,119 @@ case "${1:-}" in
 {
   "projectId": "$PROJECT_ID",
   "baseUrl": "$BASE_URL",
-  "framework": "PLAYWRIGHT",
-  "language": "TYPESCRIPT",
+  "framework": "$FRAMEWORK",
+  "language": "$LANGUAGE",
   "workspacePath": "$WORKSPACE",
-  "apiUrl": "$API_URL"
+  "apiUrl": "$API_URL",
+  "databaseId": "$DB_ID"
 }
 EOF
     echo "Initialized $dir/.qalab.json"
     ;;
   explore)
     require_url
+    instruction=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --instruction) instruction="${2:-}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
     payload="$(project_payload)"
+    inst_arg=""
+    [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     curl -sS -X POST "$API_URL/api/v1/explore" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$inst_arg}" | jq . 2>/dev/null || true
+    ;;
+  analyze)
+    require_url
+    force="false"
+    instruction=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --force) force="true"; shift ;;
+        --instruction) instruction="${2:-}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    payload="$(project_payload)"
+    inst_arg=""
+    [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
+    curl -sS -X POST "$API_URL/api/v1/analyze" \
+      -H 'Content-Type: application/json' \
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\",\"forceRefresh\":$force$inst_arg}" | jq . 2>/dev/null || true
     ;;
   plan)
     require_url
+    instruction=""
+    test_type=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --instruction) instruction="${2:-}"; shift 2 ;;
+        --test-type) test_type="${2:-}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
     payload="$(project_payload)"
+    inst_arg=""
+    [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     curl -sS -X POST "$API_URL/api/v1/test-plan" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$inst_arg}" | jq . 2>/dev/null || true
     ;;
   generate)
     require_url
+    write_files="false"
+    instruction=""
+    test_type=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --write) write_files="true"; shift ;;
+        --instruction) instruction="${2:-}"; shift 2 ;;
+        --test-type) test_type="${2:-}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
     payload="$(project_payload)"
-    curl -sS -X POST "$API_URL/api/v1/tests" \
+    inst_arg=""
+    type_arg=""
+    [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
+    [ -n "$test_type" ] && type_arg=",\"testType\":\"$test_type\""
+    response="$(curl -sS -X POST "$API_URL/api/v1/tests" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$inst_arg$type_arg}")"
+    if [ "$write_files" = "true" ]; then
+      write_files_from_json "$response" "${WORKSPACE:-.}"
+    else
+      printf '%s' "$response" | jq . 2>/dev/null || true
+    fi
     ;;
   execute)
     healing="false"
     test_id=""
     run_all="false"
+    instruction=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --healing-analysis) healing="true"; shift ;;
         --all) run_all="true"; shift ;;
         --test) test_id="${2:-}"; shift 2 ;;
+        --instruction) instruction="${2:-}"; shift 2 ;;
         *) test_id="${test_id:-$1}"; shift ;;
       esac
     done
     payload="$(project_payload)"
+    inst_arg=""
+    [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     if [ -n "$test_id" ]; then
       curl -sS -X POST "$API_URL/api/v1/run" \
         -H 'Content-Type: application/json' \
-        -d "{\"project\":$payload,\"testId\":$(json_id "$test_id"),\"healingAnalysis\":$healing}" | jq . 2>/dev/null || true
+        -d "{\"project\":$payload,\"testId\":$(json_id "$test_id"),\"healingAnalysis\":$healing$inst_arg}" | jq . 2>/dev/null || true
     elif [ "$run_all" = "true" ] || [ -n "$WORKSPACE" ]; then
       curl -sS -X POST "$API_URL/api/v1/run" \
         -H 'Content-Type: application/json' \
-        -d "{\"project\":$payload,\"runAll\":true,\"healingAnalysis\":$healing}" | jq . 2>/dev/null || true
+        -d "{\"project\":$payload,\"runAll\":true,\"healingAnalysis\":$healing$inst_arg}" | jq . 2>/dev/null || true
     else
       echo "error: execution requires QALAB_WORKSPACE (or --test <id>)" >&2
       exit 1
@@ -251,6 +414,29 @@ EOF
       curl -sS "$API_URL/api/v1/reports/$2" | jq . 2>/dev/null || true
     else
       curl -sS "$API_URL/api/v1/reports" | jq . 2>/dev/null || true
+    fi
+    ;;
+  bug-report)
+    execution_id="${2:?usage: qalab bug-report <executionId>}"
+    instruction=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --instruction) instruction="${2:-}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    payload="$(project_payload)"
+    inst_arg=""
+    [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
+    curl -sS -X POST "$API_URL/api/v1/bug-reports" \
+      -H 'Content-Type: application/json' \
+      -d "{\"project\":$payload,\"executionId\":$(json_id "$execution_id")}" | jq . 2>/dev/null || true
+    ;;
+  bug-reports)
+    if [ -n "${2:-}" ]; then
+      curl -sS "$API_URL/api/v1/projects/$2/bug-reports" | jq . 2>/dev/null || true
+    else
+      curl -sS "$API_URL/api/v1/bug-reports" | jq . 2>/dev/null || true
     fi
     ;;
   intent)

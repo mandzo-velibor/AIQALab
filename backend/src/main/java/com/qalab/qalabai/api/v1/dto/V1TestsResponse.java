@@ -13,6 +13,9 @@ public record V1TestsResponse(
         String url,
         int count,
         List<GeneratedFile> files,
+        String instruction,
+        String testType,
+        String note,
         LocalDateTime createdAt
 ) {
 }

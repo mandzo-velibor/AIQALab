@@ -4,7 +4,6 @@ import com.qalab.qalabai.agent.ProjectContext;
 import com.qalab.qalabai.api.OperationStatus;
 import com.qalab.qalabai.api.v1.dto.V1GenerateTestsRequest;
 import com.qalab.qalabai.api.v1.dto.V1TestsResponse;
-import com.qalab.qalabai.dto.testgen.GeneratedFile;
 import com.qalab.qalabai.service.CodeGenerationService;
 import com.qalab.qalabai.service.ProjectContextResolver;
 import org.slf4j.Logger;
@@ -16,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -39,15 +37,19 @@ public class V1TestGenerationController extends AbstractV1Controller {
         String operationId = operationId();
         log.info("POST /api/v1/tests operationId={} url={}", operationId, request.url());
 
-        List<GeneratedFile> files = codeGenerationService.generateTestsContent(request.url(), databaseId(request.project()));
+        CodeGenerationService.GeneratedContent content = codeGenerationService.generateContent(
+                request.url(), databaseId(request.project()), request.instruction(), request.testType());
 
         V1TestsResponse response = new V1TestsResponse(
                 operationId,
                 OperationStatus.COMPLETED,
                 project.getProjectId(),
                 request.url(),
-                files.size(),
-                files,
+                content.files().size(),
+                content.files(),
+                content.instruction(),
+                content.testType(),
+                content.note(),
                 LocalDateTime.now()
         );
         return ResponseEntity.ok(response);
