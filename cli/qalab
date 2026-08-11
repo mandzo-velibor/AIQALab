@@ -256,7 +256,7 @@ EOF
     [ -n "$password" ] && cred_args="$cred_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
     curl -sS -X POST "$API_URL/api/v1/explore" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$cred_args}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$cred_args}" | jq 'del(.screenshotBase64, .analysis.screenshotBase64)' 2>/dev/null || true
     ;;
   analyze)
     require_url
@@ -280,7 +280,7 @@ EOF
     [ -n "$password" ] && cred_args="$cred_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
     curl -sS -X POST "$API_URL/api/v1/analyze" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\",\"forceRefresh\":$force$cred_args}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\",\"forceRefresh\":$force$cred_args}" | jq 'del(.screenshotBase64, .analysis.screenshotBase64)' 2>/dev/null || true
     ;;
   plan)
     require_url
@@ -436,9 +436,26 @@ EOF
     [ -n "$instruction" ] && extra_args="$extra_args,\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     [ -n "$username" ] && extra_args="$extra_args,\"username\":\"$(printf '%s' "$username" | sed 's/"/\\"/g')\""
     [ -n "$password" ] && extra_args="$extra_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
-    response="$(curl -sS -X POST "$API_URL/api/v1/workflows/full-test" \
+    op_id="cli-$(date +%s)-$$"
+    post_args=",\"operationId\":\"$op_id\""
+    tmp_response="$(mktemp)"
+    curl -sS -X POST "$API_URL/api/v1/workflows/full-test" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$extra_args}")"
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$extra_args$post_args}" > "$tmp_response" &
+    curl_pid=$!
+    last_stage=""
+    while kill -0 "$curl_pid" 2>/dev/null; do
+      sleep 0.5
+      prog="$(curl -sS "$API_URL/api/v1/workflows/$op_id/progress" 2>/dev/null || true)"
+      stage="$(printf '%s' "$prog" | jq -r '.stage // empty' 2>/dev/null || true)"
+      if [ -n "$stage" ] && [ "$stage" != "$last_stage" ]; then
+        printf '%s\n' "$(printf '%s' "$prog" | jq -r '.message // .stage')" >&2
+        last_stage="$stage"
+      fi
+    done
+    wait "$curl_pid" 2>/dev/null || true
+    response="$(cat "$tmp_response")"
+    rm -f "$tmp_response"
     report_dir="${QALAB_REPORT_DIR:-$(pwd)/.qalab/reports/$(date +%Y%m%d-%H%M%S)}"
     mkdir -p "$report_dir"
     printf '%s' "$response" > "$report_dir/report.json"

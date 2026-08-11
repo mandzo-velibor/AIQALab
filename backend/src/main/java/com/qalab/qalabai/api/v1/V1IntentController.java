@@ -121,7 +121,7 @@ public class V1IntentController extends AbstractV1Controller {
                                         project.getProjectId(), project.getProjectName(), project.getBaseUrl(),
                                         project.getFramework(), project.getLanguage(), project.getWorkspacePath(),
                                         dbId),
-                                url, null, null, null);
+                                url, null, null, null, null);
                 workflowService.runFullTest(full);
                 log.info("Intent FULL_TEST done for {}", url);
             }

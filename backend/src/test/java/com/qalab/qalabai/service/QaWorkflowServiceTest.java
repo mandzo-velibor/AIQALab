@@ -44,6 +44,7 @@ class QaWorkflowServiceTest {
     private final FailureAnalysisService failureAnalysisService = mock(FailureAnalysisService.class);
     private final HealingAnalysisService healingAnalysisService = mock(HealingAnalysisService.class);
     private final BugReportService bugReportService = mock(BugReportService.class);
+    private final OperationProgressStore progressStore = mock(OperationProgressStore.class);
     private final WorkspaceProvider workspaceProvider = mock(WorkspaceProvider.class);
 
     private QaWorkflowService workflow;
@@ -55,7 +56,8 @@ class QaWorkflowServiceTest {
     void setUp() {
         workflow = new QaWorkflowService(contextResolver, explorerService, locatorService,
                 planningService, codeGenerationService, executionService,
-                failureAnalysisService, healingAnalysisService, bugReportService, workspaceProvider);
+                failureAnalysisService, healingAnalysisService, bugReportService,
+                progressStore, workspaceProvider);
 
         info = ProjectInfo.of("internet-tests", "https://the-internet.herokuapp.com/login", "PLAYWRIGHT", "TYPESCRIPT");
         project = new ProjectContext();
@@ -74,7 +76,7 @@ class QaWorkflowServiceTest {
 
     @Test
     void skipsExecutionWhenNoWorkspacePath() {
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "explore", "COMPLETED");
@@ -100,7 +102,7 @@ class QaWorkflowServiceTest {
         record.setId(7L);
         when(executionService.recordExecution(any(), any(), any(), any(), any(), any())).thenReturn(record);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "execution", "COMPLETED");
@@ -147,7 +149,7 @@ class QaWorkflowServiceTest {
                 "locator repaired");
         when(healingAnalysisService.analyzeExecution(eq(10L), eq(3L))).thenReturn(outcome);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "failureAnalysis", "COMPLETED");
@@ -175,7 +177,7 @@ class QaWorkflowServiceTest {
         analysis.setHealingCandidate(false);
         when(failureAnalysisService.analyzeExecution(eq(11L), eq(3L))).thenReturn(analysis);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
 
         assertStepStatus(response, "failureAnalysis", "COMPLETED");
         assertStepStatus(response, "healing", "SKIPPED");
@@ -187,7 +189,7 @@ class QaWorkflowServiceTest {
         when(explorerService.analyze(any(), anyBoolean(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("AI provider unavailable"));
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
 
         assertEquals(OperationStatus.FAILED, response.status());
         assertStepStatus(response, "workflow", "FAILED");

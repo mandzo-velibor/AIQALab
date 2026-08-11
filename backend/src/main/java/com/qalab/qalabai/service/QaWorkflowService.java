@@ -55,6 +55,7 @@ public class QaWorkflowService {
     private final FailureAnalysisService failureAnalysisService;
     private final com.qalab.qalabai.healing.service.HealingAnalysisService healingAnalysisService;
     private final BugReportService bugReportService;
+    private final OperationProgressStore progressStore;
     private final WorkspaceProvider workspaceProvider;
 
     public QaWorkflowService(ProjectContextResolver contextResolver,
@@ -66,6 +67,7 @@ public class QaWorkflowService {
                              FailureAnalysisService failureAnalysisService,
                              com.qalab.qalabai.healing.service.HealingAnalysisService healingAnalysisService,
                              BugReportService bugReportService,
+                             OperationProgressStore progressStore,
                              WorkspaceProvider workspaceProvider) {
         this.contextResolver = contextResolver;
         this.explorerService = explorerService;
@@ -76,6 +78,7 @@ public class QaWorkflowService {
         this.failureAnalysisService = failureAnalysisService;
         this.healingAnalysisService = healingAnalysisService;
         this.bugReportService = bugReportService;
+        this.progressStore = progressStore;
         this.workspaceProvider = workspaceProvider;
     }
 
@@ -83,7 +86,8 @@ public class QaWorkflowService {
         ProjectContext project = contextResolver.resolve(request.project());
         String url = request.url();
         Long dbId = contextResolver.databaseId(request.project());
-        String operationId = "op-" + UUID.randomUUID();
+        String operationId = request.operationId() != null && !request.operationId().isBlank()
+                ? request.operationId() : "op-" + UUID.randomUUID();
         Map<String, Object> steps = new LinkedHashMap<>();
 
         if (url == null || url.isBlank()) {
@@ -91,23 +95,28 @@ public class QaWorkflowService {
         }
 
         OperationStatus finalStatus = OperationStatus.COMPLETED;
+        progressStore.update(operationId, OperationStatus.RUNNING.name(), "STARTED", "starting full test workflow...");
 
         try {
             // 1. EXPLORE + ANALYZE (page capture and analysis are performed together)
+            progressStore.update(operationId, OperationStatus.RUNNING.name(), "EXPLORING", "exploring app...");
             AnalysisResponse analysis = explorerService.analyze(
                     url, true, dbId, request.username(), request.password(), request.instruction());
             steps.put("explore", step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType())));
             steps.put("analyze", step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType())));
 
             // 2. LOCATORS
+            progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_LOCATORS", "generating locators...");
             LocatorResponse locators = locatorService.generateLocators(url, dbId);
             steps.put("locators", step("COMPLETED", Map.of("generated", locators.generated())));
 
             // 3. TEST PLAN
+            progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_TEST_PLAN", "generating test plan...");
             TestPlanResponse plan = planningService.generateTestPlan(url, dbId);
             steps.put("testPlan", step("COMPLETED", Map.of("scenarioCount", plan.scenarioCount())));
 
             // 4. GENERATE TESTS (content returned, never auto-written into the Core)
+            progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_TESTS", "generating tests...");
             List<GeneratedFile> files = codeGenerationService.generateTestsContent(url, dbId);
             steps.put("generatedTests", step("COMPLETED", Map.of("count", files.size(), "files", files)));
 
@@ -118,6 +127,7 @@ public class QaWorkflowService {
                 steps.put("healing", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
                 steps.put("bugReport", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
             } else {
+                progressStore.update(operationId, OperationStatus.RUNNING.name(), "RUNNING_TESTS", "running tests...");
                 Map<String, Object> run = runInWorkspace(project, url, dbId, files);
                 steps.put("execution", step("COMPLETED", run));
                 String execStatus = (String) run.get("executionStatus");
@@ -131,19 +141,23 @@ public class QaWorkflowService {
                     steps.put("healing", step("SKIPPED", Map.of("reason", "NO_REGISTERED_PROJECT")));
                     steps.put("bugReport", step("SKIPPED", Map.of("reason", "NO_REGISTERED_PROJECT")));
                 } else {
-                    analyzeFailure(steps, dbId, run);
-                    generateBugReport(steps, dbId, run, request.instruction());
+                    analyzeFailure(steps, dbId, run, operationId);
+                    generateBugReport(steps, dbId, run, request.instruction(), operationId);
                 }
             }
 
         } catch (Exception e) {
             log.error("Full QA workflow failed: {}", e.getMessage(), e);
             finalStatus = OperationStatus.FAILED;
+            progressStore.update(operationId, OperationStatus.FAILED.name(), "FAILED",
+                    "workflow failed: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
             Map<String, Object> errorData = new LinkedHashMap<>();
             errorData.put("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
             steps.put("workflow", step("FAILED", errorData));
         }
 
+        progressStore.update(operationId, finalStatus.name(), "DONE",
+                finalStatus == OperationStatus.COMPLETED ? "workflow completed" : "workflow failed");
         return new V1WorkflowResponse(operationId, finalStatus, project.getProjectId(), url, steps, LocalDateTime.now());
     }
 
@@ -166,9 +180,10 @@ public class QaWorkflowService {
         return run;
     }
 
-    private void analyzeFailure(Map<String, Object> steps, Long dbId, Map<String, Object> run) {
+    private void analyzeFailure(Map<String, Object> steps, Long dbId, Map<String, Object> run, String operationId) {
         try {
             Long executionId = (Long) run.get("executionId");
+            progressStore.update(operationId, OperationStatus.RUNNING.name(), "ANALYZING_FAILURE", "analyzing failure...");
             FailureAnalysis analysis = failureAnalysisService.analyzeExecution(executionId, dbId);
             Map<String, Object> faData = new LinkedHashMap<>();
             faData.put("failureType", analysis.getFailureType());
@@ -177,6 +192,7 @@ public class QaWorkflowService {
             steps.put("failureAnalysis", step("COMPLETED", faData));
 
             if (Boolean.TRUE.equals(analysis.getHealingCandidate())) {
+                progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_HEALING_SUGGESTION", "generating healing suggestion...");
                 com.qalab.qalabai.healing.service.HealingOutcome healingOutcome =
                         healingAnalysisService.analyzeExecution(executionId, dbId);
                 Map<String, Object> healingData = new LinkedHashMap<>();
@@ -205,9 +221,10 @@ public class QaWorkflowService {
         }
     }
 
-    private void generateBugReport(Map<String, Object> steps, Long dbId, Map<String, Object> run, String instruction) {
+    private void generateBugReport(Map<String, Object> steps, Long dbId, Map<String, Object> run, String instruction, String operationId) {
         try {
             Long executionId = (Long) run.get("executionId");
+            progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_BUG_REPORT", "generating bug report...");
             com.qalab.qalabai.model.BugReport report = bugReportService.generate(executionId, dbId, instruction);
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("reportId", report.getReportId());
