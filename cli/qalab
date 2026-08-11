@@ -238,36 +238,48 @@ EOF
   explore)
     require_url
     instruction=""
+    username="${QALAB_USERNAME:-}"
+    password="${QALAB_PASSWORD:-}"
     while [ $# -gt 0 ]; do
       case "$1" in
         --instruction) instruction="${2:-}"; shift 2 ;;
+        --username) username="${2:-}"; shift 2 ;;
+        --password) password="${2:-}"; shift 2 ;;
         *) shift ;;
       esac
     done
     payload="$(project_payload)"
-    inst_arg=""
-    [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
+    cred_args=""
+    [ -n "$instruction" ] && cred_args="$cred_args,\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
+    [ -n "$username" ] && cred_args="$cred_args,\"username\":\"$(printf '%s' "$username" | sed 's/"/\\"/g')\""
+    [ -n "$password" ] && cred_args="$cred_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
     curl -sS -X POST "$API_URL/api/v1/explore" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$inst_arg}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$cred_args}" | jq . 2>/dev/null || true
     ;;
   analyze)
     require_url
     force="false"
     instruction=""
+    username="${QALAB_USERNAME:-}"
+    password="${QALAB_PASSWORD:-}"
     while [ $# -gt 0 ]; do
       case "$1" in
         --force) force="true"; shift ;;
         --instruction) instruction="${2:-}"; shift 2 ;;
+        --username) username="${2:-}"; shift 2 ;;
+        --password) password="${2:-}"; shift 2 ;;
         *) shift ;;
       esac
     done
     payload="$(project_payload)"
-    inst_arg=""
-    [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
+    cred_args=""
+    [ -n "$instruction" ] && cred_args="$cred_args,\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
+    [ -n "$username" ] && cred_args="$cred_args,\"username\":\"$(printf '%s' "$username" | sed 's/"/\\"/g')\""
+    [ -n "$password" ] && cred_args="$cred_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
     curl -sS -X POST "$API_URL/api/v1/analyze" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\",\"forceRefresh\":$force$inst_arg}" | jq . 2>/dev/null || true
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\",\"forceRefresh\":$force$cred_args}" | jq . 2>/dev/null || true
     ;;
   plan)
     require_url
