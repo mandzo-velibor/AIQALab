@@ -2,10 +2,11 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { AgentStatusEvent } from "@/lib/use-agent-websocket";
+import type { AgentStatusEvent, ConnectionState } from "@/lib/use-agent-websocket";
 
 interface AgentStatusPanelProps {
   events: AgentStatusEvent[];
+  connection?: ConnectionState;
 }
 
 const AGENT_NAMES = ["Explorer", "Planner", "Executor", "Analyst", "Healing"];
@@ -23,7 +24,7 @@ function getStatusVariant(status: string) {
   }
 }
 
-export function AgentStatusPanel({ events }: AgentStatusPanelProps) {
+export function AgentStatusPanel({ events, connection = "open" }: AgentStatusPanelProps) {
   const latestStatus = new Map<string, string>();
   for (const event of events) {
     latestStatus.set(event.agent, event.status);
@@ -33,6 +34,11 @@ export function AgentStatusPanel({ events }: AgentStatusPanelProps) {
     <Card>
       <CardHeader>
         <CardTitle>Agent Status</CardTitle>
+        {connection !== "open" && (
+          <span className="text-xs text-muted-foreground">
+            {connection === "connecting" ? "connecting…" : "reconnecting…"}
+          </span>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         {AGENT_NAMES.map((name) => {

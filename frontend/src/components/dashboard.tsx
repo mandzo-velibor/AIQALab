@@ -22,7 +22,7 @@ export function Dashboard() {
   const [result, setResult] = useState<ExploreResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const { events } = useAgentWebSocket();
+  const { events, connection } = useAgentWebSocket();
   const [currentUrl, setCurrentUrl] = useState("");
 
   const handleExplore = useCallback(async (url: string) => {
@@ -99,7 +99,7 @@ export function Dashboard() {
           </div>
         </div>
         <div className="space-y-6">
-          <AgentStatusPanel events={events} />
+          <AgentStatusPanel events={events} connection={connection} />
           <PipelinesCard />
         </div>
       </div>
