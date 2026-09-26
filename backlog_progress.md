@@ -525,6 +525,90 @@ The recurring lesson is the same each time: **a failed assertion or an unexplain
 
 ---
 
+
+### B-029 · Self-contained HTML report per run
+| | |
+|---|---|
+| **Status** | **DONE** (+2 evidence-destroying defects, +1 B-022 regression) |
+| **Date** | 2026-09-26 |
+| **Duration** | 149m |
+| **Commit** | `a8d84fe` (1 of 5) |
+
+**What changed**
+- New `HtmlReportRenderer`: one `report.html` per execution, no CDN, no external
+  stylesheet, no scripts. Screenshots embedded as base64 data URIs.
+- Evidence is now filed **per test** under `tests/<ordinal>-<slug>/`, with paths recorded
+  *relative* to the artifact directory so the report survives being moved or emailed.
+- `steps.execution.htmlReport` carries the path, backed by a new `V3` column, and the CLI
+  prints it first marked as the file to open.
+- `report.json` and `report.md` unchanged — the JSON stays the machine contract.
+
+**Videos and traces are linked, not embedded, on purpose.** They are routinely tens of
+megabytes; base64 would inflate them by a third and produce a file no mail client will
+open. Screenshots are what a reader actually looks at, so those are inlined, with a 4 MB
+per-image cap beyond which they are linked too.
+
+**Two defects in artifact collection, each of which destroyed evidence**
+- **Every trace was copied to the same `trace.zip` with `REPLACE_EXISTING`.** A run with
+  two failing tests kept one trace and silently discarded the other — and a trace is the
+  single most useful artifact for reconstructing a failure. Nobody was told.
+- Screenshots became `screenshot.png` / `screenshot-2.png` with **nothing recording which
+  test each belonged to**, so a report could say three tests failed and show one
+  screenshot. The acceptance criterion was literally unmeetable before this was fixed.
+
+**The significant find: B-022 never worked in the product.**
+`ExecutorAgent` copies a hand-picked list of keys out of the runner's result map, and
+`summary` was not on the list. So `steps.execution.results` was **never present** in a
+workflow response, and **nothing was ever written to `test_case_result`**. B-022's unit
+tests were green, the parser was green, and the tool was green — because I verified the
+tool directly and the agent with a stub, and never ran the two together. That is exactly
+the mistake the B-017 log entry warned about, and I made it anyway.
+
+Now covered by a test that puts a **real Playwright run through the real tool and the
+real agent** and asserts the failing test arrives with a screenshot that exists on disk.
+It skips itself when browsers are absent rather than failing a build that has none — and
+it checks the Linux *and* macOS browser paths, because the first version checked only
+Linux and skipped silently on the machine that would have run it.
+
+**Two things caught by inspecting real output rather than by a passing test**
+- The first renderer emitted each screenshot's base64 **twice**, once in the anchor `href`
+  and once in the `img src`. With 200 KB screenshots that doubles the report for nothing.
+  Only visible by rendering a real report and counting the payloads: 4 for 2 screenshots.
+- `traceCount` counted how many times the legacy single-value field was assigned, not how
+  many traces were collected, so a run with two traces reported one. Found because a
+  compile error meant a test had silently run against a **stale class** — which is its own
+  lesson: a green test against stale bytecode is not a green test.
+
+**Judgement calls, recorded in code**
+- A failed HTML render must not lose `report.json`, so the HTML is written after the JSON
+  and its failure is caught separately.
+- A run with no per-test results says so in the report. Rendering an empty green table
+  would read as a passing run, which is the one thing a QA report must never do.
+- Test titles are model-generated text, so everything is HTML-escaped including quotes —
+  a title containing `"` would otherwise break out of an attribute. Tested with a hostile
+  title.
+
+**How it was tested**
+- 25 renderer tests: self-containment (no `http`, no `<script>`, no `<link>`), every count,
+  per-test rows, evidence embedding and linking, degradation when files are missing or
+  oversized, markup injection, and duration formatting at every scale.
+- 11 artifact tests against **real files on disk**: two traces both surviving, each
+  screenshot staying with its own test, relative paths, the legacy single fields still
+  absolute, and no flattened duplicates.
+- **A real Playwright run rendered to a real report directory and inspected**: no external
+  references, 2 screenshots embedded once each, both traces linked, all four tests listed
+  with statuses and durations, test plan present.
+- Migrations V1→V3 on an empty PostgreSQL, `ddl-auto=validate` passing, column verified.
+- Full suite **408 green** (was 371). `bash -n cli/qalab` clean.
+
+**B-031 partly done:** the CLI now prints the HTML path first. The UI surface is not
+touched yet and remains open.
+
+**Left alone deliberately:** `error-context` attachments (a text page snapshot) are still
+not surfaced. They would be a genuine improvement to the failure view, but they are a new
+feature rather than part of "a report you can read", so they wait rather than being
+quietly bundled in.
+
 ---
 
 # Sprint 2 — Reliable and measurable
@@ -547,6 +631,28 @@ The recurring lesson is the same each time: **a failed assertion or an unexplain
 | B-026 | Structured logging + LLM metrics | P2 | M | TODO | — |
 
 **Totals:** 4/7 done · 4 commits · elapsed 335m
+
+---
+
+# Sprint 3 — Reporting product
+
+*Goal: the artifact a user actually reads.*
+
+**Started:** 2026-09-26
+**Baseline commit:** `00db3fa` (end of Sprint 2)
+
+## Task log
+
+| # | Task | Priority | Size | Status | Commit |
+|---|---|---|---|---|---|
+| B-029 | Self-contained HTML report per run | P1 | M | **DONE** | `a8d84fe` |
+| B-031 | Surface reports in CLI and UI | P1 | M | PARTLY DONE | `a8d84fe` |
+| B-032 | Bug reports grounded in real failures | P1 | M | TODO | — |
+| B-033 | Retire the legacy `/api/*` surface | P2 | M | TODO | — |
+| B-030 | Allure integration (optional) | P2 | M | TODO | — |
+
+**Totals:** 1/5 done · 1 commit · elapsed 149m
+
 
 
 ### B-022 · Playwright JSON reporter → structured per-test results

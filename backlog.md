@@ -702,10 +702,25 @@ than as a side effect of a security fix.
 - Keep `report.json` as the machine contract; `report.md` stays as the diffable version.
 
 **Acceptance criteria**
-- [ ] `artifacts/execution-<id>/report.html` opens offline and shows every failing test with its screenshot
-- [ ] Report links to trace/video when present
-- [ ] Degrades gracefully when there are no artifacts
-- [ ] Golden-file test for the renderer
+- [x] `artifacts/execution-<id>/report.html` opens offline and shows every failing test with its screenshot
+- [x] Report links to trace/video when present
+- [x] Degrades gracefully when there are no artifacts
+- [x] Golden-file test for the renderer
+
+**Shipped in** `a8d84fe` — with two prerequisites the task did not account for:
+
+- **The acceptance criterion was unmeetable as written.** Artifact collection flattened
+  every trace to the same `trace.zip` with `REPLACE_EXISTING`, so a run with two failing
+  tests kept one trace and silently destroyed the other, and nothing recorded which
+  screenshot belonged to which test. Evidence is now filed per test.
+- **B-022's structured results never reached the product.** `ExecutorAgent` copies a
+  hand-picked list of keys and `summary` was not on it, so `steps.execution.results` was
+  never present and nothing was written to `test_case_result`. Fixed here, with a test
+  that runs a real Playwright suite through the real tool and the real agent.
+
+Videos and traces are **linked rather than embedded**: they are routinely tens of
+megabytes, and base64 would inflate them by a third and produce a file no mail client
+will open. Screenshots are embedded, with a 4 MB per-image cap.
 
 **Files:** `service/report/ReportService.java` (new `HtmlReportRenderer`), new template resource
 **Depends on:** B-022, B-011
