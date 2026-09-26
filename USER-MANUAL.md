@@ -167,11 +167,17 @@ in a cascade and falls back on failure.
 
 If none is set, AI-backed operations fail with `AI_PROVIDER_NOT_CONFIGURED`.
 
-> **Known configuration gap.** The `qalab.ai` block that should carry per-provider
-> base URLs and models is **not present in any configuration file**, so
-> bring-your-own-key paths for OpenAI / Gemini / Ollama currently resolve a null model
-> and are rejected by the provider. The managed (server-key) path works because it
-> reads its own properties. Tracked as **B-015** in `backlog.md`.
+Models and base URLs default from `qalab.ai.providers` in `application.yml` and can be
+overridden per provider with `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`,
+`OLLAMA_MODEL` and `AIQALAB_MODEL` (plus matching `*_BASE_URL` variables).
+
+A provider with no resolvable model is now **rejected with a message naming the missing
+key**, rather than being sent `{"model": null}` and failing with an opaque provider
+error. If you see `AI provider X has no model configured`, that is a genuine
+configuration gap on your side.
+
+Only **AIQALAB** (the default) uses the managed cross-provider cascade described in
+§16.2. Bring-your-own-key providers are retried individually.
 
 ### 5.2 Token budget
 
@@ -190,7 +196,7 @@ qalab budget-policy set SOFT   # change
 
 | Variable | Default | Notes |
 |---|---|---|
-| `QALAB_AI_FREEMONTHLYTOKENLIMIT` | `4000` | `0` = unlimited. **The default is far below one full workflow run** — see §20.3. |
+| `QALAB_AI_FREEMONTHLYTOKENLIMIT` | `0` (unlimited) | The **code** default was 4000 — below one full workflow run. The shipped configuration overrides it. See §20.3. |
 
 ### 5.3 Paths and behaviour
 
@@ -208,6 +214,8 @@ qalab budget-policy set SOFT   # change
 | `QALAB_PLAYWRIGHT_TRACE` | `retain-on-failure` | " |
 | `QALAB_AI_CONNECT_TIMEOUT_MS` | `10000` | Outbound AI connect timeout |
 | `QALAB_AI_READ_TIMEOUT_MS` | `180000` | Outbound AI read timeout |
+| `QALAB_AI_FREEMONTHLYTOKENLIMIT` | `0` | Managed monthly token allowance; `0` = unlimited |
+| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `GEMINI_MODEL` / `OLLAMA_MODEL` / `AIQALAB_MODEL` | see §5.1 | Per-provider model override |
 
 ### 5.4 Deployment / CORS
 
@@ -862,14 +870,14 @@ Ordered by how likely you are to hit them.
 |---|---|---|---|
 | 1 | **No authentication on any endpoint.** Any client that can reach the port can spend AI budget and read all project data. | Critical for any shared or public deployment. | B-012, B-013 |
 | 2 | **No database migrations.** `ddl-auto: update` in dev/base, `validate` in prod. A production schema can be neither created nor evolved reliably. | Blocks trustworthy releases. | B-014 |
-| 3 | **`qalab.ai` config block absent**, so BYOK provider models resolve to null. | Bring-your-own-key OpenAI/Gemini/Ollama rejected. Managed keys work. | B-015 |
+| 3 | ~~`qalab.ai` config block absent~~ **Fixed in Sprint 1** — every provider has a default base URL and model, and a missing model is a loud configuration error. | — | — |
 | 4 | **Rate limiting is a no-op** (`NoopRateLimiter`). | Combined with #1, unbounded paid LLM traffic. | B-016 |
 | 5 | **The workflow is one long synchronous HTTP request.** A run holds a request thread for minutes; a proxy may drop the connection mid-run. | Limits concurrency; causes `Connection reset by peer` behind a load balancer. | B-017 |
 | 6 | **`intent` discards the instruction.** The prompt is used only to detect intent, then dropped. | Intent-driven runs produce generic suites. | `docs/known-limitations/intent-drops-instruction.md` |
 | 7 | **One bug report per execution**, not per distinct failure. | Twenty identical failures yield one vague report. | B-032 |
 | 8 | **No per-test structured results.** Failures are parsed from Playwright's text output; the summary caps the list at 8. | No reliable "which tests failed" for large suites. | B-022 |
 | 9 | **No HTML/Allure report.** `report.md` is generated server-side but never surfaced by the CLI. | The most useful artifact is missing. | B-029, B-030 |
-| 10 | **Default token budget (4000/month) is below one workflow run.** | `AI_BUDGET_EXCEEDED` on a default local start. | B-015 |
+| 10 | ~~Default token budget below one workflow run~~ **Fixed in Sprint 1** — shipped configuration sets `0` (unlimited). A metered deployment must choose its own limit deliberately. | — | — |
 | 11 | **No caching of page analysis between runs** (deliberate). | Every run re-explores and re-analyses. The largest available latency win, but it trades correctness for speed and that trade is unchosen. | deferred |
 | 12 | ~~Playwright records artifacts for every test~~ **Fixed in Sprint 1** — generated workspaces now default to `only-on-failure` / `off` / `retain-on-failure`. Existing workspaces keep their own config until regenerated. | — | — |
 | 13 | ~~Playwright concurrency unset~~ **Fixed in Sprint 1** — generated workspaces now pin workers to `cores - 1` (override with `QALAB_PLAYWRIGHT_WORKERS`) and report the effective value. Existing workspaces keep their own config until regenerated. | — | — |
@@ -957,9 +965,11 @@ page is served over https the socket must be `wss://`. Behind a proxy, ensure
 
 ### 20.3 `AI_BUDGET_EXCEEDED` on a fresh start
 
-The default allowance is 4000 tokens/month and a single workflow run exceeds it. Either
-raise `QALAB_AI_FREEMONTHLYTOKENLIMIT` (use `0` for unlimited in trusted environments)
-or set the policy to `NONE`:
+A single workflow run exceeds 4000 tokens, which was the old *code* default. The shipped
+configuration now sets the allowance to unlimited, so hitting this normally means
+something has set a low limit deliberately. Either raise
+`QALAB_AI_FREEMONTHLYTOKENLIMIT` (use `0` for unlimited in trusted environments) or set
+the policy to `NONE`:
 
 ```bash
 qalab budget-policy set NONE
@@ -1114,7 +1124,7 @@ docs/               architecture notes and known limitations
 | Date | Change |
 |---|---|
 | 2026-09-26 | Created. Documents behaviour after Sprint 0 (reliability + CLI reporting) and the start of Sprint 1 (deployability). All limitations recorded with tracking IDs. |
-| 2026-09-26 | Updated for B-018 (background Playwright warm-up), B-019 (runtime API base URL), B-020 (artifact profile now failures-only; limitation 12 closed). Added `intent` instruction-dropping to limitations. |
+| 2026-09-26 | Updated for B-018 (background Playwright warm-up), B-019 (runtime API base URL), B-020 (artifact profile now failures-only; limitation 12 closed), B-021 (bounded concurrency; limitation 13 closed), B-015 (`qalab.ai` config block; limitations 3 and 10 closed). Added `intent` instruction-dropping to limitations. |
 
 **Maintenance:** update this file in the same commit as any change to CLI flags,
 environment variables, API contracts, output artifacts or known limitations.
