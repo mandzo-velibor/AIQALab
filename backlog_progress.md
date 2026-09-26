@@ -666,6 +666,69 @@ admin-only route.
 - Frontend typechecks and builds. Removed a stray `}` in the dashboard's JSX that had been
   in the original and is only now being parsed as JSX.
 
+
+### B-032 · Bug reports grounded in real failures
+| | |
+|---|---|
+| **Status** | **DONE** (+2 bugs of my own, +2 tests asserting the old behaviour) |
+| **Date** | 2026-09-26 |
+| **Duration** | 165m |
+| **Commit** | `88e7295` (3 of 5) |
+
+**What changed**
+- `FailureSignature` groups a run's failures by a fingerprint of the **normalised** spec
+  file plus the **normalised** assertion.
+- One report per distinct failure, built from that test's own error, stack and
+  screenshot. Title and expected/actual all name the assertion. `"Unknown."` is gone.
+- A known bug is counted, not re-filed: `occurrences` increments and the report is
+  re-pointed at the run that hit it, **without spending an AI call**.
+- `V4__bug_report_dedup.sql`: `dedup_key`, `occurrences`, `screenshot_path`,
+  `first_seen_run`, plus a `(project_id, dedup_key)` index.
+- The HTML report is re-rendered once the bug reports exist.
+
+**The fingerprint is the whole feature, and normalisation is the load-bearing part.**
+The same assertion failing twice usually differs in a line number, a duration, a
+Playwright timestamp or an absolute path. An un-normalised key would report the same bug
+as new every time — precisely what the key exists to prevent. So the test **name is
+deliberately excluded** (renaming a test must not re-file a tracked bug) while the
+assertion text is preserved (two failures in one spec stay two bugs).
+
+**The first version of the patterns had a silent bug.** Removing `at line 88` left the
+word `at` behind, so `"…failed at"` and `"…failed"` hashed differently. Nothing threw;
+the dedup simply never fired. Found by a test asserting the collapse, fixed by making
+each pattern swallow its connective and adding a trailing-connective pass as a net.
+
+**Two bugs I introduced in this task, both caught by tests**
+- The rewrite silently **dropped the user instruction**, which the backlog explicitly
+  requires. The test that caught it existed only because it asserted the *instruction*
+  rather than the report's existence — an argument for asserting content, not objects.
+  My first fix used a `ThreadLocal`, the same hidden-state smell I removed in B-027, so
+  it became a parameter.
+- The workflow called `reports.get(0)` **unguarded**, so a run with no attributable
+  failure was an `IndexOutOfBounds` that failed the whole report step.
+
+**Two existing tests failed because they asserted the bug.** Both expected
+`"Test failed: Login with valid credentials"` — the generic title that *was* the user's
+complaint. The behaviour changed deliberately, so the tests were correct to change, and
+they now assert the title names the assertion.
+
+**How it was tested**
+- 18 signature tests attacking the volatile parts specifically, plus the
+  distinguishing parts that must survive.
+- 15 service tests: three failures → three reports, identical → one with a count, known
+  bug reused rather than replaced, no AI call for a known bug, title names the assertion,
+  expected/actual never "Unknown", screenshot attached, passing tests never reported,
+  instruction on every report, no-project runs never deduped, and **one AI call per
+  distinct failure** — not per test, not per run.
+- Migrations V1→V4 on an empty PostgreSQL, `ddl-auto=validate` passing, four columns and
+  the index verified present.
+- Full suite **459 green** from clean.
+
+**Deliberately not done:** the failure classification is left unset on these reports. A
+per-test row carries no locator or action, and inferring one from a stack frame would be
+a guess dressed as a finding. The deterministic fallback still states the classification
+it has.
+
 ---
 
 # Sprint 2 — Reliable and measurable
@@ -704,11 +767,11 @@ admin-only route.
 |---|---|---|---|---|---|
 | B-029 | Self-contained HTML report per run | P1 | M | **DONE** | `a8d84fe` |
 | B-031 | Surface reports in CLI and UI | P1 | M | **DONE** (UI half) | `dfa5b0f` |
-| B-032 | Bug reports grounded in real failures | P1 | M | TODO | — |
+| B-032 | Bug reports grounded in real failures | P1 | M | **DONE** | `88e7295` |
 | B-033 | Retire the legacy `/api/*` surface | P2 | M | TODO | — |
 | B-030 | Allure integration (optional) | P2 | M | TODO | — |
 
-**Totals:** 2/5 done · 2 commits · elapsed 232m
+**Totals:** 3/5 done · 3 commits · elapsed 397m
 
 
 

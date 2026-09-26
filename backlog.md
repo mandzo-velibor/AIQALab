@@ -781,9 +781,16 @@ The user's complaint: the generated bug report was not one of their known bugs �
 - Respect user instruction context when present.
 
 **Acceptance criteria**
-- [ ] Distinct failures → distinct reports; identical failures collapse
-- [ ] Every report cites the specific assertion/error that failed
-- [ ] Screenshot attached and linked from the HTML report
+- [x] Distinct failures → distinct reports; identical failures collapse
+- [x] Every report cites the specific assertion/error that failed
+- [x] Screenshot attached and linked from the HTML report
+
+**Shipped in** `88e7295`. One design point worth stating: the deduplication fingerprint
+**excludes the test name** and normalises everything volatile in the message (line
+numbers, durations, Playwright timestamps, absolute paths). Including the name would
+re-file a tracked bug on every rename; leaving the message un-normalised would re-file it
+on every run. The assertion text itself is preserved, so two failures in one spec stay
+two bugs.
 
 **Files:** `service/BugReportService.java`, `model/BugReport.java`, migration
 **Depends on:** B-022, B-013 (dedup key needs a tenant), B-014
