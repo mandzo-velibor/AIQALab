@@ -26,7 +26,10 @@
 #   locator history [<projectId>] [<fingerprint>]  show locator observation history
 #   test <url>            run the full workflow incl. healing + bug report; writes tests
 #                          and saves report/bug-report to .qalab/reports/<timestamp>/
+#                          Prints a human summary; exits non-zero if tests fail (CI-safe)
 #   test <url> --test-type <api|ui|e2e>   restrict the run to one test type
+#   test <url> --json     print the raw workflow response instead of the summary
+#   test <url> --quiet    print only the report directory
 #
 # Configuration (environment or .qalab.json):
 #   QALAB_API_URL       default http://localhost:8080
@@ -191,6 +194,104 @@ print_healing() {
   else
     echo "No healing proposal created."
   fi
+}
+
+print_summary() {
+  # print_summary <response-json> <report_dir>
+  # Human-readable digest of a full-test workflow. Replaces dumping the raw
+  # response (which embedded every generated test source) to the terminal.
+  local json report_dir
+  json="$1"
+  report_dir="$2"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '%s' "$json"
+    return
+  fi
+
+  local status url op ws
+  status="$(printf '%s' "$json" | jq -r '.status // "UNKNOWN"')"
+  url="$(printf '%s' "$json" | jq -r '.url // "-"')"
+  op="$(printf '%s' "$json" | jq -r '.operationId // "-"')"
+  ws="$(printf '%s' "$json" | jq -r '.steps.execution.workspace // .steps.generatedTests.workspace // empty')"
+
+  echo ""
+  echo "QA RUN $status"
+  echo "  url        $url"
+  echo "  operation  $op"
+  [ -n "$ws" ] && echo "  workspace  $ws"
+
+  echo ""
+  echo "  PIPELINE"
+  local key label value
+  for key in explore analyze locators testPlan generatedTests execution failureAnalysis healing bugReport; do
+    value="$(printf '%s' "$json" | jq -r --arg k "$key" '.steps[$k].status // empty')"
+    [ -z "$value" ] && continue
+    label="$key"
+    case "$key" in
+      testPlan)        label="$label ($(printf '%s' "$json" | jq -r '.steps.testPlan.scenarioCount // 0') scenarios)" ;;
+      generatedTests)  label="$label ($(printf '%s' "$json" | jq -r '.steps.generatedTests.count // 0') specs, $(printf '%s' "$json" | jq -r '.steps.generatedTests.pageObjects // [] | length') page objects)" ;;
+      locators)        label="$label ($(printf '%s' "$json" | jq -r '.steps.locators.generated // 0') locators)" ;;
+    esac
+    case "$value" in
+      COMPLETED) printf '    %-22s ok\n' "$label" ;;
+      SKIPPED)   printf '    %-22s skipped (%s)\n' "$label" "$(printf '%s' "$json" | jq -r --arg k "$key" '.steps[$k].reason // "n/a"')" ;;
+      *)         printf '    %-22s %s\n' "$label" "$value" ;;
+    esac
+  done
+
+  local exec_status exec_dur
+  exec_status="$(printf '%s' "$json" | jq -r '.steps.execution.executionStatus // empty')"
+  exec_dur="$(printf '%s' "$json" | jq -r '.steps.execution.duration // 0')"
+  if [ -n "$exec_status" ]; then
+    echo ""
+    echo "  TESTS  $exec_status ($(( exec_dur / 1000 ))s)"
+    # Cap the list: a 40-test run must still fit on one screen. The full output is in
+    # report.json and, from B-022, per-test results will be available structurally.
+    local failed failed_shown
+    failed="$(printf '%s' "$json" | jq -r '.steps.execution.output // ""' \
+      | grep -cE '^\s+[✘×]' || true)"
+    if [ "${failed:-0}" -gt 0 ]; then
+      printf '%s' "$json" | jq -r '.steps.execution.output // ""' \
+        | grep -E '^\s+[✘×]' | head -8 | sed 's/^/    /'
+      failed_shown=$(( failed > 8 ? failed - 8 : 0 ))
+      [ "$failed_shown" -gt 0 ] && printf '    ... and %s more failing test(s)\n' "$failed_shown"
+    fi
+  fi
+
+  local fa_type fa_summary healing_msg bug_title bug_sev
+  fa_type="$(printf '%s' "$json" | jq -r '.steps.failureAnalysis.failureType // empty')"
+  fa_summary="$(printf '%s' "$json" | jq -r '.steps.failureAnalysis.summary // empty')"
+  if [ -n "$fa_type" ]; then
+    echo ""
+    echo "  FAILURE ANALYSIS  $fa_type"
+    [ -n "$fa_summary" ] && echo "    $fa_summary"
+  fi
+  healing_msg="$(printf '%s' "$json" | jq -r '.steps.healing.message // empty')"
+  if [ -n "$healing_msg" ]; then
+    echo "  HEALING  $healing_msg"
+  fi
+  bug_title="$(printf '%s' "$json" | jq -r '.steps.bugReport.title // empty')"
+  bug_sev="$(printf '%s' "$json" | jq -r '.steps.bugReport.severity // empty')"
+  if [ -n "$bug_title" ]; then
+    echo "  BUG REPORT  [$bug_sev] $bug_title"
+  fi
+
+  echo ""
+  echo "  ARTIFACTS"
+  [ -f "$report_dir/report.json" ] && echo "    $report_dir/report.json"
+  [ -f "$report_dir/test-plan.md" ] && echo "    $report_dir/test-plan.md"
+  [ -f "$report_dir/bug-report.json" ] && echo "    $report_dir/bug-report.json"
+  echo "    (add --json for the full response)"
+
+  if [ "$status" = "COMPLETED" ]; then
+    # A completed workflow whose tests failed is still a failed QA run; CI must see it.
+    case "$exec_status" in
+      FAILED|ERROR|TIMEOUT) return 1 ;;
+      *) return 0 ;;
+    esac
+  fi
+  return 1
 }
 
 project_payload() {
@@ -429,6 +530,8 @@ EOF
     fi
     instruction=""
     test_type=""
+    raw_json="false"
+    quiet="false"
     username="${QALAB_USERNAME:-}"
     password="${QALAB_PASSWORD:-}"
     while [ $# -gt 0 ]; do
@@ -437,6 +540,8 @@ EOF
         --test-type) test_type="${2:-}"; shift 2 ;;
         --username) username="${2:-}"; shift 2 ;;
         --password) password="${2:-}"; shift 2 ;;
+        --json) raw_json="true"; shift ;;
+        --quiet) quiet="true"; shift ;;
         *) shift ;;
       esac
     done
@@ -459,7 +564,7 @@ EOF
       prog="$(curl -sS "$API_URL/api/v1/workflows/$op_id/progress" 2>/dev/null || true)"
       stage="$(printf '%s' "$prog" | jq -r '.stage // empty' 2>/dev/null || true)"
       if [ -n "$stage" ] && [ "$stage" != "$last_stage" ]; then
-        printf '%s\n' "$(printf '%s' "$prog" | jq -r '.message // .stage')" >&2
+        [ "$quiet" = "true" ] || printf '%s\n' "$(printf '%s' "$prog" | jq -r '.message // .stage')" >&2
         last_stage="$stage"
       fi
     done
@@ -469,7 +574,6 @@ EOF
     report_dir="${QALAB_REPORT_DIR:-$(pwd)/.qalab/reports/$(date +%Y%m%d-%H%M%S)}"
     mkdir -p "$report_dir"
     printf '%s' "$response" > "$report_dir/report.json"
-    echo "Saved workflow report: $report_dir/report.json"
 
     if command -v jq >/dev/null 2>&1; then
       # Specs and page objects must both be persisted: the specs import
@@ -477,15 +581,25 @@ EOF
       # that cannot compile.
       files_json="$(printf '%s' "$response" | jq -c '{files: (.steps.generatedTests.files // []) + (.steps.generatedTests.pageObjects // [])}')"
       if [ "$(printf '%s' "$files_json" | jq '.files | length')" -gt 0 ]; then
-        write_files_from_json "$files_json" "${WORKSPACE:-.}"
+        write_files_from_json "$files_json" "$WORKSPACE"
       fi
       bug_id="$(printf '%s' "$response" | jq -r '.steps.bugReport.reportId // empty')"
       if [ -n "$bug_id" ]; then
         curl -sS "$API_URL/api/v1/bug-reports/$bug_id" > "$report_dir/bug-report.json"
-        echo "Saved bug report: $report_dir/bug-report.json"
       fi
     fi
-    printf '%s' "$response" | jq . 2>/dev/null || true
+
+    if [ "$raw_json" = "true" ]; then
+      printf '%s' "$response" | jq . 2>/dev/null || printf '%s' "$response"
+      status="$(printf '%s' "$response" | jq -r '.status // "FAILED"')"
+      [ "$status" = "COMPLETED" ] || exit 1
+    elif [ "$quiet" = "true" ]; then
+      printf '%s\n' "$report_dir"
+    else
+      # print_summary returns non-zero unless the workflow completed cleanly,
+      # which becomes this command's exit code for CI use.
+      print_summary "$response" "$report_dir" || exit 1
+    fi
     ;;
   report)
     if [ -n "${2:-}" ]; then
