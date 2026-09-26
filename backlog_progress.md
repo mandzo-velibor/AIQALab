@@ -359,6 +359,38 @@ Full suite: **236 tests, 0 failures** (204 + 32).
 Full suite: **252 tests, 0 failures** (236 + 16).
 
 ---
+### B-014 · Database migrations with Flyway
+| | |
+|---|---|
+| **Status** | **DONE** (+1 real schema defect, +1 footgun I introduced and caught) |
+| **Date** | 2026-09-26 |
+| **Duration** | 40m |
+| **Commit** | `17a3c5f` (9 of 10) |
+
+**What changed**
+- Flyway 10.10 added (core + postgresql + hsqldb for tests).
+- `V1__baseline.sql`: 19 tables, 3 foreign keys, 1 index — **generated from the JPA entities with the PostgreSQL dialect**, not hand-written. A hand-transcribed baseline is exactly the kind of file that is wrong in a way nobody notices.
+- All three profiles use `ddl-auto: validate`. The application now **refuses to start** if migrations and entities have drifted.
+- New CI job `flyway-verify` starts the real application against a real PostgreSQL with `validate`. This is the *only* place the two are compared: unit tests run on H2 with Flyway disabled, so without this job a migration/model mismatch would ship silently.
+- README gained a "Database Schema" section: ownership rules, a local verification recipe, and why `update` is banned.
+
+**A real defect found by generating the schema**
+`locator_observation.element_identity_json` was `@Lob String`, which PostgreSQL maps to **`oid`** — a large-object *reference*, not text. That is the classic Hibernate/Postgres footgun: the column does not behave like text and depends on the server's large-object configuration. Every other free-text column here already declared `columnDefinition = "TEXT"`. Now fixed to match, with the reason in a comment so it is not "helpfully" reverted.
+
+**Verification — proven, not assumed**
+- Created an **empty PostgreSQL 18** database.
+- Started the app against it: Flyway applied `V1 - baseline` in 92 ms → 19 tables + `flyway_schema_history`, recorded in the history table.
+- Hibernate `validate` then passed with **zero** errors. That is a positive proof the migration and the entities agree — not merely that the SQL parsed.
+- Confirmed `element_identity_json` is `text` in the migrated schema.
+
+**A footgun I introduced and caught**
+My first `application-test.yml` set `ddl-auto: create-drop` **without pinning the datasource**, so tests inherited the developer's Postgres URL from `application.yml` — `create-drop` would have **DROPPED THE REAL DATABASE**. It surfaced as eight unrelated-looking context failures.
+
+Worth recording: the *symptom* (mysterious context failures) pointed nowhere near the *cause* (a destructive setting aimed at the wrong database). Reading the actual error rather than retrying is what found it. The profile now pins H2 in-memory explicitly and the reasoning is in the file so nobody removes the pin.
+
+Full suite: **252 tests, 0 failures**, and tests are now genuinely isolated from any real database.
+
+---
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
@@ -370,10 +402,10 @@ Full suite: **252 tests, 0 failures** (236 + 16).
 | B-012 | Spike: auth & tenancy ADR | P0 | S | **DONE** | `510ac28` |
 | B-013 | Auth filter on the API | P0 | L | **DONE** | `862ef98` |
 | B-016 | Real rate limiter | P1 | M | **DONE** | `e27e127` |
-| B-014 | Database migrations with Flyway | P0 | L | TODO | — |
+| B-014 | Database migrations with Flyway | P0 | L | **DONE** | `17a3c5f` |
 | B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
 
-**Totals:** 8/10 done · 8 commits · elapsed 127m
+**Totals:** 9/10 done · 9 commits · elapsed 167m
 
 ### Parallel work: user manual
 Started 2026-09-26 alongside the sprint, at the user's request: a comprehensive
