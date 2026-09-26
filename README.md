@@ -4,6 +4,15 @@ An AI-powered QA automation **engine** that explores web applications, generates
 locators, creates test plans, produces executable Playwright tests, analyzes failures, and
 suggests self-healing fixes — exposed as a service via a versioned REST API.
 
+> **New here:** see **[USER-MANUAL.md](./USER-MANUAL.md)** for the end-user guide — CLI
+> reference, configuration, output artifacts, how to read results, cloud deployment and
+> troubleshooting. This README remains the developer/architecture reference.
+>
+> Project status: [`STATE-AUDIT.md`](./STATE-AUDIT.md) (audit),
+> [`backlog.md`](./backlog.md) (planned work),
+> [`backlog_progress.md`](./backlog_progress.md) (delivery record),
+> [`docs/known-limitations/`](./docs/known-limitations/) (confirmed defects).
+
 ## Concept
 
 AI QA Lab is built on a strict separation of ownership:
