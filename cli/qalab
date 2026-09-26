@@ -37,6 +37,7 @@
 #   QALAB_BASE_URL      app base url
 #   QALAB_WORKSPACE     workspace path for execution
 #   QALAB_DB_ID         registered project id (database) for run/heal
+#   QALAB_API_KEY       bearer API key (also "apiKey" in .qalab.json)
 #
 set -euo pipefail
 
@@ -64,6 +65,8 @@ load_config() {
         [ -n "$base_url" ] && BASE_URL="${QALAB_BASE_URL:-${BASE_URL:-$base_url}}"
         [ -n "$workspace" ] && WORKSPACE="${QALAB_WORKSPACE:-${WORKSPACE:-$workspace}}"
         [ -n "$db_id" ] && DB_ID="${QALAB_DB_ID:-${DB_ID:-$db_id}}"
+        api_key="$(jq -r '.apiKey // empty' "$cfg")"
+        [ -n "$api_key" ] && API_KEY="${QALAB_API_KEY:-${API_KEY:-$api_key}}"
         [ -n "$framework" ] && FRAMEWORK="${FRAMEWORK:-$framework}"
         [ -n "$language" ] && LANGUAGE="${LANGUAGE:-$language}"
       else
@@ -72,6 +75,7 @@ load_config() {
         BASE_URL="${QALAB_BASE_URL:-${BASE_URL:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('baseUrl'); print(v) if v else ''")}}"
         WORKSPACE="${QALAB_WORKSPACE:-${WORKSPACE:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('workspacePath'); print(v) if v else ''")}}"
         DB_ID="${QALAB_DB_ID:-${DB_ID:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('databaseId'); print(v) if v else ''")}}"
+        API_KEY="${QALAB_API_KEY:-${API_KEY:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('apiKey'); print(v) if v else ''")}}"
         FRAMEWORK="${FRAMEWORK:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('framework'); print(v) if v else 'PLAYWRIGHT_TYPESCRIPT'")}"
         LANGUAGE="${LANGUAGE:-$(python3 -c "import sys,json; d=json.load(open('$cfg')); v=d.get('language'); print(v) if v else 'TypeScript'")}"
       fi
@@ -88,6 +92,7 @@ PROJECT_ID="${QALAB_PROJECT_ID:-${PROJECT_ID:-qalab-cli}}"
 BASE_URL="${QALAB_BASE_URL:-${BASE_URL:-}}"
 WORKSPACE="${QALAB_WORKSPACE:-${WORKSPACE:-}}"
 DB_ID="${QALAB_DB_ID:-${DB_ID:-}}"
+API_KEY="${QALAB_API_KEY:-${API_KEY:-}}"
 FRAMEWORK="${FRAMEWORK:-PLAYWRIGHT_TYPESCRIPT}"
 LANGUAGE="${LANGUAGE:-TypeScript}"
 
@@ -372,6 +377,34 @@ print_summary() {
   return 1
 }
 
+# Every call to the Core goes through here so the bearer header is applied
+# consistently. Containing the quoting inside the function matters: an unquoted
+# ${auth_args}-style expansion word-splits "Authorization: Bearer <key>" into three
+# argv entries and curl then treats "Bearer" and "<key>" as URLs.
+# Emits no header when no key is configured, so unauthenticated local setups keep
+# working unchanged.
+api_curl() {
+  if [ -n "$API_KEY" ]; then
+    curl -sS -H "Authorization: Bearer $API_KEY" "$@"
+  else
+    curl -sS "$@"
+  fi
+}
+
+# Fails fast with an actionable message when the Core demands a key we do not have.
+require_auth_if_enforced() {
+  [ -n "$API_KEY" ] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local required
+  required="$(api_curl "$API_URL/api/v1/account/bootstrap" 2>/dev/null | jq -r '.apiKeyRequired // false' 2>/dev/null || echo false)"
+  if [ "$required" = "true" ]; then
+    echo "error: this QALabAI instance requires an API key, but none is configured." >&2
+    echo "       Set QALAB_API_KEY=<key>, or add \"apiKey\" to .qalab.json." >&2
+    echo "       Create one with: curl -X POST $API_URL/api/v1/account/api-keys" >&2
+    exit 1
+  fi
+}
+
 project_payload() {
   local db=""
   if [ -n "$DB_ID" ]; then
@@ -411,7 +444,8 @@ case "${1:-}" in
   "language": "$LANGUAGE",
   "workspacePath": "$WORKSPACE",
   "apiUrl": "$API_URL",
-  "databaseId": "$DB_ID"
+  "databaseId": "$DB_ID",
+  "apiKey": "$API_KEY"
 }
 EOF
     echo "Initialized $dir/.qalab.json"
@@ -434,7 +468,7 @@ EOF
     [ -n "$instruction" ] && cred_args="$cred_args,\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     [ -n "$username" ] && cred_args="$cred_args,\"username\":\"$(printf '%s' "$username" | sed 's/"/\\"/g')\""
     [ -n "$password" ] && cred_args="$cred_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
-    curl -sS -X POST "$API_URL/api/v1/explore" \
+    api_curl -X POST "$API_URL/api/v1/explore" \
       -H 'Content-Type: application/json' \
       -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$cred_args}" | jq 'del(.screenshotBase64, .analysis.screenshotBase64)' 2>/dev/null || true
     ;;
@@ -458,7 +492,7 @@ EOF
     [ -n "$instruction" ] && cred_args="$cred_args,\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     [ -n "$username" ] && cred_args="$cred_args,\"username\":\"$(printf '%s' "$username" | sed 's/"/\\"/g')\""
     [ -n "$password" ] && cred_args="$cred_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
-    curl -sS -X POST "$API_URL/api/v1/analyze" \
+    api_curl -X POST "$API_URL/api/v1/analyze" \
       -H 'Content-Type: application/json' \
       -d "{\"project\":$payload,\"url\":\"$BASE_URL\",\"forceRefresh\":$force$cred_args}" | jq 'del(.screenshotBase64, .analysis.screenshotBase64)' 2>/dev/null || true
     ;;
@@ -476,7 +510,7 @@ EOF
     payload="$(project_payload)"
     inst_arg=""
     [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
-    curl -sS -X POST "$API_URL/api/v1/test-plan" \
+    api_curl -X POST "$API_URL/api/v1/test-plan" \
       -H 'Content-Type: application/json' \
       -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$inst_arg}" | jq . 2>/dev/null || true
     ;;
@@ -498,7 +532,7 @@ EOF
     type_arg=""
     [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     [ -n "$test_type" ] && type_arg=",\"testType\":\"$test_type\""
-    response="$(curl -sS -X POST "$API_URL/api/v1/tests" \
+    response="$(api_curl -X POST "$API_URL/api/v1/tests" \
       -H 'Content-Type: application/json' \
       -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$inst_arg$type_arg}")"
     if [ "$write_files" = "true" ]; then
@@ -525,11 +559,11 @@ EOF
     inst_arg=""
     [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     if [ -n "$test_id" ]; then
-      curl -sS -X POST "$API_URL/api/v1/run" \
+      api_curl -X POST "$API_URL/api/v1/run" \
         -H 'Content-Type: application/json' \
         -d "{\"project\":$payload,\"testId\":$(json_id "$test_id"),\"healingAnalysis\":$healing$inst_arg}" | jq . 2>/dev/null || true
     elif [ "$run_all" = "true" ] || [ -n "$WORKSPACE" ]; then
-      curl -sS -X POST "$API_URL/api/v1/run" \
+      api_curl -X POST "$API_URL/api/v1/run" \
         -H 'Content-Type: application/json' \
         -d "{\"project\":$payload,\"runAll\":true,\"healingAnalysis\":$healing$inst_arg}" | jq . 2>/dev/null || true
     else
@@ -540,14 +574,14 @@ EOF
   heal)
     run_id="${2:?usage: qalab heal <executionId>}"
     payload="$(project_payload)"
-    curl -sS -X POST "$API_URL/api/v1/healing/propose" \
+    api_curl -X POST "$API_URL/api/v1/healing/propose" \
       -H 'Content-Type: application/json' \
       -d "{\"project\":$payload,\"executionId\":$(json_id "$run_id")}" \
       | print_healing
     ;;
   heal-status)
     proposal_id="${2:?usage: qalab heal-status <proposalId>}"
-    curl -sS "$API_URL/api/v1/healing/$(json_id "$proposal_id")" | jq . 2>/dev/null || true
+    api_curl "$API_URL/api/v1/healing/$(json_id "$proposal_id")" | jq . 2>/dev/null || true
     ;;
   locator)
     action="${2:-}"
@@ -568,7 +602,7 @@ EOF
           exit 1
         fi
         payload="$(project_payload)"
-        curl -sS -X POST "$API_URL/api/v1/locators/analyze" \
+        api_curl -X POST "$API_URL/api/v1/locators/analyze" \
           -H 'Content-Type: application/json' \
           -d "{\"url\":\"$url\",\"locator\":\"$locator\",\"projectId\":${DB_ID:-null}}" \
           | jq . 2>/dev/null || true
@@ -581,9 +615,9 @@ EOF
           exit 1
         fi
         if [ -n "$fingerprint" ]; then
-          curl -sS "$API_URL/api/v1/projects/$pid/locators/$fingerprint/history" | jq . 2>/dev/null || true
+          api_curl "$API_URL/api/v1/projects/$pid/locators/$fingerprint/history" | jq . 2>/dev/null || true
         else
-          curl -sS "$API_URL/api/v1/projects/$pid/locators/history" | jq . 2>/dev/null || true
+          api_curl "$API_URL/api/v1/projects/$pid/locators/history" | jq . 2>/dev/null || true
         fi
         ;;
       help|-h|--help|"")
@@ -600,6 +634,7 @@ EOF
       BASE_URL="$2"
     fi
     require_url
+    require_auth_if_enforced
     if [ -z "$WORKSPACE" ]; then
       echo "error: no workspace configured, so the generated tests could not be executed." >&2
       echo "       Set QALAB_WORKSPACE=/path/to/workspace or add \"workspacePath\" to .qalab.json." >&2
@@ -632,14 +667,14 @@ EOF
     op_id="cli-$(date +%s)-$$"
     post_args=",\"operationId\":\"$op_id\""
     tmp_response="$(mktemp)"
-    curl -sS -X POST "$API_URL/api/v1/workflows/full-test" \
+    api_curl -X POST "$API_URL/api/v1/workflows/full-test" \
       -H 'Content-Type: application/json' \
       -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$extra_args$post_args}" > "$tmp_response" &
     curl_pid=$!
     last_stage=""
     while kill -0 "$curl_pid" 2>/dev/null; do
       sleep 0.5
-      prog="$(curl -sS "$API_URL/api/v1/workflows/$op_id/progress" 2>/dev/null || true)"
+      prog="$(api_curl "$API_URL/api/v1/workflows/$op_id/progress" 2>/dev/null || true)"
       stage="$(printf '%s' "$prog" | jq -r '.stage // empty' 2>/dev/null || true)"
       if [ -n "$stage" ] && [ "$stage" != "$last_stage" ]; then
         [ "$quiet" = "true" ] || printf '%s\n' "$(printf '%s' "$prog" | jq -r '.message // .stage')" >&2
@@ -664,7 +699,7 @@ EOF
       write_test_plan "$response" "$report_dir"
       bug_id="$(printf '%s' "$response" | jq -r '.steps.bugReport.reportId // empty')"
       if [ -n "$bug_id" ]; then
-        curl -sS "$API_URL/api/v1/bug-reports/$bug_id" > "$report_dir/bug-report.json"
+        api_curl "$API_URL/api/v1/bug-reports/$bug_id" > "$report_dir/bug-report.json"
       fi
     fi
 
@@ -682,9 +717,9 @@ EOF
     ;;
   report)
     if [ -n "${2:-}" ]; then
-      curl -sS "$API_URL/api/v1/reports/$2" | jq . 2>/dev/null || true
+      api_curl "$API_URL/api/v1/reports/$2" | jq . 2>/dev/null || true
     else
-      curl -sS "$API_URL/api/v1/reports" | jq . 2>/dev/null || true
+      api_curl "$API_URL/api/v1/reports" | jq . 2>/dev/null || true
     fi
     ;;
   bug-report)
@@ -699,33 +734,33 @@ EOF
     payload="$(project_payload)"
     inst_arg=""
     [ -n "$instruction" ] && inst_arg=",\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
-    curl -sS -X POST "$API_URL/api/v1/bug-reports" \
+    api_curl -X POST "$API_URL/api/v1/bug-reports" \
       -H 'Content-Type: application/json' \
       -d "{\"project\":$payload,\"executionId\":$(json_id "$execution_id")}" | jq . 2>/dev/null || true
     ;;
   bug-reports)
     if [ -n "${2:-}" ]; then
-      curl -sS "$API_URL/api/v1/projects/$2/bug-reports" | jq . 2>/dev/null || true
+      api_curl "$API_URL/api/v1/projects/$2/bug-reports" | jq . 2>/dev/null || true
     else
-      curl -sS "$API_URL/api/v1/bug-reports" | jq . 2>/dev/null || true
+      api_curl "$API_URL/api/v1/bug-reports" | jq . 2>/dev/null || true
     fi
     ;;
   intent)
     require_url
     prompt="${2:?usage: qalab intent \"<prompt>\"}"
     payload="$(project_payload)"
-    curl -sS -X POST "$API_URL/api/v1/intent/run" \
+    api_curl -X POST "$API_URL/api/v1/intent/run" \
       -H 'Content-Type: application/json' \
       -d "{\"project\":$payload,\"prompt\":\"$prompt\",\"url\":\"$BASE_URL\"}" | jq . 2>/dev/null || true
     ;;
   budget-policy)
     if [ "${2:-}" = "set" ]; then
       policy="${3:?usage: qalab budget-policy set <HARD|SOFT|NONE>}"
-      curl -sS -X PATCH "$API_URL/api/v1/account/budget-policy" \
+      api_curl -X PATCH "$API_URL/api/v1/account/budget-policy" \
         -H 'Content-Type: application/json' \
         -d "{\"policy\":\"$policy\"}" | jq . 2>/dev/null || true
     else
-      curl -sS "$API_URL/api/v1/account/budget-policy" | jq . 2>/dev/null || true
+      api_curl "$API_URL/api/v1/account/budget-policy" | jq . 2>/dev/null || true
     fi
     ;;
   help|-h|--help|"")

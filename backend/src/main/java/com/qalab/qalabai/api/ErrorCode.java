@@ -19,4 +19,8 @@ public final class ErrorCode {
     public static final String AI_OPERATION_NOT_ALLOWED = "AI_OPERATION_NOT_ALLOWED";
     public static final String AI_RATE_LIMITED = "AI_RATE_LIMITED";
     public static final String INVALID_PROVIDER = "INVALID_PROVIDER";
+
+    /** Authentication/authorization. Added with B-013; see docs/adr/0001. */
+    public static final String UNAUTHENTICATED = "UNAUTHENTICATED";
+    public static final String FORBIDDEN = "FORBIDDEN";
 }

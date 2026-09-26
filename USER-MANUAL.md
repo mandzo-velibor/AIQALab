@@ -221,6 +221,8 @@ qalab budget-policy set SOFT   # change
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `QALAB_API_KEY` | — | Bearer API key the CLI sends. Also `apiKey` in `.qalab.json`. See §14.0. |
+| `QALAB_REQUIRE_API_KEY` | `false` | Force API-key enforcement on `/api/**` even with no key issued. |
 | `QALAB_API_BASE_URL` | `http://localhost:8080` | Where the **browser** reaches the backend. Read at runtime by the frontend's `/config.js`, so one image works everywhere. |
 | `QALAB_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated browser origins allowed to call `/api/**`. Must include the frontend's public URL. |
 
@@ -622,8 +624,46 @@ execution record so you still get a usable report rather than nothing.
 
 Base URL defaults to `http://localhost:8080`. All v1 endpoints are under `/api/v1`.
 
-> **No authentication is currently required or enforced.** See §18 and §19.3 — do not
-> expose this service to an untrusted network.
+### 14.0 Authentication
+
+Every `/api/**` endpoint requires a bearer API key:
+
+```
+Authorization: Bearer qalab_<64 hex chars>
+```
+
+Keys are per account and stored as salted hashes — the raw value is shown **once**, at
+creation, and cannot be recovered.
+
+```bash
+# Issue a key
+curl -X POST http://localhost:8080/api/v1/account/api-keys \
+  -H "Authorization: Bearer $EXISTING_KEY" \
+  -H 'Content-Type: application/json' -d '{"label":"my laptop"}'
+
+# List (never returns the secret)
+curl http://localhost:8080/api/v1/account/api-keys -H "Authorization: Bearer $KEY"
+
+# Revoke
+curl -X DELETE http://localhost:8080/api/v1/account/api-keys/1 -H "Authorization: Bearer $KEY"
+```
+
+**When is it enforced?** A key is required as soon as *one has been issued*, so a fresh
+local install works with zero setup and a deployed instance protects itself
+automatically. Set `QALAB_REQUIRE_API_KEY=true` to force enforcement even with no key
+issued — the first key is then printed to the backend log at startup.
+
+```bash
+# Does this instance need a key?
+curl http://localhost:8080/api/v1/account/bootstrap
+# {"apiKeyRequired":true,"apiKeysExist":true,...}
+```
+
+The CLI reads `QALAB_API_KEY` (or `apiKey` in `.qalab.json`) and sends it on every call;
+it fails fast with instructions if the Core requires a key and none is configured.
+
+See §18 for what this deliberately does not yet cover (no signup, no roles, no audit
+log) and §19.3 for deployment guidance.
 
 ### 14.1 Workflow
 
@@ -706,13 +746,17 @@ Non-2xx responses use one shape:
 | `AI_RATE_LIMITED` | Rate limited (429) |
 | `AI_OPERATION_NOT_ALLOWED` | Not permitted for this account |
 | `INVALID_PROVIDER` | Unknown provider requested |
+| `UNAUTHENTICATED` | Missing or invalid API key |
+| `FORBIDDEN` | Authenticated but not permitted |
 | `INTERNAL_ERROR` | Unexpected server fault |
 
 ### 14.5 Legacy endpoints
 
 A second, unversioned surface exists under `/api` (`/api/explore`, `/api/analyze`,
-`/api/run`, `/api/healing/*`, …). **Some UI code still calls it.** Prefer `/api/v1`.
-The legacy surface is scheduled for removal in **B-033**.
+`/api/projects`, `/api/run`, `/api/healing/*`, …). **Some UI code still calls it.**
+Prefer `/api/v1`. The legacy surface is scheduled for removal in **B-033**.
+
+Both surfaces sit behind the same API-key requirement.
 
 ---
 
@@ -868,7 +912,7 @@ Ordered by how likely you are to hit them.
 
 | # | Limitation | Impact | Tracking |
 |---|---|---|---|
-| 1 | **No authentication on any endpoint.** Any client that can reach the port can spend AI budget and read all project data. | Critical for any shared or public deployment. | B-012, B-013 |
+| 1 | ~~No authentication~~ **Partly fixed in Sprint 1** — bearer API keys now guard `/api/**` (B-013). **Still open:** no signup/login, no roles, no audit log, `defaultAccount()` is still global so usage is not per-tenant, and `CredentialStore` is still global so BYOK keys have no owner. `/ws/**` is unauthenticated (browser WebSockets cannot set headers). | Keys close the anonymous-spend hole; the tenancy model is still single-tenant. | B-016, B-033, ADR 0001 follow-ups |
 | 2 | **No database migrations.** `ddl-auto: update` in dev/base, `validate` in prod. A production schema can be neither created nor evolved reliably. | Blocks trustworthy releases. | B-014 |
 | 3 | ~~`qalab.ai` config block absent~~ **Fixed in Sprint 1** — every provider has a default base URL and model, and a missing model is a loud configuration error. | — | — |
 | 4 | **Rate limiting is a no-op** (`NoopRateLimiter`). | Combined with #1, unbounded paid LLM traffic. | B-016 |
@@ -956,14 +1000,26 @@ public URL, and that `QALAB_API_BASE_URL` is the **backend's** public URL. See �
 
 The browser console will show the exact rejected origin.
 
-### 20.2 "Live progress never updates"
+### 20.2 "401 UNAUTHENTICATED"
+
+The Core requires a key and the CLI is not sending one.
+
+```bash
+curl http://localhost:8080/api/v1/account/bootstrap   # is a key required?
+```
+
+If `apiKeyRequired` is `true`, either set `QALAB_API_KEY=<key>` or add `"apiKey"` to
+`.qalab.json`, or pass it for one command. If you have no key, issue one — see §14.0.
+On a first run with `QALAB_REQUIRE_API_KEY=true` the key is printed to the backend log.
+
+### 20.3 "Live progress never updates"
 
 The agent WebSocket is not connecting. It is derived from `QALAB_API_BASE_URL`; if the
 page is served over https the socket must be `wss://`. Behind a proxy, ensure
 `Upgrade`/`Connection` headers are forwarded. The panel shows
 "connecting…"/"reconnecting…" when the socket is down.
 
-### 20.3 `AI_BUDGET_EXCEEDED` on a fresh start
+### 20.4 `AI_BUDGET_EXCEEDED` on a fresh start
 
 A single workflow run exceeds 4000 tokens, which was the old *code* default. The shipped
 configuration now sets the allowance to unlimited, so hitting this normally means
@@ -975,13 +1031,13 @@ the policy to `NONE`:
 qalab budget-policy set NONE
 ```
 
-### 20.4 `AI_PROVIDER_NOT_CONFIGURED`
+### 20.5 `AI_PROVIDER_NOT_CONFIGURED`
 
 No provider key reached the backend. Confirm the variable is set **in the backend's**
 environment — `docker compose` passes only the keys listed in its `environment:` block.
 For a bare `mvn spring-boot:run`, put it in the repository-root `.env`.
 
-### 20.5 Tests all fail with the same error
+### 20.6 Tests all fail with the same error
 
 Look at the first failing test's error before reading the rest. Common causes:
 
@@ -990,25 +1046,25 @@ Look at the first failing test's error before reading the rest. Common causes:
 - the login credentials are wrong, so every test lands on the login page
 - Chromium is missing in the container
 
-### 20.6 `TIMEOUT` execution
+### 20.7 `TIMEOUT` execution
 
 The run exceeded `QALAB_PLAYWRIGHT_TIMEOUT_SECONDS`. Either raise it, or narrow the run
 with `--test-type` or a single test. If it times out on a modest suite, suspect resource
 contention — constrain workers (§21).
 
-### 20.7 "Connection reset by peer" during a long run
+### 20.8 "Connection reset by peer" during a long run
 
 The HTTP request holding the workflow was dropped, typically by a proxy or load
 balancer read timeout. The backend usually continues. Mitigations: raise the proxy read
 timeout, or move to the asynchronous job model (B-017).
 
-### 20.8 Page objects missing / tests do not compile
+### 20.9 Page objects missing / tests do not compile
 
 Each spec imports `../pages/<Class>_<scenario>`. Both the spec and the page object must
 be written together. If you copied only `tests/`, the import will not resolve. Re-run
 `qalab test`, or `qalab generate --write`, and copy both directories.
 
-### 20.9 Getting help
+### 20.10 Getting help
 
 Backend logs carry `operationId`, `executionId` and `projectId`. With an `operationId`
 you can retrieve the full workflow report:
@@ -1124,6 +1180,7 @@ docs/               architecture notes and known limitations
 | Date | Change |
 |---|---|
 | 2026-09-26 | Created. Documents behaviour after Sprint 0 (reliability + CLI reporting) and the start of Sprint 1 (deployability). All limitations recorded with tracking IDs. |
+| 2026-09-26 | Updated for B-013: §14.0 authentication, `UNAUTHENTICATED` error code, CLI key configuration, new §20.2 troubleshooting, limitation 1 downgraded to "partly fixed" with the remaining tenancy gaps named. |
 | 2026-09-26 | Updated for B-018 (background Playwright warm-up), B-019 (runtime API base URL), B-020 (artifact profile now failures-only; limitation 12 closed), B-021 (bounded concurrency; limitation 13 closed), B-015 (`qalab.ai` config block; limitations 3 and 10 closed). Added `intent` instruction-dropping to limitations. |
 
 **Maintenance:** update this file in the same commit as any change to CLI flags,

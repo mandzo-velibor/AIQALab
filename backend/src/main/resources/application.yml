@@ -46,6 +46,12 @@ qalab:
     # Per-test and per-expectation timeouts baked into generated configs.
     test-timeout-ms: 30000
     expect-timeout-ms: 5000
+  security:
+    # Require a bearer API key on /api/**. When false (the default) a key is enforced
+    # only if one has been issued, so a fresh local install works with zero setup while
+    # a deployed instance switches to protected as soon as it has a key. Set true to
+    # force enforcement. See docs/adr/0001-authentication-and-tenancy.md.
+    require-api-key: ${QALAB_REQUIRE_API_KEY:false}
   cors:
     # Comma-separated browser origins allowed to call /api/**. Must be set for any
     # deployment that is not on localhost, or every frontend call is blocked by the
