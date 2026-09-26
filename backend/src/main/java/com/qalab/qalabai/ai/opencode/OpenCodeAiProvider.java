@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.qalab.qalabai.ai.provider.AiProvider;
 import com.qalab.qalabai.ai.gateway.CircuitBreaker;
 import com.qalab.qalabai.ai.gateway.ProviderCascadeExhaustedException;
 import com.qalab.qalabai.ai.gateway.ProviderResilience;
@@ -28,7 +27,7 @@ import java.util.Map;
 
 @Component
 @Primary
-public class OpenCodeAiProvider implements AiProvider {
+public class OpenCodeAiProvider {
 
     private static final Logger log = LoggerFactory.getLogger(OpenCodeAiProvider.class);
 
@@ -149,22 +148,18 @@ public class OpenCodeAiProvider implements AiProvider {
         }
     }
 
-    @Override
     public String getName() {
         return "OpenCode";
     }
 
-    @Override
     public String chat(String prompt) {
         return chat(null, prompt);
     }
 
-    @Override
     public String chat(String systemPrompt, String userPrompt) {
         return chat(systemPrompt, userPrompt, null);
     }
 
-    @Override
     public String chat(String systemPrompt, String userPrompt, ResponseValidator validator) {
         return chat(systemPrompt, userPrompt, validator, null);
     }
@@ -270,16 +265,25 @@ public class OpenCodeAiProvider implements AiProvider {
                     failuresPerProvider.merge(candidate.label(), 1, Integer::sum);
                     log.warn("{} response rejected ({} chars): {}", candidate.label(), raw.length(), rejectReason);
                     progressed = true;
-                } catch (GoUsageLimitException e) {
-                    // A usage limit is terminal for Go, not a transient blip: retrying
-                    // or falling back to another Go model would only burn more quota.
+                } catch (UsageLimitException e) {
+                    // A usage limit is terminal for that provider, not a transient blip:
+                    // retrying it, or falling back to another model on the same exhausted
+                    // key, would only burn quota that is already spent.
                     if (observer != null) {
                         observer.onAttempt(new Attempt(candidate.label(), calls, 0, 0, false, "usage limit"));
                     }
-                    goExhausted = true;
+                    // Only Go's remaining candidates are short-circuited here. Marking a
+                    // Zen or Gemini limit as "Go is out" would skip a Go model that still
+                    // has quota, which is the opposite of what the flag is for.
+                    boolean isGo = "go".equals(e.family());
+                    if (isGo) {
+                        goExhausted = true;
+                    }
                     failures.add(candidate.label() + ": usage limit reached");
                     failuresPerProvider.merge(candidate.label(), 1, Integer::sum);
-                    log.warn("OpenCode Go usage limit reached: {}. Go is out for this request.", e.getMessage());
+                    log.warn("{} usage limit reached: {}. {}",
+                            e.endpoint(), e.getMessage(),
+                            isGo ? "Go is out for this request." : "Skipping to the next provider.");
                     progressed = true;
                 } catch (Exception e) {
                     if (observer != null) {
@@ -341,23 +345,62 @@ public class OpenCodeAiProvider implements AiProvider {
         List<Candidate> list = new ArrayList<>();
         if (goApiKey != null && !goApiKey.isBlank()) {
             list.add(new Candidate("Go(" + goModel + ")", true,
-                    (sys, usr, max) -> callGoApi(sys, usr, max)));
+                    call(goEndpoint())));
         }
         if (zenApiKey != null && !zenApiKey.isBlank()) {
             list.add(new Candidate("Zen(" + zenModel + ")", false,
-                    (sys, usr, max) -> callZenApi(sys, usr, zenModel, max)));
+                    call(zenEndpoint(zenModel))));
             list.add(new Candidate("Zen(" + zenFallbackModel + ")", false,
-                    (sys, usr, max) -> callZenApi(sys, usr, zenFallbackModel, max)));
+                    call(zenEndpoint(zenFallbackModel))));
         }
         if (geminiApiKey != null && !geminiApiKey.isBlank()) {
             list.add(new Candidate("Gemini(" + geminiModel + ")", false,
-                    (sys, usr, max) -> callGeminiApi(sys, usr, max)));
+                    call(new ManagedEndpoint(
+                            "Gemini(" + geminiModel + ")", "gemini", chatUrl(geminiBaseUrl), geminiModel,
+                            bearer(geminiApiKey), OPENAI_REPLY))));
         }
         if (ollamaApiKey != null && !ollamaApiKey.isBlank()) {
             list.add(new Candidate("Ollama(" + ollamaModel + ")", false,
-                    (sys, usr, max) -> callOllamaApi(sys, usr, max)));
+                    call(new ManagedEndpoint(
+                            "Ollama(" + ollamaModel + ")", "ollama", chatUrl(ollamaBaseUrl), ollamaModel,
+                            bearer(ollamaApiKey), OPENAI_REPLY))));
         }
         return list;
+    }
+
+    private ManagedEndpoint goEndpoint() {
+        String key = goApiKey;
+        return new ManagedEndpoint("Go(" + goModel + ")", "go", GO_API_URL, goModel,
+                headers -> {
+                    headers.set("x-api-key", key);
+                    headers.set("anthropic-version", "2023-06-01");
+                },
+                ANTHROPIC_REPLY);
+    }
+
+    private ManagedEndpoint zenEndpoint(String model) {
+        return new ManagedEndpoint("Zen(" + model + ")", "zen", ZEN_API_URL, model,
+                bearer(zenApiKey), OPENAI_REPLY);
+    }
+
+    private static AuthStrategy bearer(String key) {
+        return headers -> headers.setBearerAuth(key);
+    }
+
+    /**
+     * Appends the chat path to a configurable base URL. A trailing slash is trimmed rather
+     * than concatenated, so a base URL configured with one does not produce "//chat/…",
+     * which several gateways reject with a 404 that looks like a bad model.
+     */
+    private static String chatUrl(String baseUrl) {
+        String base = baseUrl.endsWith("/")
+                ? baseUrl.substring(0, baseUrl.length() - 1)
+                : baseUrl;
+        return base + CHAT_PATH;
+    }
+
+    private Candidate.Call call(ManagedEndpoint endpoint) {
+        return (sys, usr, max) -> callChatApi(endpoint, sys, usr, max);
     }
 
     private int tokens(Integer maxOutputTokens) {
@@ -374,187 +417,78 @@ public class OpenCodeAiProvider implements AiProvider {
         return validator.validate(result);
     }
 
-    private String callGoApi(String systemPrompt, String userPrompt, int maxTokens) throws Exception {
+    /**
+     * The one HTTP call every managed provider goes through.
+     *
+     * <p>Go, Zen, Gemini and Ollama were four near-identical ~50-line methods differing
+     * only in URL, model, auth header and where the reply text sits in the JSON. Copying
+     * that shape four times is how the request body ended up subtly inconsistent between
+     * providers — the sort of drift that only shows up as one provider rejecting a request
+     * the others accept. What genuinely differs is now data: an {@link AuthStrategy} and a
+     * {@link ResponseExtractor} per endpoint.
+     */
+    String callChatApi(ManagedEndpoint endpoint, String systemPrompt,
+                               String userPrompt, int maxTokens) throws Exception {
         ObjectNode requestBody = objectMapper.createObjectNode();
-        requestBody.put("model", goModel);
+        requestBody.put("model", endpoint.model());
         requestBody.put("max_tokens", maxTokens);
 
         ArrayNode messages = objectMapper.createArrayNode();
-
         if (systemPrompt != null && !systemPrompt.isBlank()) {
             ObjectNode systemMessage = objectMapper.createObjectNode();
             systemMessage.put("role", "system");
             systemMessage.put("content", systemPrompt);
             messages.add(systemMessage);
         }
-
         ObjectNode userMessage = objectMapper.createObjectNode();
         userMessage.put("role", "user");
         userMessage.put("content", userPrompt);
         messages.add(userMessage);
-
         requestBody.set("messages", messages);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", goApiKey);
-        headers.set("anthropic-version", "2023-06-01");
+        endpoint.auth().apply(headers);
 
-        HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(requestBody), headers);
+        HttpEntity<String> entity =
+                new HttpEntity<>(objectMapper.writeValueAsString(requestBody), headers);
 
         try {
             ResponseEntity<String> response = restTemplate.exchange(
-                    GO_API_URL,
-                    HttpMethod.POST,
-                    entity,
-                    String.class
-            );
-
-            JsonNode responseJson = objectMapper.readTree(response.getBody());
-            String content = extractAnthropicContent(responseJson);
-
-            log.info("OpenCode Go response received, length: {} chars", content.length());
+                    endpoint.url(), HttpMethod.POST, entity, String.class);
+            String content = endpoint.extractor().extract(objectMapper.readTree(response.getBody()));
+            log.info("{} response received, length: {} chars", endpoint.label(), content.length());
             return content;
         } catch (HttpStatusCodeException e) {
+            // Usage limits are translated per endpoint so the caller can skip to the next
+            // provider for the right reason: a spent quota is not a fault to retry against
+            // the same key, and reporting it as one burns the whole cascade.
             if (isUsageLimit(e)) {
-                throw new GoUsageLimitException(e.getResponseBodyAsString());
+                throw new UsageLimitException(endpoint.label(), endpoint.family(),
+                        e.getResponseBodyAsString());
             }
             throw e;
         }
     }
 
-    private String callZenApi(String systemPrompt, String userPrompt, String model, int maxTokens) throws Exception {
-        ObjectNode requestBody = objectMapper.createObjectNode();
-        requestBody.put("model", model);
-        requestBody.put("max_tokens", maxTokens);
-
-        ArrayNode messages = objectMapper.createArrayNode();
-
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            ObjectNode systemMessage = objectMapper.createObjectNode();
-            systemMessage.put("role", "system");
-            systemMessage.put("content", systemPrompt);
-            messages.add(systemMessage);
-        }
-
-        ObjectNode userMessage = objectMapper.createObjectNode();
-        userMessage.put("role", "user");
-        userMessage.put("content", userPrompt);
-        messages.add(userMessage);
-
-        requestBody.set("messages", messages);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(zenApiKey);
-
-        HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(requestBody), headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(
-                ZEN_API_URL,
-                HttpMethod.POST,
-                entity,
-                String.class
-        );
-
-        JsonNode responseJson = objectMapper.readTree(response.getBody());
-        String content = extractOpenAiContent(responseJson);
-
-        log.info("OpenCode Zen ({}) response received, length: {} chars", model, content.length());
-        return content;
+    interface AuthStrategy {
+        void apply(HttpHeaders headers);
     }
 
-    private String callOllamaApi(String systemPrompt, String userPrompt, int maxTokens) throws Exception {
-        ObjectNode requestBody = objectMapper.createObjectNode();
-        requestBody.put("model", ollamaModel);
-        requestBody.put("max_tokens", maxTokens);
-
-        ArrayNode messages = objectMapper.createArrayNode();
-
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            ObjectNode systemMessage = objectMapper.createObjectNode();
-            systemMessage.put("role", "system");
-            systemMessage.put("content", systemPrompt);
-            messages.add(systemMessage);
-        }
-
-        ObjectNode userMessage = objectMapper.createObjectNode();
-        userMessage.put("role", "user");
-        userMessage.put("content", userPrompt);
-        messages.add(userMessage);
-
-        requestBody.set("messages", messages);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(ollamaApiKey);
-
-        String url = ollamaBaseUrl.endsWith("/")
-                ? ollamaBaseUrl.substring(0, ollamaBaseUrl.length() - 1) + CHAT_PATH
-                : ollamaBaseUrl + CHAT_PATH;
-
-        HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(requestBody), headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(
-                url,
-                HttpMethod.POST,
-                entity,
-                String.class
-        );
-
-        JsonNode responseJson = objectMapper.readTree(response.getBody());
-        String content = extractOpenAiContent(responseJson);
-
-        log.info("Ollama response received, length: {} chars", content.length());
-        return content;
+    interface ResponseExtractor {
+        String extract(JsonNode responseJson);
     }
 
-    private String callGeminiApi(String systemPrompt, String userPrompt, int maxTokens) throws Exception {
-        ObjectNode requestBody = objectMapper.createObjectNode();
-        requestBody.put("model", geminiModel);
-        requestBody.put("max_tokens", maxTokens);
-
-        ArrayNode messages = objectMapper.createArrayNode();
-
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            ObjectNode systemMessage = objectMapper.createObjectNode();
-            systemMessage.put("role", "system");
-            systemMessage.put("content", systemPrompt);
-            messages.add(systemMessage);
-        }
-
-        ObjectNode userMessage = objectMapper.createObjectNode();
-        userMessage.put("role", "user");
-        userMessage.put("content", userPrompt);
-        messages.add(userMessage);
-
-        requestBody.set("messages", messages);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(geminiApiKey);
-
-        String url = geminiBaseUrl.endsWith("/")
-                ? geminiBaseUrl.substring(0, geminiBaseUrl.length() - 1) + CHAT_PATH
-                : geminiBaseUrl + CHAT_PATH;
-
-        HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(requestBody), headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(
-                url,
-                HttpMethod.POST,
-                entity,
-                String.class
-        );
-
-        JsonNode responseJson = objectMapper.readTree(response.getBody());
-        String content = extractOpenAiContent(responseJson);
-
-        log.info("Gemini response received, length: {} chars", content.length());
-        return content;
+    record ManagedEndpoint(String label, String family, String url, String model,
+                                   AuthStrategy auth, ResponseExtractor extractor) {
     }
 
-    private String extractAnthropicContent(JsonNode responseJson) {
+    static final ResponseExtractor ANTHROPIC_REPLY = OpenCodeAiProvider::extractAnthropicContent;
+    static final ResponseExtractor OPENAI_REPLY = OpenCodeAiProvider::extractOpenAiContent;
+
+    // Static because they are pure JSON readers with no instance state, which is what
+    // lets the endpoint table be built as static constants.
+    static String extractAnthropicContent(JsonNode responseJson) {
         StringBuilder content = new StringBuilder();
         JsonNode contentArray = responseJson.path("content");
         if (contentArray.isArray()) {
@@ -567,7 +501,7 @@ public class OpenCodeAiProvider implements AiProvider {
         return content.toString();
     }
 
-    private String extractOpenAiContent(JsonNode responseJson) {
+    static String extractOpenAiContent(JsonNode responseJson) {
         JsonNode choices = responseJson.path("choices");
         if (!choices.isArray() || choices.isEmpty()) {
             return "";
@@ -614,9 +548,27 @@ public class OpenCodeAiProvider implements AiProvider {
         }
     }
 
-    private static class GoUsageLimitException extends RuntimeException {
-        GoUsageLimitException(String message) {
-            super(message);
+    /**
+     * Carries the endpoint that reported the limit. The cascade skips to the next provider,
+     * and a message naming only "usage limit" leaves an operator unable to tell which quota
+     * was spent without reading the log around the failure.
+     */
+    static class UsageLimitException extends RuntimeException {
+        private final String endpoint;
+        private final String family;
+
+        UsageLimitException(String endpoint, String family, String detail) {
+            super(endpoint + " reported a usage limit: " + detail);
+            this.endpoint = endpoint;
+            this.family = family;
+        }
+
+        String endpoint() {
+            return endpoint;
+        }
+
+        String family() {
+            return family;
         }
     }
 }
