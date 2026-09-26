@@ -144,9 +144,14 @@ public class QaWorkflowService {
                     "count", tests.size(),
                     "files", toGeneratedFiles(tests))));
 
-            // 5. RUN (requires explicit workspace)
+            // 5. RUN (requires an explicit workspace — the Core never picks a directory
+            // on the client's behalf).
             if (project.getWorkspacePath() == null || project.getWorkspacePath().isBlank()) {
-                steps.put("execution", step("SKIPPED", Map.of("reason", "NO_WORKSPACE_PATH")));
+                steps.put("execution", step("SKIPPED", Map.of(
+                        "reason", "NO_WORKSPACE_PATH",
+                        "detail", "Set project.workspacePath (CLI: QALAB_WORKSPACE or .qalab.json) "
+                                + "to have the generated tests executed. The tests were still generated "
+                                + "and are returned in this response.")));
                 steps.put("failureAnalysis", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
                 steps.put("healing", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
                 steps.put("bugReport", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));

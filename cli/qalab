@@ -421,6 +421,12 @@ EOF
       BASE_URL="$2"
     fi
     require_url
+    if [ -z "$WORKSPACE" ]; then
+      echo "error: no workspace configured, so the generated tests could not be executed." >&2
+      echo "       Set QALAB_WORKSPACE=/path/to/workspace or add \"workspacePath\" to .qalab.json." >&2
+      echo "       (Use 'qalab generate' if you only want the files, no execution.)" >&2
+      exit 1
+    fi
     instruction=""
     test_type=""
     username="${QALAB_USERNAME:-}"

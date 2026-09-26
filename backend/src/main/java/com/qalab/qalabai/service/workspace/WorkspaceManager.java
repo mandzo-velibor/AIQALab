@@ -53,7 +53,16 @@ public class WorkspaceManager implements WorkspaceProvider {
     @Override
     public String getWorkspace(ProjectContext project) {
         if (project.getWorkspacePath() != null && !project.getWorkspacePath().isBlank()) {
-            return project.getWorkspacePath();
+            // A client-supplied workspace always wins, and is normalised to an absolute
+            // path so the value echoed back in the response is directly usable. A
+            // relative path here would otherwise resolve against whatever the server's
+            // working directory happens to be, which differs between `mvn spring-boot:run`
+            // and a container — the client would then be told about a directory it never
+            // asked for.
+            return Paths.get(project.getWorkspacePath().trim())
+                    .toAbsolutePath()
+                    .normalize()
+                    .toString();
         }
         if (project.getDatabaseId() != null) {
             Path legacy = Paths.get(workspacesDir, "project-" + project.getDatabaseId());
@@ -392,6 +401,9 @@ public class WorkspaceManager implements WorkspaceProvider {
     }
 
     private String extractClassName(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
         Pattern pattern = Pattern.compile("export\\s+class\\s+(\\w+)");
         Matcher matcher = pattern.matcher(code);
         return matcher.find() ? matcher.group(1) : null;
