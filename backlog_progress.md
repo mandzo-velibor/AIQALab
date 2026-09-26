@@ -747,7 +747,7 @@ it has.
 | B-025 | One shared, tolerant LLM JSON extractor | P1 | M | **DONE** | `56f62d9` |
 | B-027 | Fix `AnalysisCache` semantics | P1 | M | **DONE** | `0051410` |
 | B-028 | Reuse the browser instead of relaunching per call | P1 | M | **DONE** | `cd0e67f` |
-| B-023 | Consolidate the provider clients | P2 | M | TODO | — |
+| B-023 | Consolidate the provider clients | P1 | M | **DONE** | `30bb215` |
 | B-026 | Structured logging + LLM metrics | P1 | M | **DONE** | `27df82a` |
 
 **Totals:** 4/7 done · 4 commits · elapsed 335m
