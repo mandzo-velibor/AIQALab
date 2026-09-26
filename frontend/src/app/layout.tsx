@@ -26,6 +26,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-hero-grid">
+        {/*
+          Runtime configuration. A plain (non-deferred) script in the document head,
+          so it runs before Next's deferred bundles and before any client module
+          evaluates — which is what lets lib/config.ts read it at module scope.
+        */}
+        <script src="/config.js" />
         <AppProviders>
           <SiteHeader />
           <main className="flex-1">{children}</main>

@@ -38,6 +38,9 @@ services:
       # Screenshots, videos, traces and the generated report.md/report.json land here.
       # Without a volume below they are lost on every container restart.
       QALAB_ARTIFACTS_DIR: /app/artifacts
+      # Browser origins allowed to call /api/**. Must include the URL the browser
+      # uses for the frontend, or every request is blocked. Defaults to localhost:3000.
+      QALAB_CORS_ALLOWED_ORIGINS: ${QALAB_CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       # AI provider keys come from the host .env file (never committed)
       OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:-}
       OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
@@ -61,7 +64,10 @@ services:
     depends_on:
       - backend
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+      # Served at runtime from /config.js, so this image is not pinned to a
+      # build-time backend URL. Must match the origin the browser uses, and must
+      # also be allowed by the backend's QALAB_CORS_ALLOWED_ORIGINS.
+      QALAB_API_BASE_URL: ${QALAB_API_BASE_URL:-http://localhost:8080}
     ports:
       - "3000:3000"
 

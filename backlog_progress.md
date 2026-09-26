@@ -156,9 +156,33 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 
 ## Task log
 
+### B-018 · Move Playwright install off the startup path
+| | |
+|---|---|
+| **Status** | **DONE** |
+| **Date** | 2026-09-26 |
+| **Duration** | 8m |
+| **Commit** | `218450d` (1 of 10) |
+
+**What changed**
+- `PlaywrightSetupConfig` converted from a `CommandLineRunner` (which runs *before* the app can serve traffic) to an `@EventListener(ApplicationReadyEvent)` that hands off to a daemon executor and returns immediately.
+- Each workspace is now **isolated**: a failure is logged and the scan continues, instead of propagating out of the runner and aborting boot.
+- Per-workspace duration logging plus start/finish totals.
+- The scan is a static method returning a count, so it is testable without starting a Spring context.
+- Removed a vestigial constant + unused private method I had added for a per-workspace timeout that `prepareWorkspace` already enforces internally — dead code, not left in.
+- `QALAB_AUTO_INSTALL_PLAYWRIGHT` documented in `.env.example`, recommending `false` when browsers are baked into the image.
+
+**Why it mattered:** with N workspaces the app could be unavailable for up to 10×N minutes on boot, and on a throttled cloud volume one hung `npm` could eat the whole budget. A plausible contributor to the "500 while installing Playwright" symptom from the Oracle Cloud deployment.
+
+**How it was tested**
+- New `PlaywrightSetupConfigTest` — 6 cases: only `project-*` dirs are treated as workspaces; **a failing workspace does not block its siblings** (the regression guard); missing dir is a no-op; empty dir is a no-op; the hook is inert when disabled; `onApplicationReady` returns in <1 s even when the underlying install throws.
+- Full suite: **178 tests, 0 failures** (172 + 6 new).
+
+---
+
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
-| B-018 | Playwright install off the startup path | P1 | M | IN PROGRESS | — |
+| B-018 | Playwright install off the startup path | P1 | M | **DONE** | `218450d` |
 | B-019 | Frontend API base URL at runtime | P1 | S | TODO | — |
 | B-020 | Sensible default artifact profile | P1 | S | TODO | — |
 | B-021 | Bounded Playwright concurrency | P1 | S | TODO | — |
@@ -169,7 +193,7 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 | B-014 | Database migrations with Flyway | P0 | L | TODO | — |
 | B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
 
-**Totals:** 0/10 done · 0 commits
+**Totals:** 1/10 done · 1 commit · elapsed 8m
 
 ### Ordering note
 The backlog lists B-012..B-021 in priority order, but B-012/B-013 (auth) and B-014
