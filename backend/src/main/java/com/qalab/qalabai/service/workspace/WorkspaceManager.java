@@ -71,13 +71,21 @@ public class WorkspaceManager implements WorkspaceProvider {
 
     @Override
     public String writeTests(ProjectContext project, List<GeneratedTest> tests) {
+        return writeTestsAndReport(project, tests).workspace();
+    }
+
+    @Override
+    public WriteResult writeTestsAndReport(ProjectContext project, List<GeneratedTest> tests) {
         if (tests == null || tests.isEmpty()) {
-            return null;
+            return new WriteResult(null, List.of(), List.of());
         }
         String workspace = getWorkspace(project);
         Path root = Paths.get(workspace);
         Path testsDir = root.resolve("tests");
         Path pagesDir = root.resolve("pages");
+
+        List<WrittenFile> writtenTests = new ArrayList<>();
+        Map<String, WrittenFile> writtenPageObjects = new LinkedHashMap<>();
 
         try {
             Files.createDirectories(testsDir);
@@ -97,19 +105,27 @@ public class WorkspaceManager implements WorkspaceProvider {
                     String testBase = fileName.replaceFirst("\\.spec\\.[tj]s$", "");
                     String uniquePageFile = className + "_" + testBase + ".ts";
                     Files.writeString(pagesDir.resolve(uniquePageFile), pageObjectCode);
+                    writtenPageObjects.putIfAbsent("pages/" + uniquePageFile,
+                            new WrittenFile("pages/" + uniquePageFile, pageObjectCode));
                     testCode = rewritePageObjectImport(testCode, className, uniquePageFile);
                     pageObjectVariants.computeIfAbsent(className, k -> new ArrayList<>()).add(pageObjectCode);
                 }
                 Files.writeString(testsDir.resolve(fileName), testCode);
+                // Report the rewritten source, not the pre-rewrite source: this is what
+                // is on disk and therefore what the client must persist.
+                writtenTests.add(new WrittenFile("tests/" + fileName, testCode));
             }
 
             for (Map.Entry<String, List<String>> entry : pageObjectVariants.entrySet()) {
-                Files.writeString(pagesDir.resolve(entry.getKey() + ".ts"),
-                        mergePageObjects(entry.getKey(), entry.getValue()));
+                String merged = mergePageObjects(entry.getKey(), entry.getValue());
+                Files.writeString(pagesDir.resolve(entry.getKey() + ".ts"), merged);
+                writtenPageObjects.putIfAbsent("pages/" + entry.getKey() + ".ts",
+                        new WrittenFile("pages/" + entry.getKey() + ".ts", merged));
             }
 
-            log.info("Wrote {} test files to {}", tests.size(), testsDir);
-            return workspace;
+            log.info("Wrote {} test file(s) and {} page object file(s) to {}",
+                    writtenTests.size(), writtenPageObjects.size(), testsDir);
+            return new WriteResult(workspace, List.copyOf(writtenTests), List.copyOf(writtenPageObjects.values()));
         } catch (Exception e) {
             log.error("Failed to write test files to workspace: {}", e.getMessage());
             throw new RuntimeException("Failed to write test files to workspace: " + e.getMessage(), e);

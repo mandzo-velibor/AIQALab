@@ -140,10 +140,9 @@ public class QaWorkflowService {
             // doubling cost and letting the two invocations diverge.
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_TESTS", "generating tests...");
             List<GeneratedTest> tests = codeGenerationService.generateTestsEntities(url, dbId, instruction, testType);
-            List<GeneratedFile> files = tests.stream()
-                    .map(t -> new GeneratedFile(TestWorkspaceService.resolveFileName(t), t.getTestCode()))
-                    .toList();
-            steps.put("generatedTests", step("COMPLETED", Map.of("count", files.size(), "files", files)));
+            steps.put("generatedTests", step("COMPLETED", Map.of(
+                    "count", tests.size(),
+                    "files", toGeneratedFiles(tests))));
 
             // 5. RUN (requires explicit workspace)
             if (project.getWorkspacePath() == null || project.getWorkspacePath().isBlank()) {
@@ -153,8 +152,23 @@ public class QaWorkflowService {
                 steps.put("bugReport", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
             } else {
                 progressStore.update(operationId, OperationStatus.RUNNING.name(), "RUNNING_TESTS", "running tests...");
-                Map<String, Object> run = runInWorkspace(project, url, dbId, tests);
+                RunWithFiles executed = runInWorkspace(project, url, dbId, tests);
+                Map<String, Object> run = executed.run();
                 steps.put("execution", step("COMPLETED", run));
+
+                // Replace the provisional payload with what was actually written,
+                // including the page objects each spec imports. The client must
+                // persist these verbatim or the specs will not compile.
+                steps.put("generatedTests", step("COMPLETED", Map.of(
+                        "count", executed.written().tests().size(),
+                        "workspace", String.valueOf(executed.written().workspace()),
+                        "files", executed.written().tests().stream()
+                                .map(f -> new GeneratedFile(f.path(), f.content()))
+                                .toList(),
+                        "pageObjects", executed.written().pageObjects().stream()
+                                .map(f -> new GeneratedFile(f.path(), f.content()))
+                                .toList())));
+
                 String execStatus = (String) run.get("executionStatus");
 
                 if ("PASSED".equals(execStatus)) {
@@ -186,10 +200,21 @@ public class QaWorkflowService {
         return new V1WorkflowResponse(operationId, finalStatus, project.getProjectId(), url, steps, LocalDateTime.now());
     }
 
-    private Map<String, Object> runInWorkspace(ProjectContext project, String url, Long dbId,
-                                              List<GeneratedTest> tests) {
+    /** Execution outcome plus the exact set of files the write produced. */
+    private record RunWithFiles(Map<String, Object> run, WorkspaceProvider.WriteResult written) {
+    }
+
+    private List<GeneratedFile> toGeneratedFiles(List<GeneratedTest> tests) {
+        return tests.stream()
+                .filter(t -> t.getTestCode() != null && !t.getTestCode().isBlank())
+                .map(t -> new GeneratedFile(TestWorkspaceService.resolveFileName(t), t.getTestCode()))
+                .toList();
+    }
+
+    private RunWithFiles runInWorkspace(ProjectContext project, String url, Long dbId,
+                                        List<GeneratedTest> tests) {
         workspaceProvider.prepareWorkspace(project);
-        workspaceProvider.writeTests(project, tests);
+        WorkspaceProvider.WriteResult written = workspaceProvider.writeTestsAndReport(project, tests);
         Map<String, Object> result = workspaceProvider.execute(project, null, true);
 
         String status = (String) result.get("status");
@@ -202,8 +227,9 @@ public class QaWorkflowService {
         run.put("executionId", record.getId());
         run.put("executionStatus", status);
         run.put("duration", duration);
+        run.put("workspace", written.workspace());
         run.put("output", output != null && output.length() > 2000 ? output.substring(0, 2000) : output);
-        return run;
+        return new RunWithFiles(run, written);
     }
 
     private Map<String, Object> analyzeFailure(Long dbId, Map<String, Object> run, String operationId) {

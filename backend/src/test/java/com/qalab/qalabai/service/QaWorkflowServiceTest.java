@@ -17,6 +17,7 @@ import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.GeneratedTest;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.model.BugReport;
+import com.qalab.qalabai.service.workspace.TestWorkspaceService;
 import com.qalab.qalabai.service.workspace.WorkspaceProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -78,6 +79,19 @@ class QaWorkflowServiceTest {
             t.setPageObjectCode("export class LoginPage {}");
             return List.of(t);
         });
+        // Default: report the spec back so the workflow can build its response.
+        when(workspaceProvider.writeTestsAndReport(any(), any())).thenAnswer(inv -> {
+            @SuppressWarnings("unchecked")
+            List<GeneratedTest> tests = inv.getArgument(1);
+            return new WorkspaceProvider.WriteResult(
+                    workspaceProvider.getWorkspace(inv.getArgument(0)),
+                    tests.stream()
+                            .filter(t -> t.getTestCode() != null && !t.getTestCode().isBlank())
+                            .map(t -> new WorkspaceProvider.WrittenFile(
+                                    TestWorkspaceService.resolveFileName(t), t.getTestCode()))
+                            .toList(),
+                    List.of());
+        });
     }
 
     @Test
@@ -138,6 +152,42 @@ class QaWorkflowServiceTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void shipsPageObjectsToTheClientAlongsideTheSpecs() {
+        project.setWorkspacePath("/home/dev/internet-tests");
+        org.mockito.Mockito.doReturn(
+                new WorkspaceProvider.WriteResult("/home/dev/internet-tests",
+                        List.of(new WorkspaceProvider.WrittenFile("tests/login.spec.ts",
+                                "import { LoginPage } from '../pages/LoginPage_login';")),
+                        List.of(new WorkspaceProvider.WrittenFile("pages/LoginPage_login.ts",
+                                "export class LoginPage {}"),
+                                new WorkspaceProvider.WrittenFile("pages/LoginPage.ts",
+                                "export class LoginPage {}"))))
+                .when(workspaceProvider).writeTestsAndReport(any(), any());
+        when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
+                Map.of("status", "PASSED", "duration", 10L, "output", "ok"));
+        TestExecution record = new TestExecution();
+        record.setId(7L);
+        when(executionService.recordExecution(any(), any(), any(), any(), any(), any())).thenReturn(record);
+
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info,
+                "https://the-internet.herokuapp.com/login", null, null, null, null, null));
+
+        // Regression guard: the response used to advertise spec sources only, while
+        // the page objects those specs import were written independently. A client
+        // that trusted the response produced a tree that could not compile.
+        Map<String, Object> generated = (Map<String, Object>) response.steps().get("generatedTests");
+        List<GeneratedFile> pageObjects = (List<GeneratedFile>) generated.get("pageObjects");
+        assertEquals(2, pageObjects.size(), "page objects must be reported: " + generated);
+        assertTrue(pageObjects.stream().anyMatch(f -> f.path().equals("pages/LoginPage_login.ts")));
+        assertEquals("/home/dev/internet-tests", generated.get("workspace"));
+
+        Map<String, Object> exec = (Map<String, Object>) response.steps().get("execution");
+        assertEquals("/home/dev/internet-tests", exec.get("workspace"),
+                "the response must echo the workspace that was actually used");
+    }
+
+    @Test
     void runsInWorkspaceAndSkipsFailureAnalysisWhenTestsPass() {
         project.setWorkspacePath("/home/dev/internet-tests");
         when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenReturn(List.of());
@@ -153,7 +203,7 @@ class QaWorkflowServiceTest {
         assertStepStatus(response, "execution", "COMPLETED");
         assertStepStatus(response, "failureAnalysis", "SKIPPED");
         assertStepStatus(response, "healing", "SKIPPED");
-        verify(workspaceProvider).writeTests(any(), any());
+        verify(workspaceProvider).writeTestsAndReport(any(), any());
         verify(workspaceProvider).execute(any(), any(), eq(true));
     }
 

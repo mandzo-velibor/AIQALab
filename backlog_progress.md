@@ -90,7 +90,7 @@ Also caught: `ai/openai/OpenAiProvider.java` was a fourth bare `RestTemplate` no
 |---|---|---|---|---|---|
 | B-001 | Playwright runner real timeout | P0 | S | **DONE** | `667f634` |
 | B-002 | AI provider HTTP timeouts | P0 | S | **DONE** | `dc282a7` |
-| B-003 | Generate test suite once per run | P0 | M | TODO | — |
+| B-003 | Generate test suite once per run | P0 | M | **DONE** | `93b82d0` |
 | B-004 | Ship page objects to client workspace | P0 | M | TODO | — |
 | B-005 | Unify CLI/backend workspace path | P0 | M | TODO | — |
 | B-006 | CLI human summary + `--json` | P0 | M | TODO | — |
@@ -100,7 +100,7 @@ Also caught: `ai/openai/OpenAiProvider.java` was a fourth bare `RestTemplate` no
 | B-010 | WebSocket URL from config | P0 | S | TODO | — |
 | B-011 | Persist artifacts directory | P0 | S | TODO | — |
 
-**Totals:** 2/11 done · 2 commits · elapsed 10m
+**Totals:** 3/11 done · 3 commits · elapsed 22m
 
 ---
 

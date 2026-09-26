@@ -466,7 +466,10 @@ EOF
     echo "Saved workflow report: $report_dir/report.json"
 
     if command -v jq >/dev/null 2>&1; then
-      files_json="$(printf '%s' "$response" | jq -c '{files: .steps.generatedTests.files}')"
+      # Specs and page objects must both be persisted: the specs import
+      # '../pages/<Class>_<scenario>', so writing specs alone yields a tree
+      # that cannot compile.
+      files_json="$(printf '%s' "$response" | jq -c '{files: (.steps.generatedTests.files // []) + (.steps.generatedTests.pageObjects // [])}')"
       if [ "$(printf '%s' "$files_json" | jq '.files | length')" -gt 0 ]; then
         write_files_from_json "$files_json" "${WORKSPACE:-.}"
       fi

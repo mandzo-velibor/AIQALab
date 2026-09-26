@@ -27,6 +27,40 @@ public interface WorkspaceProvider {
      */
     String writeTests(ProjectContext project, List<GeneratedTest> tests);
 
+    /** A file written into the workspace, with a workspace-relative POSIX path. */
+    record WrittenFile(String path, String content) {
+    }
+
+    /**
+     * What {@link #writeTests} actually put on disk.
+     *
+     * <p>Returned so the workflow response is derived from the write itself rather
+     * than recomputed separately. Previously the response advertised only spec
+     * sources while the page objects each spec imports were written — or not
+     * written — independently, so the client could receive a set of files that
+     * did not match, and could not compile, the workspace.</p>
+     *
+     * @param workspace   absolute path the files were written to
+     * @param tests       spec files, relative to {@code workspace}
+     * @param pageObjects page object files, relative to {@code workspace}
+     */
+    record WriteResult(String workspace, List<WrittenFile> tests, List<WrittenFile> pageObjects) {
+    }
+
+    /**
+     * Persists tests and reports exactly what was written, including page objects.
+     * The default implementation delegates to {@link #writeTests} and reports the
+     * spec sources only, so alternative providers stay source-compatible.
+     */
+    default WriteResult writeTestsAndReport(ProjectContext project, List<GeneratedTest> tests) {
+        String workspace = writeTests(project, tests);
+        List<WrittenFile> specs = tests == null ? List.of() : tests.stream()
+                .filter(t -> t.getTestCode() != null && !t.getTestCode().isBlank())
+                .map(t -> new WrittenFile(TestWorkspaceService.resolveFileName(t), t.getTestCode()))
+                .toList();
+        return new WriteResult(workspace, specs, List.of());
+    }
+
     /**
      * Executes tests in the given workspace.
      *
