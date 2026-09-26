@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.gateway.ProviderCascadeExhaustedException;
+import com.qalab.qalabai.ai.gateway.TokenEstimator;
 import com.qalab.qalabai.ai.provider.ResponseValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +20,9 @@ import org.springframework.web.client.RestTemplate;
 import jakarta.annotation.PostConstruct;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Component
 @Primary
@@ -30,8 +34,36 @@ public class OpenCodeAiProvider implements AiProvider {
     private static final String ZEN_API_URL = "https://opencode.ai/zen/v1/chat/completions";
     private static final String CHAT_PATH = "/chat/completions";
 
-    private static final int MAX_ATTEMPTS = 3;
-    private static final int MAX_TOKENS = 12000;
+    /**
+     * Hard ceiling on upstream calls for one logical operation, across the whole
+     * cascade.
+     *
+     * <p>This used to be {@code MAX_ATTEMPTS=3} <em>per attempt of a 5-provider
+     * cascade</em>, so one operation could issue 15 upstream calls, each asking for
+     * {@code max_tokens: 12000}. On a free or rate-limited tier that is both the
+     * latency and the "why is it so slow" problem, and none of the rejected responses
+     * were visible to the token budget.</p>
+     *
+     * <p>The default of 4 means: try the first four candidates in order, once each.
+     * It is deliberately smaller than the candidate count — a cascade that can always
+     * reach its last resort is not a cascade, it is a serial retry storm.</p>
+     */
+    @Value("${opencode.max-provider-calls:4}")
+    private int maxProviderCalls;
+
+    /**
+     * How many times a single provider may be tried before it is abandoned. Stops a
+     * lone flaky provider from consuming the entire budget on its own.
+     */
+    @Value("${opencode.max-attempts-per-provider:2}")
+    private int maxAttemptsPerProvider;
+
+    /**
+     * Fallback ceiling when a caller does not state what the operation needs. The
+     * gateway supplies {@link com.qalab.qalabai.ai.gateway.AiOperation#budgetOutputTokens()}
+     * in practice; this only guards direct callers of this bean.
+     */
+    private static final int DEFAULT_MAX_TOKENS = 4000;
     private static final long BASE_DELAY_MS = 1000;
     private static final long MAX_DELAY_MS = 8000;
 
@@ -44,10 +76,10 @@ public class OpenCodeAiProvider implements AiProvider {
     @Value("${opencode.go.model:qwen3.7-plus}")
     private String goModel;
 
-    @Value("${opencode.zen.model:big-pickle}")
+    @Value("${opencode.zen.model:space-bunny-free}")
     private String zenModel;
 
-    @Value("${opencode.zen.fallback-model:mimo-v2.5-free}")
+    @Value("${opencode.zen.fallback-model:big-pickle}")
     private String zenFallbackModel;
 
     @Value("${ollama.api-key:}")
@@ -85,7 +117,8 @@ public class OpenCodeAiProvider implements AiProvider {
         }
 
         if (zenApiKey != null && !zenApiKey.isBlank()) {
-            log.info("OpenCode Zen configured as FALLBACK with model: {} then fallback model: {}", zenModel, zenFallbackModel);
+            log.info("OpenCode Zen configured as FALLBACK with model: {} then fallback model: {}",
+                    zenModel, zenFallbackModel);
         } else {
             log.warn("OpenCode Zen API key not configured.");
         }
@@ -120,6 +153,29 @@ public class OpenCodeAiProvider implements AiProvider {
 
     @Override
     public String chat(String systemPrompt, String userPrompt, ResponseValidator validator) {
+        return chat(systemPrompt, userPrompt, validator, null);
+    }
+
+    /**
+     * Runs the provider cascade under a hard budget of upstream calls.
+     *
+     * @param maxOutputTokens ceiling for a single response, or null to use the
+     *                        default. Passed per operation so a locator suggestion
+     *                        does not request a test suite's worth of tokens.
+     */
+    public String chat(String systemPrompt, String userPrompt, ResponseValidator validator,
+                       Integer maxOutputTokens) {
+        return chat(systemPrompt, userPrompt, validator, maxOutputTokens, null);
+    }
+
+    /**
+     * @param observer notified once per upstream call, successful or not. Passed in
+     *                 rather than accumulated on this bean: it is a singleton shared
+     *                 by concurrent workflows, so per-request state here would be a
+     *                 data race.
+     */
+    public String chat(String systemPrompt, String userPrompt, ResponseValidator validator,
+                       Integer maxOutputTokens, AttemptObserver observer) {
         if ((goApiKey == null || goApiKey.isBlank())
                 && (zenApiKey == null || zenApiKey.isBlank())
                 && (ollamaApiKey == null || ollamaApiKey.isBlank())
@@ -131,37 +187,144 @@ public class OpenCodeAiProvider implements AiProvider {
                 systemPrompt == null ? 0 : systemPrompt.length(),
                 userPrompt == null ? 0 : userPrompt.length());
 
-        Exception lastError = null;
+        int budget = Math.max(1, maxProviderCalls);
+        int perProvider = Math.max(1, maxAttemptsPerProvider);
+        List<String> failures = new ArrayList<>();
+        Map<String, Integer> failuresPerProvider = new LinkedHashMap<>();
         boolean goExhausted = false;
+        int calls = 0;
+        int attemptNo = 0;
 
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                String result = attemptProviders(systemPrompt, userPrompt, validator, goExhausted);
-                if (result != null && !result.isBlank()) {
-                    return result;
-                }
-                lastError = new RuntimeException("Empty response from OpenCode providers");
-                log.warn("OpenCode providers returned empty response (attempt {}/{})", attempt, MAX_ATTEMPTS);
-            } catch (GoUsageLimitException e) {
-                goExhausted = true;
-                lastError = e;
-                log.warn("OpenCode Go usage limit reached: {}. Skipping Go on further attempts.", e.getMessage());
-                if (attempt == MAX_ATTEMPTS) {
+        // A flat loop over the candidates, not a retry loop wrapped around the
+        // cascade. The candidates themselves are the retries: a transient failure on
+        // one provider is answered by moving to the next, and a provider that keeps
+        // failing is capped at `perProvider` tries so it cannot eat the whole budget.
+        while (calls < budget) {
+            boolean progressed = false;
+
+            for (Candidate candidate : candidates()) {
+                if (calls >= budget) {
                     break;
                 }
-                sleep(backoff(attempt));
-                continue;
-            } catch (Exception e) {
-                lastError = e;
-                log.warn("OpenCode attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, e.getMessage());
+                if (candidate.requiresGo() && goExhausted) {
+                    continue;
+                }
+                if (failuresPerProvider.getOrDefault(candidate.label(), 0) >= perProvider) {
+                    log.debug("Skipping {}: already failed {} time(s)", candidate.label(), perProvider);
+                    continue;
+                }
+
+                calls++;
+                attemptNo++;
+                try {
+                    log.info("Attempt {}/{} — {}", attemptNo, budget, candidate.label());
+                    String raw = candidate.invoker().invoke(systemPrompt, userPrompt, tokens(maxOutputTokens));
+                    String rejectReason = accepts(raw, validator);
+                    if (observer != null) {
+                        // A rejected response still cost tokens and still cost
+                        // wall-clock, so it is reported like any other attempt.
+                        observer.onAttempt(new Attempt(candidate.label(), calls,
+                                TokenEstimator.estimateInputTokens(systemPrompt, userPrompt),
+                                TokenEstimator.estimateOutputTokens(raw),
+                                rejectReason == null, rejectReason));
+                    }
+                    if (rejectReason == null) {
+                        log.info("Cascade succeeded on {} after {} upstream call(s)", candidate.label(), calls);
+                        return raw;
+                    }
+                    failures.add(candidate.label() + ": rejected, " + rejectReason);
+                    failuresPerProvider.merge(candidate.label(), 1, Integer::sum);
+                    log.warn("{} response rejected ({} chars): {}", candidate.label(), raw.length(), rejectReason);
+                    progressed = true;
+                } catch (GoUsageLimitException e) {
+                    // A usage limit is terminal for Go, not a transient blip: retrying
+                    // or falling back to another Go model would only burn more quota.
+                    if (observer != null) {
+                        observer.onAttempt(new Attempt(candidate.label(), calls, 0, 0, false, "usage limit"));
+                    }
+                    goExhausted = true;
+                    failures.add(candidate.label() + ": usage limit reached");
+                    failuresPerProvider.merge(candidate.label(), 1, Integer::sum);
+                    log.warn("OpenCode Go usage limit reached: {}. Go is out for this request.", e.getMessage());
+                    progressed = true;
+                } catch (Exception e) {
+                    if (observer != null) {
+                        observer.onAttempt(new Attempt(candidate.label(), calls, 0, 0, false,
+                                e.getClass().getSimpleName() + ": " + e.getMessage()));
+                    }
+                    failures.add(candidate.label() + ": " + e.getMessage());
+                    failuresPerProvider.merge(candidate.label(), 1, Integer::sum);
+                    log.warn("{} failed: {}", candidate.label(), e.getMessage());
+                    progressed = true;
+                }
             }
 
-            if (attempt < MAX_ATTEMPTS) {
-                sleep(backoff(attempt));
+            // Every remaining candidate is either exhausted or out of budget. Retrying
+            // the pass would change nothing, so stop rather than spin.
+            if (!progressed) {
+                break;
             }
         }
 
-        throw new RuntimeException("All AI providers failed after " + MAX_ATTEMPTS + " attempts. No valid AI response was obtained for this request. Check the application log for per-provider details.", lastError);
+        String reason = failures.isEmpty()
+                ? "No provider was configured or every provider returned an empty/invalid response."
+                : "Provider errors after " + calls + " upstream call(s): " + String.join(" | ", failures);
+        log.error("No AI provider returned a usable response. {}", reason);
+        throw new ProviderCascadeExhaustedException(reason, calls);
+    }
+
+    /** One upstream call's outcome, for cost attribution. */
+    public record Attempt(String provider, int sequence, int inputTokens, int outputTokens,
+                          boolean accepted, String detail) {
+        public int totalTokens() {
+            return inputTokens + outputTokens;
+        }
+    }
+
+    @FunctionalInterface
+    public interface AttemptObserver {
+        void onAttempt(Attempt attempt);
+    }
+
+    /**
+     * One candidate in the cascade: a label for logs and failure messages, whether it
+     * needs the Go credential, and the actual call.
+     */
+    private record Candidate(String label, boolean requiresGo, Call invoker) {
+        interface Call {
+            String invoke(String systemPrompt, String userPrompt, int maxTokens) throws Exception;
+        }
+    }
+
+    /**
+     * Candidates in preference order. Go first because it is the managed default,
+     * then the two Zen models, then Gemini, then a local Ollama.
+     */
+    private List<Candidate> candidates() {
+        List<Candidate> list = new ArrayList<>();
+        if (goApiKey != null && !goApiKey.isBlank()) {
+            list.add(new Candidate("Go(" + goModel + ")", true,
+                    (sys, usr, max) -> callGoApi(sys, usr, max)));
+        }
+        if (zenApiKey != null && !zenApiKey.isBlank()) {
+            list.add(new Candidate("Zen(" + zenModel + ")", false,
+                    (sys, usr, max) -> callZenApi(sys, usr, zenModel, max)));
+            list.add(new Candidate("Zen(" + zenFallbackModel + ")", false,
+                    (sys, usr, max) -> callZenApi(sys, usr, zenFallbackModel, max)));
+        }
+        if (geminiApiKey != null && !geminiApiKey.isBlank()) {
+            list.add(new Candidate("Gemini(" + geminiModel + ")", false,
+                    (sys, usr, max) -> callGeminiApi(sys, usr, max)));
+        }
+        if (ollamaApiKey != null && !ollamaApiKey.isBlank()) {
+            list.add(new Candidate("Ollama(" + ollamaModel + ")", false,
+                    (sys, usr, max) -> callOllamaApi(sys, usr, max)));
+        }
+        return list;
+    }
+
+    private int tokens(Integer maxOutputTokens) {
+        return maxOutputTokens != null && maxOutputTokens > 0 ? maxOutputTokens : DEFAULT_MAX_TOKENS;
     }
 
     private String accepts(String result, ResponseValidator validator) {
@@ -174,98 +337,10 @@ public class OpenCodeAiProvider implements AiProvider {
         return validator.validate(result);
     }
 
-    private String attemptProviders(String systemPrompt, String userPrompt, ResponseValidator validator, boolean goExhausted) throws Exception {
-        List<String> failures = new ArrayList<>();
-
-        if (!goExhausted && goApiKey != null && !goApiKey.isBlank()) {
-            try {
-                log.info("Attempting OpenCode Go with model: {}", goModel);
-                String goResult = callGoApi(systemPrompt, userPrompt);
-                String rejectReason = accepts(goResult, validator);
-                if (rejectReason == null) {
-                    return goResult;
-                }
-                log.warn("OpenCode Go ({}) response rejected ({} chars): {}. Trying Zen fallback...", goModel, goResult.length(), rejectReason);
-                failures.add("Go(" + goModel + "): rejected, " + rejectReason);
-            } catch (GoUsageLimitException e) {
-                throw e;
-            } catch (Exception e) {
-                failures.add("Go(" + goModel + "): " + e.getMessage());
-                log.warn("OpenCode Go failed: {}. Trying Zen fallback...", e.getMessage());
-            }
-        }
-
-        if (zenApiKey != null && !zenApiKey.isBlank()) {
-            try {
-                String zenResult = callZenApi(systemPrompt, userPrompt, zenModel);
-                String rejectReason = accepts(zenResult, validator);
-                if (rejectReason == null) {
-                    return zenResult;
-                }
-                log.warn("OpenCode Zen ({}) response rejected ({} chars): {}. Trying Zen fallback model {}...", zenModel, zenResult.length(), rejectReason, zenFallbackModel);
-                failures.add("Zen(" + zenModel + "): rejected, " + rejectReason);
-            } catch (Exception e) {
-                failures.add("Zen(" + zenModel + "): " + e.getMessage());
-                log.warn("OpenCode Zen failed: {}. Trying Zen fallback model {}...", e.getMessage(), zenFallbackModel);
-            }
-
-            try {
-                String zenFallbackResult = callZenApi(systemPrompt, userPrompt, zenFallbackModel);
-                String rejectReason = accepts(zenFallbackResult, validator);
-                if (rejectReason == null) {
-                    return zenFallbackResult;
-                }
-                log.warn("OpenCode Zen ({}) response rejected ({} chars): {}. Trying Gemini fallback...", zenFallbackModel, zenFallbackResult.length(), rejectReason);
-                failures.add("Zen(" + zenFallbackModel + "): rejected, " + rejectReason);
-            } catch (Exception e) {
-                failures.add("Zen(" + zenFallbackModel + "): " + e.getMessage());
-                log.warn("OpenCode Zen fallback model failed: {}. Trying Gemini fallback...", e.getMessage());
-            }
-        }
-
-        if (geminiApiKey != null && !geminiApiKey.isBlank()) {
-            log.info("Attempting Gemini fallback with model: {}", geminiModel);
-            try {
-                String geminiResult = callGeminiApi(systemPrompt, userPrompt);
-                String rejectReason = accepts(geminiResult, validator);
-                if (rejectReason == null) {
-                    return geminiResult;
-                }
-                log.warn("Gemini ({}) response rejected ({} chars): {}. Trying Ollama fallback...", geminiModel, geminiResult.length(), rejectReason);
-                failures.add("Gemini(" + geminiModel + "): rejected, " + rejectReason);
-            } catch (Exception e) {
-                failures.add("Gemini(" + geminiModel + "): " + e.getMessage());
-                log.warn("Gemini failed: {}. Trying Ollama fallback...", e.getMessage());
-            }
-        }
-
-        if (ollamaApiKey != null && !ollamaApiKey.isBlank()) {
-            log.info("Attempting Ollama fallback with model: {}", ollamaModel);
-            try {
-                String ollamaResult = callOllamaApi(systemPrompt, userPrompt);
-                String rejectReason = accepts(ollamaResult, validator);
-                if (rejectReason == null) {
-                    return ollamaResult;
-                }
-                log.warn("Ollama ({}) response rejected ({} chars): {}.", ollamaModel, ollamaResult.length(), rejectReason);
-                failures.add("Ollama(" + ollamaModel + "): rejected, " + rejectReason);
-            } catch (Exception e) {
-                failures.add("Ollama(" + ollamaModel + "): " + e.getMessage());
-                log.warn("Ollama failed: {}", e.getMessage());
-            }
-        }
-
-        String reason = failures.isEmpty()
-                ? "No provider was configured or every provider returned an empty/invalid response."
-                : "Provider errors: " + String.join(" | ", failures);
-        log.error("No AI provider returned a usable response. {}", reason);
-        throw new RuntimeException(reason);
-    }
-
-    private String callGoApi(String systemPrompt, String userPrompt) throws Exception {
+    private String callGoApi(String systemPrompt, String userPrompt, int maxTokens) throws Exception {
         ObjectNode requestBody = objectMapper.createObjectNode();
         requestBody.put("model", goModel);
-        requestBody.put("max_tokens", MAX_TOKENS);
+        requestBody.put("max_tokens", maxTokens);
 
         ArrayNode messages = objectMapper.createArrayNode();
 
@@ -311,10 +386,10 @@ public class OpenCodeAiProvider implements AiProvider {
         }
     }
 
-    private String callZenApi(String systemPrompt, String userPrompt, String model) throws Exception {
+    private String callZenApi(String systemPrompt, String userPrompt, String model, int maxTokens) throws Exception {
         ObjectNode requestBody = objectMapper.createObjectNode();
         requestBody.put("model", model);
-        requestBody.put("max_tokens", MAX_TOKENS);
+        requestBody.put("max_tokens", maxTokens);
 
         ArrayNode messages = objectMapper.createArrayNode();
 
@@ -352,10 +427,10 @@ public class OpenCodeAiProvider implements AiProvider {
         return content;
     }
 
-    private String callOllamaApi(String systemPrompt, String userPrompt) throws Exception {
+    private String callOllamaApi(String systemPrompt, String userPrompt, int maxTokens) throws Exception {
         ObjectNode requestBody = objectMapper.createObjectNode();
         requestBody.put("model", ollamaModel);
-        requestBody.put("max_tokens", MAX_TOKENS);
+        requestBody.put("max_tokens", maxTokens);
 
         ArrayNode messages = objectMapper.createArrayNode();
 
@@ -397,10 +472,10 @@ public class OpenCodeAiProvider implements AiProvider {
         return content;
     }
 
-    private String callGeminiApi(String systemPrompt, String userPrompt) throws Exception {
+    private String callGeminiApi(String systemPrompt, String userPrompt, int maxTokens) throws Exception {
         ObjectNode requestBody = objectMapper.createObjectNode();
         requestBody.put("model", geminiModel);
-        requestBody.put("max_tokens", MAX_TOKENS);
+        requestBody.put("max_tokens", maxTokens);
 
         ArrayNode messages = objectMapper.createArrayNode();
 

@@ -128,17 +128,32 @@ public class AiGateway {
         String model = resolveModel(config, provider);
         String baseUrl = resolveBaseUrl(provider, mode);
 
+        // No caller sets a ceiling, so fall back to what the operation actually needs
+        // rather than a single global number. Asking for a test suite's worth of tokens
+        // to render a one-line locator verdict is how a free tier runs out on calls
+        // that could never have used the budget.
+        Integer maxOutputTokens = request.getMaxOutputTokens() != null
+                ? request.getMaxOutputTokens()
+                : request.getOperation().budgetOutputTokens();
+
         ProviderCallResult result = executeWithRetry(
                 new ProviderCallRequest(request.getSystemPrompt(), request.getUserPrompt(),
-                        model, apiKey, baseUrl, request.getMaxOutputTokens(), request.getValidator()),
+                        model, apiKey, baseUrl, maxOutputTokens, request.getValidator()),
                 client, mode, operationId);
 
         int input = result.getInputTokens();
         int output = result.getOutputTokens();
         boolean estimated = result.isEstimated();
-        if (estimated) {
+        if (estimated && result.getAttempts() == 1) {
             input = TokenEstimator.estimateInputTokens(request.getSystemPrompt(), request.getUserPrompt());
             output = TokenEstimator.estimateOutputTokens(result.getContent());
+        } else if (estimated) {
+            // The client already estimated, and it estimated every attempt in its
+            // cascade. Re-estimating here from the prompt and the single winning
+            // response would discard that work and under-report the cost of the
+            // rejected responses, which are the ones that actually drained the quota.
+            log.info("AI call cascaded across {} upstream call(s); using the client's "
+                    + "cumulative token estimate", result.getAttempts());
         }
 
         java.math.BigDecimal cost = pricingRegistry.estimateCost(provider, model, input, output);
@@ -234,6 +249,17 @@ public class AiGateway {
                             "AI provider " + client.type() + " unavailable: " + e.getMessage(), operationId);
                 }
                 sleep(properties.getRetryBackoffMs() * (attempt + 1));
+            } catch (ProviderCascadeExhaustedException e) {
+                // Every configured provider has already been tried inside its own
+                // budget. Retrying the identical cascade here would multiply the cost
+                // of a failing operation by the retry count, so fail fast and report
+                // what the cascade actually spent.
+                log.warn("AI provider {} exhausted its cascade after {} upstream call(s) "
+                                + "(no gateway retry)", client.type(), e.upstreamCalls());
+                throw ApiException.aiProviderUnavailable(
+                        "AI provider " + client.type() + " failed after trying "
+                                + e.upstreamCalls() + " upstream call(s): " + e.getMessage(),
+                        operationId, e);
             } catch (Exception e) {
                 if (attempt >= maxRetries) {
                     throw ApiException.aiProviderUnavailable(

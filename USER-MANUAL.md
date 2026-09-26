@@ -160,7 +160,7 @@ in a cascade and falls back on failure.
 | Variable | Provider | Default model |
 |---|---|---|
 | `OPENCODE_GO_API_KEY` | OpenCode Zen "go" | `qwen3.7-plus` |
-| `OPENCODE_ZEN_API_KEY` | OpenCode Zen | `big-pickle`, then `mimo-v2.5-free` |
+| `OPENCODE_ZEN_API_KEY` | OpenCode Zen | `space-bunny-free`, then `big-pickle` |
 | `GEMINI_API_KEY` | Google Gemini | `gemini-1.5-flash` |
 | `OPENAI_API_KEY` | OpenAI | `gpt-4o-mini` |
 | `OLLAMA_API_KEY` | Ollama | `gpt-oss:20b` |
@@ -954,22 +954,75 @@ Provider clients: `OpenAiCompatProviderClient` (OpenAI, Google, Ollama),
 
 ### 16.2 The cascade
 
-The managed path tries, in order: **OpenCode Go → OpenCode Zen → Zen fallback model →
-Gemini → Ollama**, skipping a provider whose key is absent, and stopping early on a
-usage-limit signal. This is why a single provider being down does not fail your run.
+The managed path tries, in order: **OpenCode Go → Zen `space-bunny-free` → Zen
+`big-pickle` → Gemini → Ollama**, skipping a provider whose key is absent, and stopping
+early on a usage-limit signal. This is why a single provider being down does not fail
+your run.
 
-> **Two caveats.** (1) A worst case can issue up to fifteen upstream calls for one
-> logical operation, which is both slow and invisible to the token budget. Tracked as
-> **B-024**. (2) The cascade currently exists only on the managed path; BYOK providers
-> are retried individually.
+Override the two Zen models without touching the config file:
 
-### 16.3 Reliability controls
+| Variable | Default |
+|---|---|
+| `OPENCODE_ZEN_MODEL` | `space-bunny-free` |
+| `OPENCODE_ZEN_FALLBACK_MODEL` | `big-pickle` |
+
+**One logical operation is capped at `max-provider-calls` upstream calls** (default 6,
+which covers all five candidates plus one retry). A provider that fails is abandoned
+after `max-attempts-per-provider` tries (default 2) so a single broken one cannot
+consume the whole budget.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OPENCODE_MAX_PROVIDER_CALLS` | `6` | Hard ceiling on upstream calls per operation, across the whole cascade. |
+| `OPENCODE_MAX_ATTEMPTS_PER_PROVIDER` | `2` | Tries before one provider is abandoned. |
+
+Keep the cap at or above your number of configured candidates. If it is lower, the
+providers at the end of the cascade become unreachable in the worst case — which is
+exactly when you would want them.
+
+> Previously this was a retry loop of 3 wrapped around the 5-provider cascade: up to
+> **15 upstream calls** for one operation, each requesting 12 000 tokens, with a
+> backoff sleep between the outer attempts — and the gateway then re-ran the whole
+> cascade on failure, multiplying it again. The bound is the point, not the number: a
+> cascade with no ceiling is a serial retry storm, not a fallback.
+
+**Rejected responses are billed and now counted.** When an earlier provider's answer is
+rejected by a validator, those tokens were spent too. The usage record therefore
+reports the **sum across every attempt**, not just the response that finally succeeded,
+so a failing run no longer looks cheap right up until the allowance is gone.
+
+**An exhausted cascade is not retried.** Once every provider has been tried within its
+budget, the gateway fails immediately rather than re-running the identical chain — which
+would multiply the cost of a failing operation by the retry count. Ordinary transport
+errors are still retried as before.
+
+> The cascade still exists only on the managed path; BYOK providers are retried
+> individually. Consolidating the two is tracked as **B-023**.
+
+### 16.3 Per-operation token budgets
+
+Each operation declares the output-token ceiling it actually needs, so a one-line
+locator verdict no longer requests as much as a generated test suite:
+
+| Operation | Ceiling | | Operation | Ceiling |
+|---|---|---|---|---|
+| `EXPLORE` | 2 000 | | `FAILURE_ANALYSIS` | 2 000 |
+| `ANALYZE` | 4 000 | | `SELF_HEALING` | 2 000 |
+| `LOCATOR_GENERATION` | 4 000 | | `HEALING_EVALUATION` | 1 500 |
+| `TEST_PLAN` | 4 000 | | `BUG_REPORT` | 3 000 |
+| `TEST_GENERATION` | 8 000 | | `FULL_WORKFLOW` | 4 000 |
+
+A request may still override its own ceiling. Previously every operation asked for
+12 000 on the managed path, while the BYOK clients defaulted to about 4 000.
+
+### 16.4 Reliability controls
 
 | Control | Default | Note |
 |---|---|---|
 | Connect timeout | 10 s | Finite on purpose |
 | Read timeout | 180 s | Generous — generations legitimately take minutes — but never infinite |
-| Retries | 2 | With linear backoff |
+| Retries | 2 | With linear backoff. **Not** applied to an exhausted cascade (§16.2). |
+| Cascade cap | 4 calls | Upstream calls per operation on the managed path (§16.2). |
 | Rate limit | off | Token bucket per provider **and** per account. Bursts allowed, sustained rate bounded. In-memory, per process. |
 | Circuit breaker | — | **Not implemented.** Tracked as **B-037** |
 

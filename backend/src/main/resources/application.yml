@@ -130,13 +130,28 @@ openai:
   model: gpt-4o-mini
 
 opencode:
+  # Hard ceiling on upstream LLM calls for one logical operation, across the whole
+  # provider cascade (B-024). It used to be an outer retry loop of 3 wrapped around a
+  # 5-provider cascade, so one operation could make 15 upstream calls — with a backoff
+  # sleep between the outer attempts, on top.
+  #
+  # The default of 6 is sized to the configured cascade: Go, Zen(space-bunny-free),
+  # Zen(big-pickle), Gemini and Ollama is 5 candidates, so 6 leaves room for one retry
+  # of a provider that failed once. The bound is the point, not the number: 6 is still
+  # less than half the old worst case, and a cascade that can always reach its last
+  # resort is a serial retry storm rather than a fallback.
+  max-provider-calls: ${OPENCODE_MAX_PROVIDER_CALLS:6}
+  # How many times one provider may be tried before it is abandoned, so a single flaky
+  # provider cannot consume the whole budget on its own.
+  max-attempts-per-provider: ${OPENCODE_MAX_ATTEMPTS_PER_PROVIDER:2}
   go:
     api-key: ${OPENCODE_GO_API_KEY:}
     model: qwen3.7-plus
   zen:
     api-key: ${OPENCODE_ZEN_API_KEY:}
-    model: big-pickle
-    fallback-model: ${OPENCODE_ZEN_FALLBACK_MODEL:mimo-v2.5-free}
+    # Tried in order, ahead of the free Gemini and Ollama candidates.
+    model: ${OPENCODE_ZEN_MODEL:space-bunny-free}
+    fallback-model: ${OPENCODE_ZEN_FALLBACK_MODEL:big-pickle}
 
 gemini:
   api-key: ${GEMINI_API_KEY:}

@@ -22,6 +22,11 @@ public class ProviderPricingRegistry {
                 new BigDecimal("0.00000250"), new BigDecimal("0.00001000"));
         register(AiProviderType.GOOGLE, "gemini-1.5-flash",
                 new BigDecimal("0.000000075"), new BigDecimal("0.00000030"));
+        // Free-tier managed models, so the per-token price is zero. Registered rather
+        // than left unknown so the primary Zen model reports a cost instead of null —
+        // an unregistered model is indistinguishable from "we forgot to price it".
+        register(AiProviderType.OPENCODE, "space-bunny-free",
+                new BigDecimal("0.00000000"), new BigDecimal("0.00000000"));
         register(AiProviderType.OPENCODE, "big-pickle",
                 new BigDecimal("0.00000000"), new BigDecimal("0.00000000"));
         register(AiProviderType.AIQALAB, "AIQALAB-managed",
