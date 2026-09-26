@@ -32,6 +32,11 @@ qalab:
   # pin a request thread forever; raise it for very large suites.
   playwright:
     timeout-seconds: 600
+  cors:
+    # Comma-separated browser origins allowed to call /api/**. Must be set for any
+    # deployment that is not on localhost, or every frontend call is blocked by the
+    # browser. Credentials are enabled, so "*" is rejected (see WebConfig).
+    allowed-origins: ${QALAB_CORS_ALLOWED_ORIGINS:http://localhost:3000}
   ai:
     # Outbound AI HTTP timeouts. Both must be finite: the default RestTemplate
     # uses infinite timeouts, so a provider that accepts the connection and then
