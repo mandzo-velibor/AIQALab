@@ -47,6 +47,44 @@ export async function runAllTests(projectId?: number, testType?: TestType, instr
   return res.json();
 }
 
+/**
+ * Per-test results for one execution, fetched when a row is expanded rather than
+ * inlined in the history list — a project with a few hundred executions would
+ * otherwise load every test of every run on one page.
+ */
+export interface ExecutionTestResult {
+  ordinal: number;
+  file: string | null;
+  title: string | null;
+  status: string;
+  durationMs: number | null;
+  retries: number;
+  error: string | null;
+  hasEvidence: boolean;
+  screenshots: string[];
+  videos: string[];
+  traces: string[];
+}
+
+export interface ExecutionResults {
+  executionId: number;
+  status: string | null;
+  durationMs: number | null;
+  reportPath: string | null;
+  htmlReport: string | null;
+  totalCount: number;
+  passedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  tests: ExecutionTestResult[];
+}
+
+export async function getExecutionResults(executionId: number): Promise<ExecutionResults> {
+  const res = await httpRequest(`${API_BASE_URL}/api/executions/${executionId}/results`);
+
+  return res.json();
+}
+
 export async function getExecutionHistory(projectId?: number): Promise<TestExecution[]> {
   const url = projectId
     ? `${API_BASE_URL}/api/executions/history?projectId=${projectId}`

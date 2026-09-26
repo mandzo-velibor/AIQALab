@@ -45,6 +45,26 @@ public class ExecutionController {
         }
     }
 
+    /**
+     * Per-test results for one execution. Separate from /history because the dashboard
+     * lists every run, and inlining every test of every run would make the page
+     * unloadable for a project with a few hundred executions.
+     */
+    @GetMapping("/{executionId}/results")
+    public ResponseEntity<?> getResults(@PathVariable Long executionId) {
+        try {
+            return ResponseEntity.ok(executionService.getExecutionResults(executionId));
+        } catch (RuntimeException e) {
+            if (e.getMessage() != null && e.getMessage().contains("not found")) {
+                return ResponseEntity.status(404).body(Map.of("error", e.getMessage()));
+            }
+            log.warn("Could not load results for execution {}: {}", executionId, e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "Could not load results",
+                    "message", e.getMessage() != null ? e.getMessage() : "Unknown error"));
+        }
+    }
+
     @GetMapping("/history")
     public ResponseEntity<?> getHistory(@RequestParam(required = false) Long projectId) {
         return ResponseEntity.ok(executionService.getExecutionHistory(projectId));

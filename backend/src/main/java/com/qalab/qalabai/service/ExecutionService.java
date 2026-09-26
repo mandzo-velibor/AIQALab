@@ -428,6 +428,58 @@ public class ExecutionService {
         }
     }
 
+
+    /**
+     * Per-test results for one execution, for the UI.
+     *
+     * <p>Returns an empty {@code tests} list rather than null when the execution predates
+     * per-test capture or produced none: the UI must be able to say "no results recorded"
+     * rather than crash on a null, and must not imply a clean run.</p>
+     */
+    public com.qalab.qalabai.dto.executor.ExecutionResultsResponse getExecutionResults(Long executionId) {
+        TestExecution execution = executionRepository.findById(executionId)
+                .orElseThrow(() -> new RuntimeException("Execution not found: " + executionId));
+
+        List<TestCaseResult> rows =
+                testCaseResultRepository.findByExecutionIdOrderByOrdinalPositionAsc(executionId);
+
+        int passed = 0;
+        int failed = 0;
+        int skipped = 0;
+        List<com.qalab.qalabai.dto.executor.ExecutionResultsResponse.TestResult> tests = new ArrayList<>();
+        for (TestCaseResult row : rows) {
+            String status = row.getStatus() == null ? "" : row.getStatus();
+            if ("passed".equals(status)) {
+                passed++;
+            } else if ("failed".equals(status)) {
+                failed++;
+            } else if ("skipped".equals(status)) {
+                skipped++;
+            }
+            List<String> screenshots = readPaths(row.getScreenshots());
+            List<String> videos = readPaths(row.getVideos());
+            List<String> traces = readPaths(row.getTraces());
+            tests.add(new com.qalab.qalabai.dto.executor.ExecutionResultsResponse.TestResult(
+                    row.getOrdinalPosition() != null ? row.getOrdinalPosition() : tests.size(),
+                    row.getSpecFile(),
+                    row.getTestTitle(),
+                    status,
+                    row.getDurationMs(),
+                    row.getRetries() != null ? row.getRetries() : 0,
+                    row.getErrorMessage(),
+                    !screenshots.isEmpty() || !videos.isEmpty() || !traces.isEmpty(),
+                    screenshots, videos, traces));
+        }
+
+        // The total is the number of tests, not the sum of the three buckets: a status
+        // this code does not know about (a new Playwright state, say) must still appear
+        // in the total rather than silently vanishing from the counts.
+        return new com.qalab.qalabai.dto.executor.ExecutionResultsResponse(
+                execution.getId(), execution.getStatus(), execution.getDuration(),
+                execution.getReportPath(), execution.getHtmlReportPath(),
+                tests.size(), passed, failed, skipped, tests);
+    }
+
     public List<TestExecution> getExecutionHistory(Long projectId) {
         if (projectId != null) {
             return executionRepository.findByProjectIdOrderByCreatedAtDesc(projectId);

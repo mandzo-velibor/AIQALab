@@ -537,7 +537,39 @@ you one screenshot.
 The HTML path is also stored on the execution and returned in the workflow response as
 `steps.execution.htmlReport`, so a client never has to guess where the file is.
 
+**In the dashboard.** Expanding a run in *Execution History* loads its per-test results
+straight from the API: each test's status, duration, retry count and first assertion
+message, with failures listed first and a count of passed / failed / skipped. You do not
+have to open a file to see which tests failed.
+
+Results are fetched when you expand a row rather than bundled into the history list — a
+project with a few hundred executions would otherwise load every test of every run at
+once. A run with no recorded results says so explicitly, because an empty counter row
+would read as "everything passed".
+
+> The report file itself lives on the server's filesystem, so the dashboard shows its
+> path rather than linking to it. Serving artifacts over HTTP is a separate decision —
+> see §9.4.
+
 In Docker these live on the `qalab-artifacts` volume and survive `docker compose restart`.
+
+### 9.4 Opening a report from the dashboard
+
+The dashboard shows each test's result inline, but the report file is on the server's
+filesystem and is **not** served over HTTP — the path is displayed instead of linked.
+Nothing in the product exposes the artifact directory to a browser today.
+
+That is a deliberate omission rather than an oversight: an endpoint that streams files
+out of `QALAB_ARTIFACTS_DIR` also exposes every run's screenshots, videos and traces to
+anyone who can reach it, so it needs an access rule of its own rather than being added
+alongside a UI link. Until then:
+
+- read the results in the dashboard, or
+- open the report over SSH / from the artifacts volume, or
+- use the CLI, which prints the path.
+
+If you want this exposed, the access model to choose from is: per-account ownership of
+runs, a shared read-only token, or an admin-only route.
 
 ---
 
