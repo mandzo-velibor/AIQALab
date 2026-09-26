@@ -754,8 +754,15 @@ Reports are generated but invisible.
 - Frontend: execution view links the report and renders per-test results + failure classification (data from B-022).
 
 **Acceptance criteria**
-- [ ] One command shows the user where the report is
-- [ ] Frontend shows per-test status without opening a file
+- [x] One command shows the user where the report is
+- [x] Frontend shows per-test status without opening a file
+
+**Shipped across `a8d84fe` and `dfa5b0f`.** One scope note: the report is shown in the
+dashboard as a **path, not a link**, because nothing serves the artifact directory over
+HTTP. An endpoint streaming those files would also expose every run's screenshots, videos
+and traces to anyone who can reach it, so it needs an access rule of its own. **Open
+question for the user:** per-account ownership of runs, a shared read-only token, or an
+admin-only route.
 
 **Files:** `cli/qalab`, `frontend/src/components/execution-dashboard.tsx`
 **Depends on:** B-006, B-022, B-029

@@ -609,6 +609,63 @@ not surfaced. They would be a genuine improvement to the failure view, but they 
 feature rather than part of "a report you can read", so they wait rather than being
 quietly bundled in.
 
+
+### B-031 · Surface reports in CLI and UI
+| | |
+|---|---|
+| **Status** | **DONE** — CLI half shipped in B-029, UI half here |
+| **Date** | 2026-09-26 |
+| **Duration** | 83m |
+| **Commit** | `a8d84fe` (CLI), `dfa5b0f` (UI) |
+
+**What changed**
+- New `GET /api/executions/{id}/results`: counts, per-test rows, and the report paths.
+  The UI fetches it when a row is expanded.
+- The execution panel lists failures first, with each test's duration, retry count and
+  first assertion line; the rest of the error is behind a disclosure.
+- The CLI half shipped with B-029 — it prints the HTML path first, marked as the file to
+  open. This task completed the UI half.
+
+**A separate endpoint, deliberately.** The dashboard lists every run; inlining every test
+of every run into `/history` would make the page unloadable on a project with a few
+hundred executions. Fetched on expand instead.
+
+**Two things that would have read as a passing run, and now do not**
+- A run with no recorded results says so in words. A zeroed counter row reads as
+  "everything passed", which is the one conclusion a QA view must never reach without
+  evidence.
+- An unknown execution returns **404**, not 200 with empty counts, which would be
+  indistinguishable from a clean run.
+
+**The total is the number of tests, not the sum of the three buckets.** A status this
+code does not recognise — a new Playwright state, say — must still appear in the total
+rather than silently vanishing. My first version summed the buckets; the test for an
+unknown status caught it.
+
+**Retries are shown separately from status, on purpose.** A test that failed once and
+then passed is not a failure, and showing it as one would be a lie about the suite.
+
+**The report is shown as a path, not a link, and this is a question for the user rather
+than a decision I made.** The file is on the server's filesystem and nothing serves the
+artifact directory to a browser. An endpoint streaming files out of it also exposes every
+run's screenshots, videos and traces to anyone who can reach it, so it needs an access
+rule of its own rather than being added alongside a UI link. Documented in §9.4 with the
+three models to choose from — per-account ownership, a shared read-only token, or an
+admin-only route.
+
+**How it was tested**
+- 12 tests for the endpoint: counts derived from rows rather than the execution verdict,
+  run order, error text, evidence flag, retries, a malformed attachment cell ignored
+  rather than fatal, 404 for an unknown execution, null duration tolerated, null ordinal
+  falls back to position.
+- **Exercised live** against a running server with three real rows inserted: the expected
+  counts and per-test detail came back. The 404 and empty-results paths are unit-tested
+  rather than live — the API key could not be re-issued against the running instance
+  because issuance refuses once a key exists, which is correct behaviour but stopped the
+  live check.
+- Frontend typechecks and builds. Removed a stray `}` in the dashboard's JSX that had been
+  in the original and is only now being parsed as JSX.
+
 ---
 
 # Sprint 2 — Reliable and measurable
@@ -646,12 +703,12 @@ quietly bundled in.
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
 | B-029 | Self-contained HTML report per run | P1 | M | **DONE** | `a8d84fe` |
-| B-031 | Surface reports in CLI and UI | P1 | M | PARTLY DONE | `a8d84fe` |
+| B-031 | Surface reports in CLI and UI | P1 | M | **DONE** (UI half) | `dfa5b0f` |
 | B-032 | Bug reports grounded in real failures | P1 | M | TODO | — |
 | B-033 | Retire the legacy `/api/*` surface | P2 | M | TODO | — |
 | B-030 | Allure integration (optional) | P2 | M | TODO | — |
 
-**Totals:** 1/5 done · 1 commit · elapsed 149m
+**Totals:** 2/5 done · 2 commits · elapsed 232m
 
 
 
