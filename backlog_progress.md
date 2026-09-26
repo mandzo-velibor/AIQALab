@@ -97,10 +97,10 @@ Also caught: `ai/openai/OpenAiProvider.java` was a fourth bare `RestTemplate` no
 | B-007 | Write test plan to disk | P0 | S | **DONE** | `047851f` |
 | B-008 | Regression tests for shipped fixes | P0 | M | **DONE** | `7789308` |
 | B-009 | Configurable CORS origins | P0 | S | **DONE** | `80f11ce` |
-| B-010 | WebSocket URL from config | P0 | S | TODO | — |
+| B-010 | WebSocket URL from config | P0 | S | **DONE** | `83f0fa8` |
 | B-011 | Persist artifacts directory | P0 | S | TODO | — |
 
-**Totals:** 9/11 done · 9 commits · elapsed 94m
+**Totals:** 10/11 done · 10 commits · elapsed 104m
 
 ---
 

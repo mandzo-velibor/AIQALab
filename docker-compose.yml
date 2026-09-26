@@ -35,6 +35,9 @@ services:
       QALAB_AUTO_INSTALL_PLAYWRIGHT: "true"
       QALAB_WORKSPACES_DIR: /app/workspaces
       QALAB_SCREENSHOTS_DIR: /app/screenshots
+      # Screenshots, videos, traces and the generated report.md/report.json land here.
+      # Without a volume below they are lost on every container restart.
+      QALAB_ARTIFACTS_DIR: /app/artifacts
       # AI provider keys come from the host .env file (never committed)
       OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:-}
       OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
@@ -48,6 +51,7 @@ services:
     volumes:
       - qalab-workspaces:/app/workspaces
       - qalab-screenshots:/app/screenshots
+      - qalab-artifacts:/app/artifacts
 
   frontend:
     build:
@@ -65,3 +69,4 @@ volumes:
   qalab-db-data:
   qalab-workspaces:
   qalab-screenshots:
+  qalab-artifacts:

@@ -31,7 +31,8 @@ COPY --from=build /build/target/*.jar app.jar
 ENV QALAB_AUTO_START_FRONTEND=false \
     QALAB_AUTO_OPEN_BROWSER=false \
     QALAB_WORKSPACES_DIR=/app/workspaces \
-    QALAB_SCREENSHOTS_DIR=/app/screenshots
+    QALAB_SCREENSHOTS_DIR=/app/screenshots \
+    QALAB_ARTIFACTS_DIR=/app/artifacts
 
 EXPOSE 8080
 

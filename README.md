@@ -361,6 +361,11 @@ Every generated test run stores artifacts (screenshots, traces, videos, console
 logs) in `./artifacts/execution-<id>/` and renders a `report.json` + `report.md`,
 exposed through `GET /api/v1/reports`.
 
+> **Docker:** the path is `/app/artifacts` (`QALAB_ARTIFACTS_DIR`) and is backed by the
+> `qalab-artifacts` named volume, so artifacts survive `docker compose restart`. If you
+> run the backend outside compose, mount a volume at that path or everything is lost on
+> container replacement.
+
 ### 4. CI/CD
 
 `.github/workflows/ci.yml` runs on push/PR to `main`/`master`: backend build (JDK 21 +
