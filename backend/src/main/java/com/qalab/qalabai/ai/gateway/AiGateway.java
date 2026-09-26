@@ -111,8 +111,11 @@ public class AiGateway {
             }
         }
 
-        if (!rateLimiter.allow(provider)) {
-            throw ApiException.aiRateLimited("AI rate limit reached for provider " + provider, operationId);
+        if (!rateLimiter.allow(provider, account.getId())) {
+            throw ApiException.aiRateLimited(
+                    "AI rate limit reached for provider " + provider
+                            + " on this account. Slow down, or raise "
+                            + "qalab.ai.rate-limit-account-rps / -burst.", operationId);
         }
 
         ProviderClient client = resolveClient(provider);

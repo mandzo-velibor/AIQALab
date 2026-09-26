@@ -21,6 +21,12 @@ import static org.mockito.Mockito.when;
 class AiGatewayBudgetEnforcementTest {
 
     private AiGateway gateway;
+    private AiGatewayProperties properties;
+    private ManagedCredentials managedCredentials;
+    private CredentialStore credentialStore;
+    private AccountService accountService;
+    private UsageService usageService;
+    private RateLimiter rateLimiter;
     private ProviderClient client;
     private TokenBudgetService budgetService;
 
@@ -31,7 +37,7 @@ class AiGatewayBudgetEnforcementTest {
         when(client.call(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new ProviderCallResult("ok", 10, 5, false, "gpt-oss:20b"));
 
-        AiGatewayProperties properties = new AiGatewayProperties();
+        properties = new AiGatewayProperties();
         // This suite exercises budget enforcement, not model resolution. A model must
         // be configured because the gateway now rejects a missing one loudly instead
         // of sending {"model": null} to the provider — the stub client here would
@@ -40,20 +46,26 @@ class AiGatewayBudgetEnforcementTest {
         ollama.setBaseUrl("https://ollama.test/v1");
         ollama.setModel("gpt-oss:20b");
         properties.getProviders().put("ollama", ollama);
-        ManagedCredentials managedCredentials = mock(ManagedCredentials.class);
+        managedCredentials = mock(ManagedCredentials.class);
         when(managedCredentials.keyFor(AiProviderType.OLLAMA))
                 .thenReturn(java.util.Optional.of("test-key"));
-        CredentialStore credentialStore = mock(CredentialStore.class);
-        AccountService accountService = mock(AccountService.class);
+        credentialStore = mock(CredentialStore.class);
+        accountService = mock(AccountService.class);
         Account account = new Account();
         account.setId(1L);
         account.setName("default");
         when(accountService.defaultAccount()).thenReturn(account);
 
         budgetService = mock(TokenBudgetService.class);
-        UsageService usageService = mock(UsageService.class);
-        RateLimiter rateLimiter = mock(RateLimiter.class);
+        usageService = mock(UsageService.class);
+        rateLimiter = mock(RateLimiter.class);
+        // Both overloads must be stubbed. The gateway calls the account-scoped
+        // allow(provider, accountId), and Mockito does NOT delegate an unstubbed
+        // default method to the real implementation — it returns false, which would
+        // rate-limit every call in this suite.
         when(rateLimiter.allow(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        when(rateLimiter.allow(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(true);
 
         gateway = new AiGateway(properties, managedCredentials, credentialStore,
                 accountService, budgetService, usageService, rateLimiter,
@@ -113,5 +125,29 @@ class AiGatewayBudgetEnforcementTest {
 
         AiResponse response = gateway.complete(request(), ctx);
         assertEquals("ok", response.getContent());
+    }
+
+    @Test
+    void rateLimitingRejectsBeforeAnyProviderCall() {
+        when(budgetService.currentBudget()).thenReturn(new TokenBudget(0L, 0L, false));
+        RateLimiter denying = new RateLimiter() {
+            @Override
+            public boolean allow(AiProviderType provider) {
+                return false;
+            }
+        };
+        AiGateway limited = new AiGateway(properties, managedCredentials, credentialStore,
+                accountService, budgetService, usageService, denying,
+                new ProviderPricingRegistry(), java.util.List.of(client));
+
+        ApiException e = org.junit.jupiter.api.Assertions.assertThrows(ApiException.class,
+                () -> limited.complete(request(), null));
+
+        org.junit.jupiter.api.Assertions.assertEquals("AI_RATE_LIMITED", e.getCode());
+        // The message must be actionable, not just a refusal.
+        org.junit.jupiter.api.Assertions.assertTrue(e.getMessage().contains("rate-limit-account-rps"),
+                "should name the knob to turn: " + e.getMessage());
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.never())
+                .call(org.mockito.ArgumentMatchers.any());
     }
 }

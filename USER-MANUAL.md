@@ -197,6 +197,9 @@ qalab budget-policy set SOFT   # change
 | Variable | Default | Notes |
 |---|---|---|
 | `QALAB_AI_FREEMONTHLYTOKENLIMIT` | `0` (unlimited) | The **code** default was 4000 — below one full workflow run. The shipped configuration overrides it. See §20.3. |
+| `QALAB_AI_RATE_LIMIT_ENABLED` | `false` | Token-bucket rate limiting on AI calls, per provider **and** per account. Turn on for any shared deployment. |
+| `QALAB_AI_RATE_LIMIT_PROVIDER_RPS` / `_BURST` | `2.0` / `10` | Per-provider sustained rate and burst allowance |
+| `QALAB_AI_RATE_LIMIT_ACCOUNT_RPS` / `_BURST` | `1.0` / `5` | Per-account sustained rate and burst allowance |
 
 ### 5.3 Paths and behaviour
 
@@ -873,7 +876,21 @@ usage-limit signal. This is why a single provider being down does not fail your 
 | Connect timeout | 10 s | Finite on purpose |
 | Read timeout | 180 s | Generous — generations legitimately take minutes — but never infinite |
 | Retries | 2 | With linear backoff |
+| Rate limit | off | Token bucket per provider **and** per account. Bursts allowed, sustained rate bounded. In-memory, per process. |
 | Circuit breaker | — | **Not implemented.** Tracked as **B-037** |
+
+### 16.5 Rate limiting
+
+Each provider and each account gets a token bucket holding `burst` tokens that refills
+at `rps`. A call spends one token; an empty bucket yields `AI_RATE_LIMITED` (HTTP 429)
+*before* any provider request is made.
+
+Bursts are deliberate: a single workflow fires several LLM calls in quick succession, so
+a strict requests-per-second cap would reject legitimate work, while a leaky bucket alone
+would not bound cost. Set `QALAB_AI_RATE_LIMIT_ENABLED=true` to switch it on.
+
+State is in memory and per process, which is correct for the single-node deployment this
+is. A multi-node deployment would need a shared store.
 
 ### 16.4 Token accounting
 
@@ -915,7 +932,7 @@ Ordered by how likely you are to hit them.
 | 1 | ~~No authentication~~ **Partly fixed in Sprint 1** — bearer API keys now guard `/api/**` (B-013). **Still open:** no signup/login, no roles, no audit log, `defaultAccount()` is still global so usage is not per-tenant, and `CredentialStore` is still global so BYOK keys have no owner. `/ws/**` is unauthenticated (browser WebSockets cannot set headers). | Keys close the anonymous-spend hole; the tenancy model is still single-tenant. | B-016, B-033, ADR 0001 follow-ups |
 | 2 | **No database migrations.** `ddl-auto: update` in dev/base, `validate` in prod. A production schema can be neither created nor evolved reliably. | Blocks trustworthy releases. | B-014 |
 | 3 | ~~`qalab.ai` config block absent~~ **Fixed in Sprint 1** — every provider has a default base URL and model, and a missing model is a loud configuration error. | — | — |
-| 4 | **Rate limiting is a no-op** (`NoopRateLimiter`). | Combined with #1, unbounded paid LLM traffic. | B-016 |
+| 4 | ~~Rate limiting is a no-op~~ **Fixed in Sprint 1** — token bucket per provider and per account, off by default. **Still open:** state is in-memory and per-process, so a multi-node deployment would not share limits. | Single node is now protected; a cluster is not. | — |
 | 5 | **The workflow is one long synchronous HTTP request.** A run holds a request thread for minutes; a proxy may drop the connection mid-run. | Limits concurrency; causes `Connection reset by peer` behind a load balancer. | B-017 |
 | 6 | **`intent` discards the instruction.** The prompt is used only to detect intent, then dropped. | Intent-driven runs produce generic suites. | `docs/known-limitations/intent-drops-instruction.md` |
 | 7 | **One bug report per execution**, not per distinct failure. | Twenty identical failures yield one vague report. | B-032 |
@@ -1180,6 +1197,7 @@ docs/               architecture notes and known limitations
 | Date | Change |
 |---|---|
 | 2026-09-26 | Created. Documents behaviour after Sprint 0 (reliability + CLI reporting) and the start of Sprint 1 (deployability). All limitations recorded with tracking IDs. |
+| 2026-09-26 | Updated for B-016: §16.5 rate limiting, new configuration variables, limitation 4 closed. |
 | 2026-09-26 | Updated for B-013: §14.0 authentication, `UNAUTHENTICATED` error code, CLI key configuration, new §20.2 troubleshooting, limitation 1 downgraded to "partly fixed" with the remaining tenancy gaps named. |
 | 2026-09-26 | Updated for B-018 (background Playwright warm-up), B-019 (runtime API base URL), B-020 (artifact profile now failures-only; limitation 12 closed), B-021 (bounded concurrency; limitation 13 closed), B-015 (`qalab.ai` config block; limitations 3 and 10 closed). Added `intent` instruction-dropping to limitations. |
 

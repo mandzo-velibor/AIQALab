@@ -73,7 +73,15 @@ qalab:
     free-monthly-token-limit: ${QALAB_AI_FREEMONTHLYTOKENLIMIT:0}
     max-retries: 2
     retry-backoff-ms: 1500
-    rate-limit-enabled: false
+    # Token-bucket rate limiting on AI calls, per provider and per account. Off by
+    # default so local behaviour is unchanged; turn it on for any shared deployment.
+    # A workflow legitimately fires several calls in quick succession, so the buckets
+    # allow bursts and bound the sustained rate rather than capping requests per second.
+    rate-limit-enabled: ${QALAB_AI_RATE_LIMIT_ENABLED:false}
+    rate-limit-provider-rps: 2.0
+    rate-limit-provider-burst: 10
+    rate-limit-account-rps: 1.0
+    rate-limit-account-burst: 5
     # Per-provider endpoints. Without these, resolveModel() returns null and
     # bring-your-own-key providers receive {"model": null}, which they reject.
     # The key is the lowercased AiProviderType name.
