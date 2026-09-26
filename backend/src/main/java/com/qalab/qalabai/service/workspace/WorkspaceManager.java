@@ -266,6 +266,9 @@ public class WorkspaceManager implements WorkspaceProvider {
             String inner = stripOuterClass(variant);
             for (String segment : splitTopLevelSegments(inner)) {
                 String trimmed = segment.strip();
+                if (isCommentOnly(trimmed)) {
+                    continue;
+                }
                 if (trimmed.startsWith("readonly ") && trimmed.endsWith(";")) {
                     fields.add(trimmed);
                 } else if (trimmed.startsWith("constructor")) {
@@ -326,36 +329,101 @@ public class WorkspaceManager implements WorkspaceProvider {
         return code.substring(open + 1, close);
     }
 
+    /**
+     * Splits a class body into top-level segments (field declarations and method /
+     * constructor blocks), tracking brace depth while ignoring braces that appear
+     * inside string literals or comments.
+     *
+     * <p>Naive per-line brace counting is not sufficient: a locator such as
+     * {@code page.getByTestId('a}b{c}')} contains unbalanced braces inside a string,
+     * which would close the enclosing block early and shear the class apart. Template
+     * literals, escapes and both comment styles are handled for the same reason.</p>
+     */
     private List<String> splitTopLevelSegments(String body) {
         List<String> segments = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         int depth = 0;
-        for (String line : body.split("\n")) {
-            if (depth == 0 && current.isEmpty() && line.strip().isEmpty()) {
+        char quote = 0;
+        boolean lineComment = false;
+        boolean blockComment = false;
+
+        for (int i = 0; i < body.length(); i++) {
+            char c = body.charAt(i);
+            char next = (i + 1 < body.length()) ? body.charAt(i + 1) : '\0';
+
+            if (lineComment) {
+                current.append(c);
+                if (c == '\n') {
+                    lineComment = false;
+                }
                 continue;
             }
-            current.append(line).append("\n");
-            depth += occurrences(line, '{') - occurrences(line, '}');
-            if (depth <= 0) {
-                segments.add(current.toString().strip());
+            if (blockComment) {
+                current.append(c);
+                if (c == '*' && next == '/') {
+                    current.append(next);
+                    i++;
+                    blockComment = false;
+                }
+                continue;
+            }
+            if (quote != 0) {
+                current.append(c);
+                if (c == '\\' && i + 1 < body.length()) {
+                    current.append(body.charAt(i + 1));
+                    i++;
+                } else if (c == quote) {
+                    quote = 0;
+                }
+                continue;
+            }
+
+            if (c == '/' && next == '/') {
+                lineComment = true;
+                current.append(c);
+                continue;
+            }
+            if (c == '/' && next == '*') {
+                blockComment = true;
+                current.append(c);
+                continue;
+            }
+            if (c == '\'' || c == '"' || c == '`') {
+                quote = c;
+                current.append(c);
+                continue;
+            }
+
+            current.append(c);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+            }
+
+            // A newline at depth 0 ends a field declaration; a closing brace at depth 0
+            // ends a method or constructor block.
+            if (depth <= 0 && (c == '\n' || c == '}')) {
+                String segment = current.toString().strip();
+                if (!segment.isEmpty()) {
+                    segments.add(segment);
+                }
                 current.setLength(0);
                 depth = 0;
             }
         }
-        if (!current.isEmpty()) {
-            segments.add(current.toString().strip());
+
+        String tail = current.toString().strip();
+        if (!tail.isEmpty()) {
+            segments.add(tail);
         }
         return segments;
     }
 
-    private int occurrences(String text, char c) {
-        int count = 0;
-        for (int i = 0; i < text.length(); i++) {
-            if (text.charAt(i) == c) {
-                count++;
-            }
-        }
-        return count;
+    private boolean isCommentOnly(String segment) {
+        return segment.startsWith("//")
+                || segment.startsWith("/*")
+                || segment.startsWith("*");
     }
 
     private String methodName(String trimmed) {
