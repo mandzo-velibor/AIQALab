@@ -6,7 +6,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 import java.time.LocalDateTime;
@@ -69,8 +68,12 @@ public class LocatorObservation {
     @Column(nullable = false)
     private LocalDateTime observedAt;
 
-    @Lob
-    @Column
+    // Explicit TEXT, not @Lob. On PostgreSQL, @Lob on a String maps to `oid` (a large
+    // object reference) rather than text, which is the classic Hibernate/Postgres
+    // footgun: the column does not behave like text and breaks depending on the
+    // server's large-object configuration. Every other free-text column in this
+    // schema declares columnDefinition = "TEXT"; this one now matches.
+    @Column(columnDefinition = "TEXT")
     private String elementIdentityJson;
 
     public LocatorObservation() {

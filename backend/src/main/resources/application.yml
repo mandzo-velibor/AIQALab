@@ -12,7 +12,12 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # Flyway owns the schema (B-014). `update` is banned: it silently mutates a
+      # database to match the current entities, so a deploy becomes an unreviewed
+      # migration and two instances can disagree. `validate` makes the application
+      # REFUSE TO START if the migrations and the entities have drifted, which turns
+      # the baseline into a checked contract.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:

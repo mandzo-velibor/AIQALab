@@ -1,0 +1,31 @@
+# Test profile (B-014).
+#
+# Tests must never touch a real database. This profile pins the datasource to an
+# in-memory H2, so `create-drop` can only ever destroy throwaway state. Without the
+# datasource pin here, tests inherit the developer's Postgres URL from
+# application.yml and create-drop would DROP THEIR DATABASE.
+#
+# Flyway is off: the baseline is PostgreSQL DDL and must not be applied to H2. The H2
+# schema is built by Hibernate from the same entities instead.
+#
+# The migrations themselves are verified separately against a real PostgreSQL by the
+# `flyway-verify` Maven profile and the CI job of the same name. That is where drift
+# between the entities and V1__baseline.sql is actually caught — `validate` here would
+# have nothing to check, because there is no migration history on an H2 in-memory db.
+spring:
+  datasource:
+    url: jdbc:h2:mem:qalab-test;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      # create-drop, NOT validate: the schema is built rather than migrated here.
+      ddl-auto: create-drop
+    properties:
+      # H2 does not support INSERT ... RETURNING the way production PostgreSQL does;
+      # NoInsertReturningH2Dialect disables it so tests exercise the same code path.
+      hibernate:
+        dialect: com.qalab.qalabai.NoInsertReturningH2Dialect
+  flyway:
+    enabled: false

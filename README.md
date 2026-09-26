@@ -258,6 +258,45 @@ calls. Two supported ways:
    in the shell that starts the backend, or add it to `.env` and `docker compose up`
    (docker-compose passes it to the backend container).
 
+## Database Schema
+
+The schema is owned by **Flyway**, never by Hibernate. Migrations live in
+`backend/src/main/resources/db/migration`:
+
+```
+V1__baseline.sql        the schema as it stood when Flyway was adopted
+V2__....sql             every subsequent change
+```
+
+Rules:
+
+- **Never edit an applied migration.** Add a new versioned one.
+- **No profile may use `ddl-auto: update`.** All three profiles use `validate`,
+  which makes the application refuse to start if the migrations and the JPA
+  entities have drifted apart. That turns the baseline into a checked contract
+  rather than a snapshot nobody reads.
+
+`V1__baseline.sql` was generated from the entities with the PostgreSQL dialect
+rather than hand-written, so it could not silently disagree with the model at the
+moment it was captured.
+
+**Where drift is caught:** the `flyway-verify` CI job starts the real application
+against a real PostgreSQL with `ddl-auto=validate`. Flyway applies the migrations
+to an empty database, then Hibernate validates the result. The unit tests cannot do
+this — they run on in-memory H2 with Flyway disabled — so that job is the only
+place the two are checked against each other.
+
+To verify locally you need a PostgreSQL instance:
+
+```bash
+createdb qalab_check
+cd backend
+mvn spring-boot:run \
+  -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:postgresql://localhost:5432/qalab_check --spring.datasource.username=postgres --spring.datasource.password=postgres --spring.jpa.hibernate.ddl-auto=validate --qalab.auto-start-frontend=false --qalab.auto-open-browser=false"
+```
+
+If the log shows `Started QaLabAiApplication`, the migrations and the model agree.
+
 ## Tech Stack
 
 - **Backend**: Java 21, Spring Boot 3.3, Spring Data JPA, PostgreSQL, Playwright Java

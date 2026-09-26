@@ -36,6 +36,61 @@ jobs:
           DATABASE_USERNAME: sa
           DATABASE_PASSWORD: ""
 
+  # B-014: proves the Flyway migrations and the JPA entities have not drifted apart.
+  # Tests run on H2 with Flyway disabled, so nothing else in this pipeline would catch
+  # a migration that no longer matches the model. This job starts the real application
+  # against a real PostgreSQL with ddl-auto=validate: Flyway applies the migrations to
+  # an empty database and Hibernate then refuses to start if the resulting schema does
+  # not match the entities.
+  flyway-verify:
+    name: Flyway migrations match the JPA entities
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_DB: qalab
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setupup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Apply migrations and validate against the entities
+        working-directory: backend
+        run: |
+          set -o pipefail
+          timeout 300 mvn -B spring-boot:run             -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:postgresql://localhost:5432/qalab --spring.datasource.username=postgres --spring.datasource.password=postgres --spring.jpa.hibernate.ddl-auto=validate --qalab.auto-start-frontend=false --qalab.auto-open-browser=false --qalab.auto-install-playwright=false --qalab.security.require-api-key=false"             > /tmp/flyway-verify.log 2>&1 &
+          APP_PID=$!
+          for i in $(seq 1 60); do
+            if grep -q "Started QaLabAiApplication" /tmp/flyway-verify.log 2>/dev/null; then
+              echo "Application started: migrations applied and schema validated."
+              grep -E "Successfully applied|Schema .* up to date" /tmp/flyway-verify.log || true
+              kill $APP_PID 2>/dev/null || true
+              exit 0
+            fi
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          echo "::error::Application did not start — migrations and entities likely disagree."
+          tail -60 /tmp/flyway-verify.log
+          exit 1
+
   frontend-build:
     name: Frontend build & typecheck
     runs-on: ubuntu-latest

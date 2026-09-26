@@ -5,6 +5,7 @@ import com.qalab.qalabai.config.AiGatewayProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * These tests assert the shipped configuration actually closes both gaps.
  */
+@ActiveProfiles("test")
 @SpringBootTest
 class AiGatewayConfigurationTest {
 
