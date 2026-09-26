@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import com.qalab.qalabai.ai.provider.LlmJson;
 
 @Component
 public class SelfHealingAgent implements QaAgent {
@@ -133,7 +134,7 @@ public class SelfHealingAgent implements QaAgent {
 
     private HealingSuggestion parseResponse(String aiResponse, Long projectId, Long executionId,
                                             Long failureAnalysisId, String elementName, String oldLocator) throws Exception {
-        String json = extractJson(aiResponse);
+        String json = LlmJson.extract(aiResponse);
         JsonNode root = objectMapper.readTree(json);
 
         HealingSuggestion suggestion = new HealingSuggestion();
@@ -150,17 +151,4 @@ public class SelfHealingAgent implements QaAgent {
         return suggestion;
     }
 
-    private String extractJson(String response) {
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        }
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
-    }
 }

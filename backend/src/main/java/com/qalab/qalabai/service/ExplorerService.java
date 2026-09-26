@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import com.qalab.qalabai.ai.provider.LlmJson;
 
 @Service
 public class ExplorerService {
@@ -235,7 +236,7 @@ public class ExplorerService {
 
     private AnalysisResponse parseResponse(String llmResponse, String screenshotBase64) {
         try {
-            String json = extractJson(llmResponse);
+            String json = LlmJson.extract(llmResponse);
             JsonNode root = objectMapper.readTree(json);
 
             String pageType = root.path("pageType").asText("");
@@ -259,20 +260,6 @@ public class ExplorerService {
             log.error("Failed to parse LLM response: {}", e.getMessage());
             throw new RuntimeException("Failed to parse LLM response: " + e.getMessage(), e);
         }
-    }
-
-    private String extractJson(String response) {
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        }
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
     }
 
     private List<DetectedForm> parseForms(JsonNode node) {

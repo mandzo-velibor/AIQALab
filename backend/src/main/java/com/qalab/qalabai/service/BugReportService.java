@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
+import com.qalab.qalabai.ai.provider.LlmJson;
 
 /**
  * Generates a bug report from a failed test execution.
@@ -185,7 +186,7 @@ public class BugReportService {
         BugReport report = new BugReport();
         JsonNode root;
         try {
-            root = objectMapper.readTree(extractJson(aiResponse));
+            root = objectMapper.readTree(LlmJson.extract(aiResponse));
         } catch (Exception e) {
             log.warn("Failed to parse bug report AI response: {}", e.getMessage());
             return deterministicFallback(context);
@@ -201,7 +202,7 @@ public class BugReportService {
         report.setFailureType(normalizeFailureType(root.path("failureType").asText(
                 context.getClassification() != null ? context.getClassification().name() : "UNKNOWN")));
         report.setSuggestedFix(text(root, "suggestedFix", null));
-        report.setReportJson(extractJson(aiResponse));
+        report.setReportJson(LlmJson.extract(aiResponse));
         return report;
     }
 
@@ -263,20 +264,6 @@ public class BugReportService {
             return value;
         }
         return value.substring(0, limit) + "\n... [truncated]";
-    }
-
-    private String extractJson(String response) {
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        }
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
     }
 
     private String loadPrompt() {

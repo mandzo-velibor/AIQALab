@@ -20,6 +20,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import com.qalab.qalabai.ai.provider.LlmJson;
 
 @Component
 public class FailureAnalystAgent implements QaAgent {
@@ -114,7 +115,7 @@ public class FailureAnalystAgent implements QaAgent {
     }
 
     private FailureAnalysis parseResponse(String aiResponse, Long projectId, Long executionId) throws Exception {
-        String json = extractJson(aiResponse);
+        String json = LlmJson.extract(aiResponse);
         JsonNode root = objectMapper.readTree(json);
 
         FailureAnalysis analysis = new FailureAnalysis();
@@ -130,17 +131,4 @@ public class FailureAnalystAgent implements QaAgent {
         return analysis;
     }
 
-    private String extractJson(String response) {
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        }
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
-    }
 }

@@ -14,7 +14,7 @@ public final class JsonValidators {
         return response -> {
             JsonNode root;
             try {
-                root = MAPPER.readTree(extractJson(response));
+                root = MAPPER.readTree(LlmJson.extract(response));
             } catch (Exception e) {
                 return "invalid JSON: " + e.getMessage();
             }
@@ -31,7 +31,7 @@ public final class JsonValidators {
     public static ResponseValidator isJsonObject() {
         return response -> {
             try {
-                JsonNode root = MAPPER.readTree(extractJson(response));
+                JsonNode root = MAPPER.readTree(LlmJson.extract(response));
                 if (!root.isObject()) {
                     return "valid JSON but not an object";
                 }
@@ -42,19 +42,4 @@ public final class JsonValidators {
         };
     }
 
-    private static String extractJson(String response) {
-        if (response == null) {
-            return "";
-        }
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        } else if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
-    }
 }

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import com.qalab.qalabai.ai.provider.LlmJson;
 
 @Component
 public class TestGeneratorAgent implements QaAgent {
@@ -159,7 +160,7 @@ public class TestGeneratorAgent implements QaAgent {
     private List<GeneratedTest> parseResponse(String aiResponse, String pageUrl) throws Exception {
         List<GeneratedTest> tests = new ArrayList<>();
 
-        String json = extractJson(aiResponse);
+        String json = LlmJson.extract(aiResponse);
         JsonNode root = objectMapper.readTree(json);
         JsonNode testsNode = root.path("tests");
 
@@ -208,20 +209,6 @@ public class TestGeneratorAgent implements QaAgent {
             idx += needle.length();
         }
         return count;
-    }
-
-    private String extractJson(String response) {
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        }
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
     }
 
     private String toFileName(String scenarioName) {

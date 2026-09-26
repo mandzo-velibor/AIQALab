@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import com.qalab.qalabai.ai.provider.LlmJson;
 
 @Component
 public class LocatorAgent implements QaAgent {
@@ -107,7 +108,7 @@ public class LocatorAgent implements QaAgent {
     private List<LocatorDefinition> parseResponse(String aiResponse, String pageUrl) throws Exception {
         List<LocatorDefinition> locators = new ArrayList<>();
 
-        String json = extractJson(aiResponse);
+        String json = LlmJson.extract(aiResponse);
         JsonNode root = objectMapper.readTree(json);
         JsonNode locatorsNode = root.path("locators");
 
@@ -136,20 +137,6 @@ public class LocatorAgent implements QaAgent {
         }
 
         return locators;
-    }
-
-    private String extractJson(String response) {
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        }
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
     }
 
     private AgentExecutionContext contextFrom(Task task) {

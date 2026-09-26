@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import com.qalab.qalabai.ai.provider.LlmJson;
 
 /**
  * AI evaluation of locator candidates, always routed through the {@link AiGateway}
@@ -100,7 +101,11 @@ public class HealingAiEvaluator {
 
     private CandidateEvaluation parse(String aiResponse) throws RuntimeException {
         try {
-            String json = extractJson(aiResponse);
+            // This used to substitute "{}" for a null response, which parsed to a
+            // neutral-looking confidence of 0.5 — an unevaluated candidate could then
+            // be treated as borderline. A null response now fails the same way as any
+            // other unusable one: confidence 0.0 and an explicit reason.
+            String json = LlmJson.extract(aiResponse);
             JsonNode root = objectMapper.readTree(json);
             String recommended = root.path("recommendedLocator").asText("");
             double confidence = root.path("confidence").asDouble(0.5);
@@ -119,21 +124,6 @@ public class HealingAiEvaluator {
         }
     }
 
-    private String extractJson(String response) {
-        if (response == null) {
-            return "{}";
-        }
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        } else if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
-    }
 
     private String loadPrompt() {
         try {

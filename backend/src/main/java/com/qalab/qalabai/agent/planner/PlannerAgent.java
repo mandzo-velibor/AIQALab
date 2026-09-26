@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import com.qalab.qalabai.ai.provider.LlmJson;
 
 @Component
 public class PlannerAgent implements QaAgent {
@@ -118,7 +119,7 @@ public class PlannerAgent implements QaAgent {
     }
 
     private TestPlan parseResponse(String aiResponse, String pageUrl) throws Exception {
-        String json = extractJson(aiResponse);
+        String json = LlmJson.extract(aiResponse);
         JsonNode root = objectMapper.readTree(json);
 
         TestPlan testPlan = new TestPlan();
@@ -163,17 +164,4 @@ public class PlannerAgent implements QaAgent {
         return testPlan;
     }
 
-    private String extractJson(String response) {
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.substring(7);
-        }
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.substring(3);
-        }
-        if (trimmed.endsWith("```")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 3);
-        }
-        return trimmed.trim();
-    }
 }
