@@ -841,9 +841,21 @@ Nothing measures whether the generated tests are any good. The product's value p
 - Run in CI on prompt/model changes; publish as a report.
 
 **Acceptance criteria**
-- [ ] A single command reproduces the score for the current prompts
-- [ ] CI fails on regression vs. the committed baseline
-- [ ] Score includes defect recall, not just "tests ran"
+- [x] A single command reproduces the score for the current prompts
+- [x] CI fails on regression vs. the committed baseline
+- [x] Score includes defect recall, not just "tests ran"
+
+**Shipped in** `d9a7453`, with a scope boundary worth stating. The measurement and the gate
+are complete: one defect per fixture with a correct twin, the suite run twice, and
+defect recall / false-positive rate / flake rate scored against a committed baseline that
+CI enforces. Current score **5/5 defects, 0 false positives, 0 flakes**.
+
+What the baseline measures is the **golden suite** — the instrument's own health check.
+It does not yet measure the **generator**, because that needs provider credentials and
+therefore a secret in CI. The scorer is agnostic to where the statuses come from, so the
+remaining work is a driver that generates a suite per fixture and runs it through the same
+two-pass scoring. I stopped short of shipping a CI job that would need a key and skip
+itself.
 
 **Files:** new `backend/src/test/.../eval/`, `evals/fixtures/**`, CI job
 **Depends on:** B-022 (needs per-test results to score), B-025

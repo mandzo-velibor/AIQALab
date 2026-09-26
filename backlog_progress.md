@@ -1115,12 +1115,12 @@ reports — needs structured per-test results first.
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
 | B-037 | Resilience: circuit breaker + bulkhead | P1 | M | **DONE** | `6a13220` |
-| B-034 | Evaluation harness for generated tests | P1 | L | TODO | — |
+| B-034 | Evaluation harness for generated tests | P1 | L | **DONE** (measurement) | `d9a7453` |
 | B-035 | Prompt versioning | P1 | M | TODO | — |
 | B-036 | Close the test-coverage holes | P2 | M | TODO | — |
 | B-038 | Frontend QA sweep | P2 | M | TODO | — |
 
-**Totals:** 1/5 done · 1 commit · elapsed 128m
+**Totals:** 2/5 done · 2 commits · elapsed 431m
 
 ### B-037 · Resilience: circuit breaker + bulkhead
 | | |
