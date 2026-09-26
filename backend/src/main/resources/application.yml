@@ -51,6 +51,13 @@ qalab:
     # Per-test and per-expectation timeouts baked into generated configs.
     test-timeout-ms: 30000
     expect-timeout-ms: 5000
+  workflow:
+    # The full-test workflow runs off the request thread (B-017). Each worker holds a
+    # headless browser and a test suite, so the pool is small by default. The queue
+    # absorbs a burst; beyond it the caller gets 429 with a retry hint rather than
+    # the node silently accepting work it cannot finish.
+    workers: ${QALAB_WORKFLOW_WORKERS:2}
+    queue-capacity: ${QALAB_WORKFLOW_QUEUE_CAPACITY:20}
   security:
     # Require a bearer API key on /api/**. When false (the default) a key is enforced
     # only if one has been issued, so a fresh local install works with zero setup while

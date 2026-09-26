@@ -342,6 +342,17 @@ print_summary() {
     fi
   fi
 
+  # A workflow that aborts before any step completes leaves only a `workflow` step
+  # carrying the reason. Without this the user sees "QA RUN FAILED" and nothing else,
+  # which is the least useful possible output.
+  local wf_error
+  wf_error="$(printf '%s' "$json" | jq -r '.steps.workflow.error // empty' 2>/dev/null)"
+  if [ -n "$wf_error" ]; then
+    echo ""
+    echo "  ERROR"
+    printf '%s\n' "$wf_error" | head -6 | sed 's/^/    /'
+  fi
+
   local fa_type fa_summary healing_msg bug_title bug_sev
   fa_type="$(printf '%s' "$json" | jq -r '.steps.failureAnalysis.failureType // empty')"
   fa_summary="$(printf '%s' "$json" | jq -r '.steps.failureAnalysis.summary // empty')"
@@ -666,24 +677,75 @@ EOF
     [ -n "$test_type" ] && extra_args="$extra_args,\"testType\":\"$test_type\""
     op_id="cli-$(date +%s)-$$"
     post_args=",\"operationId\":\"$op_id\""
-    tmp_response="$(mktemp)"
-    api_curl -X POST "$API_URL/api/v1/workflows/full-test" \
+
+    # The workflow is served asynchronously (B-017): the POST returns 202 with an
+    # operation id and the work runs off the request thread, so a long run is no
+    # longer cut off by a proxy read timeout. We submit, then poll for the result,
+    # printing live stage changes to stderr as before.
+    ack="$(api_curl -X POST "$API_URL/api/v1/workflows/full-test" \
       -H 'Content-Type: application/json' \
-      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$extra_args$post_args}" > "$tmp_response" &
-    curl_pid=$!
+      -d "{\"project\":$payload,\"url\":\"$BASE_URL\"$extra_args$post_args}")"
+
+    if command -v jq >/dev/null 2>&1; then
+      ack_status="$(printf '%s' "$ack" | jq -r '.status // empty' 2>/dev/null)"
+      if [ "$ack_status" = "REJECTED" ]; then
+        echo "error: $(printf '%s' "$ack" | jq -r '.message // "server at capacity"')" >&2
+        exit 1
+      fi
+      [ -n "$ack_status" ] && [ "$quiet" != "true" ] && printf '%s\n' "$ack" >&2
+    else
+      printf '%s' "$ack" >&2
+    fi
+
+    response=""
     last_stage=""
-    while kill -0 "$curl_pid" 2>/dev/null; do
-      sleep 0.5
-      prog="$(api_curl "$API_URL/api/v1/workflows/$op_id/progress" 2>/dev/null || true)"
-      stage="$(printf '%s' "$prog" | jq -r '.stage // empty' 2>/dev/null || true)"
-      if [ -n "$stage" ] && [ "$stage" != "$last_stage" ]; then
-        [ "$quiet" = "true" ] || printf '%s\n' "$(printf '%s' "$prog" | jq -r '.message // .stage')" >&2
-        last_stage="$stage"
+    waited=0
+    # QALAB_WAIT_SECONDS caps the client-side wait. The server has its own budget
+    # (QALAB_PLAYWRIGHT_TIMEOUT_SECONDS) plus LLM time, so the default is generous;
+    # exceeding it is reported as a timeout rather than hanging forever.
+    wait_budget="${QALAB_WAIT_SECONDS:-3600}"
+    while :; do
+      sleep 2
+      waited=$(( waited + 2 ))
+
+      body="$(api_curl "$API_URL/api/v1/workflows/$op_id" 2>/dev/null || true)"
+      if [ -n "$body" ]; then
+        http_state="$(printf '%s' "$body" | jq -r '.status // empty' 2>/dev/null)"
+        if [ -n "$http_state" ] && [ "$http_state" != "QUEUED" ] && [ "$http_state" != "RUNNING" ]; then
+          response="$body"
+          break
+        fi
+        if [ -n "$http_state" ] && [ "$http_state" = "COMPLETED" ]; then
+          response="$body"
+          break
+        fi
+        # Surface the live stage, same as the old progress polling did.
+        stage="$(printf '%s' "$body" | jq -r '.stage // empty' 2>/dev/null)"
+        if [ -z "$stage" ]; then
+          prog="$(api_curl "$API_URL/api/v1/workflows/$op_id/progress" 2>/dev/null || true)"
+          stage="$(printf '%s' "$prog" | jq -r '.stage // empty' 2>/dev/null || true)"
+          message="$(printf '%s' "$prog" | jq -r '.message // empty' 2>/dev/null || true)"
+        else
+          message="$(printf '%s' "$body" | jq -r '.message // empty' 2>/dev/null || true)"
+        fi
+        if [ -n "$stage" ] && [ "$stage" != "$last_stage" ]; then
+          [ "$quiet" = "true" ] || printf '%s\n' "${message:-$stage}" >&2
+          last_stage="$stage"
+        fi
+      fi
+
+      if [ "$waited" -ge "$wait_budget" ]; then
+        echo "error: timed out after ${wait_budget}s waiting for operation $op_id." >&2
+        echo "       The workflow may still be running server-side; check:" >&2
+        echo "       curl $API_URL/api/v1/workflows/$op_id" >&2
+        exit 1
       fi
     done
-    wait "$curl_pid" 2>/dev/null || true
-    response="$(cat "$tmp_response")"
-    rm -f "$tmp_response"
+
+    if [ -z "$response" ]; then
+      echo "error: no result returned for operation $op_id" >&2
+      exit 1
+    fi
     report_dir="${QALAB_REPORT_DIR:-$(pwd)/.qalab/reports/$(date +%Y%m%d-%H%M%S)}"
     mkdir -p "$report_dir"
     printf '%s' "$response" > "$report_dir/report.json"
@@ -692,7 +754,7 @@ EOF
       # Specs and page objects must both be persisted: the specs import
       # '../pages/<Class>_<scenario>', so writing specs alone yields a tree
       # that cannot compile.
-      files_json="$(printf '%s' "$response" | jq -c '{files: (.steps.generatedTests.files // []) + (.steps.generatedTests.pageObjects // [])}')"
+      files_json="$(printf '%s' "$response" | jq -c '{files: ((.steps.generatedTests.files // []) + (.steps.generatedTests.pageObjects // []))}')"
       if [ "$(printf '%s' "$files_json" | jq '.files | length')" -gt 0 ]; then
         write_files_from_json "$files_json" "$WORKSPACE"
       fi

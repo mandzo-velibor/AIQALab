@@ -14,6 +14,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -45,6 +46,16 @@ class ApiKeyServiceTest {
         account.setId(1L);
         when(accountRepository.findFirstByOrderByIdAsc()).thenReturn(Optional.of(account));
         when(accountRepository.findById(any())).thenReturn(Optional.of(account));
+
+        // The service may need to establish the owning account itself on a fresh
+        // database, so accountRepository.save must behave like a real save.
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            if (a.getId() == null) {
+                a.setId(1L);
+            }
+            return a;
+        });
 
         when(apiKeyRepository.save(any())).thenAnswer(inv -> {
             ApiKey key = inv.getArgument(0);
@@ -173,10 +184,27 @@ class ApiKeyServiceTest {
     }
 
     @Test
-    void issuingWithoutAnyAccountFailsLoudly() {
+    void issuingOnAFreshDatabaseCreatesTheOwningAccount() {
+        // Regression guard. This used to throw "No account exists to own the API key",
+        // which failed the whole application context on a clean install when the
+        // API-key bootstrap runner ran before the account runner. Establishing the
+        // account here removes the ordering dependency entirely.
         when(accountRepository.findFirstByOrderByIdAsc()).thenReturn(Optional.empty());
 
-        assertThrows(IllegalStateException.class, () -> service.issue(null, "cli"));
+        ApiKeyService.IssuedKey issued = service.issue(null, "cli");
+
+        assertNotNull(issued.rawKey());
+        org.mockito.Mockito.verify(accountRepository).save(org.mockito.ArgumentMatchers.any(Account.class));
+        assertNotNull(stored().getAccountId(), "the key must be owned by the new account");
+    }
+
+    @Test
+    void issuingForAnUnknownAccountStillFailsLoudly() {
+        // Naming a specific account that does not exist is a caller error, not a
+        // bootstrap case, so it must still be rejected.
+        when(accountRepository.findById(4242L)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class, () -> service.issue(4242L, "cli"));
     }
 
     @Test

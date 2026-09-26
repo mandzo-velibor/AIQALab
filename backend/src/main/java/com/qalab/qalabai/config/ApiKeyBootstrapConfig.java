@@ -26,6 +26,7 @@ public class ApiKeyBootstrapConfig {
     private static final Logger log = LoggerFactory.getLogger(ApiKeyBootstrapConfig.class);
 
     @Bean
+    @org.springframework.core.annotation.Order(10)
     public CommandLineRunner bootstrapFirstApiKey(ApiKeyService apiKeyService,
                                                   @Value("${qalab.security.require-api-key:false}") boolean requireApiKey) {
         return args -> {

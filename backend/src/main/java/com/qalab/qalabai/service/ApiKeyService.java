@@ -2,6 +2,8 @@ package com.qalab.qalabai.service;
 
 import com.qalab.qalabai.model.Account;
 import com.qalab.qalabai.model.ApiKey;
+import com.qalab.qalabai.ai.gateway.Plan;
+import com.qalab.qalabai.ai.gateway.BudgetPolicy;
 import com.qalab.qalabai.repository.AccountRepository;
 import com.qalab.qalabai.repository.ApiKeyRepository;
 import org.slf4j.Logger;
@@ -45,6 +47,27 @@ public class ApiKeyService {
         this.accountRepository = accountRepository;
     }
 
+    /**
+     * The account that owns a key when the caller did not name one.
+     *
+     * <p>Creates a default account if none exists yet. Doing this here rather than
+     * relying on {@code AccountService}'s startup runner removes a real ordering
+     * dependency: the API-key bootstrap runs on a fresh database too, and if it
+     * depended on another runner having created the account first the whole context
+     * would fail to start on a clean install.</p>
+     */
+    private Account defaultAccount() {
+        return accountRepository.findFirstByOrderByIdAsc().orElseGet(() -> {
+            Account created = new Account();
+            created.setName("default");
+            created.setPlan(Plan.FREE);
+            created.setBudgetPolicy(BudgetPolicy.defaultFor(Plan.FREE));
+            Account saved = accountRepository.save(created);
+            log.info("Created default account {} to own API keys", saved.getId());
+            return saved;
+        });
+    }
+
     /** A newly created key: the id, and the raw value which is never stored. */
     public record IssuedKey(Long id, String label, String rawKey, LocalDateTime createdAt) {
     }
@@ -52,8 +75,7 @@ public class ApiKeyService {
     @Transactional
     public IssuedKey issue(Long accountId, String label) {
         Account account = accountId == null
-                ? accountRepository.findFirstByOrderByIdAsc()
-                        .orElseThrow(() -> new IllegalStateException("No account exists to own the API key"))
+                ? defaultAccount()
                 : accountRepository.findById(accountId)
                         .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
 

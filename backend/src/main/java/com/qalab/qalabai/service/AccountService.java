@@ -50,7 +50,13 @@ public class AccountService {
         return saved;
     }
 
+    /**
+     * Ordered first so anything else that needs an account at startup can rely on it
+     * existing. The API-key bootstrap used to race this and could fail a clean
+     * install; {@code @Order} makes the dependency explicit rather than incidental.
+     */
     @Bean
+    @org.springframework.core.annotation.Order(0)
     public CommandLineRunner ensureDefaultAccount(AccountService accountService) {
         return args -> accountService.defaultAccount();
     }
