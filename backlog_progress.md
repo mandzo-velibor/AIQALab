@@ -330,6 +330,35 @@ Also lists five follow-ups (per-user credential ownership, audit log for privile
 Full suite: **236 tests, 0 failures** (204 + 32).
 
 ---
+### B-016 · Real rate limiter
+| | |
+|---|---|
+| **Status** | **DONE** |
+| **Date** | 2026-09-26 |
+| **Duration** | 22m |
+| **Commit** | `e27e127` (8 of 10) |
+
+**What changed**
+- `TokenBucketRateLimiter` is now the active bean: a bucket **per provider and per account**, each holding `burst` tokens refilling at `rps`. An empty bucket returns `AI_RATE_LIMITED` before any provider request.
+- `RateLimiter` gains an account-scoped overload. The account dimension only became *possible* in B-013 — that is what gave the limiter a tenant key. Its default implementation delegates to the provider-scoped check so a provider-only implementation stays correct.
+- `AiGateway` calls the account-scoped check, and the `AI_RATE_LIMITED` message now **names the knobs to turn** rather than just refusing.
+- `NoopRateLimiter` keeps its `@Component` **removed** rather than being deleted: the interface contract promises a swappable implementation, and two limiter beans would make injection ambiguous — picking the wrong one silently disables the protection. Reasoning recorded in its javadoc.
+- Bursts are deliberate: a workflow fires several LLM calls in quick succession, so a strict rps cap would reject legitimate work, while a leaky bucket alone would not bound cost.
+- Off by default so local behaviour is unchanged; five new configuration variables.
+
+**Known limitation, stated not hidden:** state is in memory and per process. Correct for this single-node deployment; a cluster would need a shared store. Recorded in the class javadoc *and* the manual.
+
+**How it was tested** — 16 new.
+- `TokenBucketRateLimiterTest` (15): allows up to the burst then rejects; one account cannot drain another's bucket; providers are limited independently; whichever bucket is tighter is the one that binds; a disabled limiter allows everything and reports `-1` availability; a null account falls back to the provider bucket; a null provider is allowed rather than throwing; availability drops after a call; the bucket refills over time; refill is capped at capacity; a zero rate denies after the burst and does not silently recover; capacity/rate coerced to sane values; reset clears state; the noop limiter still allows everything; a provider-only implementation stays correct through the account-scoped call.
+- One case added to `AiGatewayBudgetEnforcementTest`: the gateway returns `AI_RATE_LIMITED` with an actionable message and **never reaches the provider**.
+
+**Two failures worth recording — both instructive**
+1. **Three tests failed because my fixture was wrong, not the code.** I gave the provider burst 3 and the account burst 2, then asserted three calls would succeed. The account bucket was *correctly* binding first. The tests now use two limiters — one where each bucket is deliberately the tighter one — so each dimension is genuinely exercised instead of accidentally shadowed. Worth resisting the urge to "fix" the limiter here.
+2. **`AiGatewayBudgetEnforcementTest` had a latent landmine.** It mocked `RateLimiter` and stubbed only `allow(provider)`. The gateway now calls the account-scoped overload, and **Mockito does not delegate an unstubbed default method to the real implementation** — it returns `false`. Every call in that suite would have been silently rate-limited. Both overloads are now stubbed with a comment, because this failure mode is invisible until it rejects real traffic in production.
+
+Full suite: **252 tests, 0 failures** (236 + 16).
+
+---
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
@@ -340,11 +369,11 @@ Full suite: **236 tests, 0 failures** (204 + 32).
 | B-015 | Real `qalab.ai` config block | P0 | M | **DONE** | `ec70594` |
 | B-012 | Spike: auth & tenancy ADR | P0 | S | **DONE** | `510ac28` |
 | B-013 | Auth filter on the API | P0 | L | **DONE** | `862ef98` |
-| B-016 | Real rate limiter | P1 | M | TODO | — |
+| B-016 | Real rate limiter | P1 | M | **DONE** | `e27e127` |
 | B-014 | Database migrations with Flyway | P0 | L | TODO | — |
 | B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
 
-**Totals:** 7/10 done · 7 commits · elapsed 105m
+**Totals:** 8/10 done · 8 commits · elapsed 127m
 
 ### Parallel work: user manual
 Started 2026-09-26 alongside the sprint, at the user's request: a comprehensive
