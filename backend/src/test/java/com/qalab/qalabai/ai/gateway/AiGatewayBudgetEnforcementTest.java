@@ -32,6 +32,14 @@ class AiGatewayBudgetEnforcementTest {
                 .thenReturn(new ProviderCallResult("ok", 10, 5, false, "gpt-oss:20b"));
 
         AiGatewayProperties properties = new AiGatewayProperties();
+        // This suite exercises budget enforcement, not model resolution. A model must
+        // be configured because the gateway now rejects a missing one loudly instead
+        // of sending {"model": null} to the provider — the stub client here would
+        // happily accept it, but a real one would not.
+        AiGatewayProperties.ProviderEndpoint ollama = new AiGatewayProperties.ProviderEndpoint();
+        ollama.setBaseUrl("https://ollama.test/v1");
+        ollama.setModel("gpt-oss:20b");
+        properties.getProviders().put("ollama", ollama);
         ManagedCredentials managedCredentials = mock(ManagedCredentials.class);
         when(managedCredentials.keyFor(AiProviderType.OLLAMA))
                 .thenReturn(java.util.Optional.of("test-key"));

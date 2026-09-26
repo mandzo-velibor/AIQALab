@@ -224,13 +224,37 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 **Process feedback worth keeping:** the first version of this test took **151 seconds** because `prepareWorkspace` legitimately shelled out to `npm install`. The tests now satisfy its dependency checks up front and the class runs in **1.7 s**. A test that reaches the network is a CI liability, not merely a slow test.
 
 ---
+### B-021 · Bounded Playwright concurrency
+| | |
+|---|---|
+| **Status** | **DONE** (+1 self-inflicted bug caught) |
+| **Date** | 2026-09-26 |
+| **Duration** | 14m |
+| **Commit** | `4a0e11a` (4 of 10) |
+
+**What changed**
+- `workers` was unset, so Playwright spawned ~half the cores as browser contexts. Each worker is a browser context, so on a small VM the suite thrashes memory and times out rather than finishing — a real cause of the "everything fails" cloud runs. Now defaults to `cores - 1`, overridable via `QALAB_PLAYWRIGHT_WORKERS`.
+- `Math.max(1, cores - 1)` matters: on a 1-core host a naive `cores - 1` yields **0**, and Playwright then refuses to run at all. Pinned by a test.
+- `retries: 0`, deliberately **not** configurable — a retried failure is a flake, and silently re-running it hides the signal the run exists to produce.
+- `timeout` and `expect.timeout` explicit rather than relying on library defaults, and configurable.
+- The effective worker count is returned in the execution result as `effectiveWorkers`, so *"how many workers was this actually running with?"* is answerable from `report.json` — the first question when a suite times out or flakes, and previously unanswerable.
+
+**Bug I introduced and the suite caught**
+Enriching the result with `putIfAbsent` threw `UnsupportedOperationException`: `toMap()` can return an **immutable** `Map.of(...)` from the early-return paths (no tests of a type, runner error). Two pre-existing tests failed. Fixed by copying into a `LinkedHashMap` first, and pinned with two regression tests — one asserting the immutable-map path still reports `effectiveWorkers`, one asserting a runner-supplied value is not overwritten by our computed default.
+
+**How it was tested**
+- 8 new cases: worker default, never zero/negative, explicit override, single-core host, retries disabled, timeouts explicit, timeouts configurable, all `%s`/`%d` placeholders substituted.
+- **Stronger than unit tests:** the generated config was rendered and fed to **Playwright's real config loader** (`npx playwright test --list`), which accepted every key and enumerated 11 tests. That validates `only-on-failure` / `off` / `retain-on-failure` / `workers` / `retries` / `expect.timeout` against Playwright itself rather than only asserting the emitted strings look plausible. Probe files removed afterwards.
+- Full suite: **196 tests, 0 failures** (186 + 10).
+
+---
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
 | B-018 | Playwright install off the startup path | P1 | M | **DONE** | `218450d` |
 | B-019 | Frontend API base URL at runtime | P1 | S | **DONE** | `7e2c5ec` |
 | B-020 | Sensible default artifact profile | P1 | S | **DONE** | `6767e45` |
-| B-021 | Bounded Playwright concurrency | P1 | S | TODO | — |
+| B-021 | Bounded Playwright concurrency | P1 | S | **DONE** | `4a0e11a` |
 | B-015 | Real `qalab.ai` config block | P0 | M | TODO | — |
 | B-012 | Spike: auth & tenancy ADR | P0 | S | TODO | — |
 | B-013 | Auth filter on the API | P0 | L | TODO | — |
@@ -238,7 +262,7 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 | B-014 | Database migrations with Flyway | P0 | L | TODO | — |
 | B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
 
-**Totals:** 3/10 done · 3 commits · elapsed 31m
+**Totals:** 4/10 done · 4 commits · elapsed 45m
 
 ### Parallel work: user manual
 Started 2026-09-26 alongside the sprint, at the user's request: a comprehensive

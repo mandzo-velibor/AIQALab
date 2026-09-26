@@ -195,7 +195,14 @@ public class AiGateway {
         if (endpoint != null && endpoint.getModel() != null && !endpoint.getModel().isBlank()) {
             return endpoint.getModel();
         }
-        return null;
+        // Previously this returned null, which was serialised into the request body
+        // as {"model": null} and rejected by the provider with an opaque 400. Every
+        // provider type has a default in application.yml, so reaching this means the
+        // configuration is genuinely incomplete — say so, and name the missing key.
+        throw ApiException.invalidRequest("AI provider " + provider
+                + " has no model configured. Set qalab.ai.providers."
+                + provider.name().toLowerCase() + ".model (or the matching environment "
+                + "variable), or pass a model explicitly on the request.");
     }
 
     private String resolveBaseUrl(AiProviderType provider, AiCredentialMode mode) {

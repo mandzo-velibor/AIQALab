@@ -52,6 +52,45 @@ qalab:
     # browser. Credentials are enabled, so "*" is rejected (see WebConfig).
     allowed-origins: ${QALAB_CORS_ALLOWED_ORIGINS:http://localhost:3000}
   ai:
+    # ---- AI gateway ----
+    # Provider used when a request does not name one. AIQALAB is the managed
+    # (server-key) provider, which is the only path with a cross-provider cascade.
+    default-provider: AIQALAB
+    # MANAGED = server keys, BYOK = per-user keys, LOCAL = Ollama on localhost.
+    default-credential-mode: MANAGED
+    # Monthly allowance for MANAGED mode. 0 = unlimited.
+    #
+    # The code default was 4000, which is BELOW a single full workflow run: one run
+    # sends 6-7 prompts containing full simplified page HTML. On a default local
+    # start that produced AI_BUDGET_EXCEEDED before any useful work completed. Set
+    # this deliberately rather than relying on the code default.
+    free-monthly-token-limit: ${QALAB_AI_FREEMONTHLYTOKENLIMIT:0}
+    max-retries: 2
+    retry-backoff-ms: 1500
+    rate-limit-enabled: false
+    # Per-provider endpoints. Without these, resolveModel() returns null and
+    # bring-your-own-key providers receive {"model": null}, which they reject.
+    # The key is the lowercased AiProviderType name.
+    providers:
+      # AIQALAB is the managed provider served by OpenCodeManagedProviderClient. The
+      # client runs its own cross-provider cascade and reads its own model settings,
+      # so this entry exists only so a model always resolves for the gateway.
+      aiqalab:
+        model: ${AIQALAB_MODEL:big-pickle}
+      opencode:
+        model: ${OPENCODE_MODEL:qwen3.7-plus}
+      openai:
+        base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+        model: ${OPENAI_MODEL:gpt-4o-mini}
+      anthropic:
+        base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+        model: ${ANTHROPIC_MODEL:claude-sonnet-4-5}
+      google:
+        base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
+        model: ${GEMINI_MODEL:gemini-1.5-flash}
+      ollama:
+        base-url: ${OLLAMA_BASE_URL:https://ollama.com/v1}
+        model: ${OLLAMA_MODEL:gpt-oss:20b}
     # Outbound AI HTTP timeouts. Both must be finite: the default RestTemplate
     # uses infinite timeouts, so a provider that accepts the connection and then
     # stalls would never raise and the gateway could neither retry nor fail over.
