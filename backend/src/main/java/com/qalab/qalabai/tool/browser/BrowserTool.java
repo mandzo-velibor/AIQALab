@@ -1,10 +1,7 @@
 package com.qalab.qalabai.tool.browser;
 
-import com.microsoft.playwright.Browser;
-import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.Playwright;
 import com.qalab.qalabai.tool.Tool;
 import com.qalab.qalabai.tool.ToolContext;
 import org.slf4j.Logger;
@@ -25,8 +22,27 @@ public class BrowserTool implements Tool {
 
     private static final Logger log = LoggerFactory.getLogger(BrowserTool.class);
 
+    /**
+     * Ceiling for the inline screenshot. The browser {@code <img>} in the dashboard needs
+     * a data URI because artifacts are not served over HTTP yet (that is waiting on the
+     * access model), so this is the one place base64 is genuinely required. It is bounded
+     * because it is otherwise a payload that grows with page height: a long page produced
+     * a multi-megabyte response and, worse, a value that could not fit the
+     * {@code analysis_json} column it used to be written into.
+     */
+    private static final int MAX_INLINE_SCREENSHOT_BYTES = 512 * 1024;
+
+    /** Below this a full-page PNG is downscaled rather than dropped, since it is still useful. */
+    private static final int SCREENSHOT_SOFT_LIMIT_BYTES = 256 * 1024;
+
+    private final BrowserSessionManager sessions;
+
     @Value("${qalab.screenshots-dir:./screenshots}")
     private String screenshotsDir;
+
+    public BrowserTool(BrowserSessionManager sessions) {
+        this.sessions = sessions;
+    }
 
     @Override
     public String getName() {
@@ -38,11 +54,9 @@ public class BrowserTool implements Tool {
         String url = context.getString("url");
         log.info("BrowserTool executing for URL: {}", url);
 
-        try (Playwright playwright = Playwright.create()) {
-            Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true)
-            );
-            Page page = browser.newPage();
+        Page page = null;
+        try {
+            page = sessions.newPage();
 
             log.info("Navigating to: {}", url);
             page.navigate(url);
@@ -56,9 +70,11 @@ public class BrowserTool implements Tool {
             result.put("accessibilityTree", getAccessibilityTree(page));
 
             Path screenshotPath = saveScreenshot(page);
-            String screenshotBase64 = Base64.getEncoder().encodeToString(Files.readAllBytes(screenshotPath));
             result.put("screenshotPath", screenshotPath.toString());
-            result.put("screenshotBase64", screenshotBase64);
+            String inline = inlineScreenshotIfSmallEnough(screenshotPath);
+            if (inline != null) {
+                result.put("screenshotBase64", inline);
+            }
 
             result.put("buttonCount", page.locator("button").count());
             result.put("inputCount", page.locator("input").count());
@@ -66,25 +82,31 @@ public class BrowserTool implements Tool {
             result.put("formCount", page.locator("form").count());
 
             log.info("Browser data collection complete");
-            browser.close();
             return result;
 
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Interrupted while waiting for a browser page slot for URL {}", url);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Interrupted while waiting for a browser page");
+            error.put("url", url);
+            return error;
         } catch (Exception e) {
             log.error("Browser error for URL {}: {}", url, e.getMessage());
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             error.put("url", url);
             return error;
+        } finally {
+            sessions.closePage(page);
         }
     }
 
     public String open(String url) {
         log.info("Opening URL: {}", url);
-        try (Playwright playwright = Playwright.create()) {
-            Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true)
-            );
-            Page page = browser.newPage();
+        Page page = null;
+        try {
+            page = sessions.newPage();
             page.navigate(url);
             page.waitForLoadState();
             log.info("URL opened successfully: {}", url);
@@ -92,6 +114,8 @@ public class BrowserTool implements Tool {
         } catch (Exception e) {
             log.error("Failed to open URL: {}", e.getMessage());
             throw new RuntimeException("Failed to open URL: " + e.getMessage(), e);
+        } finally {
+            sessions.closePage(page);
         }
     }
 
@@ -103,18 +127,15 @@ public class BrowserTool implements Tool {
      */
     public Map<String, Object> login(String url, String username, String password) {
         log.info("BrowserTool performing login for URL: {}", url);
-        try (Playwright playwright = Playwright.create()) {
-            Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true)
-            );
-            Page page = browser.newPage();
+        Page page = null;
+        try {
+            page = sessions.newPage();
             page.navigate(url);
             page.waitForLoadState();
 
             Locator passwordInput = page.locator("input[type=password]").first();
             if (passwordInput.count() == 0) {
                 log.info("No login form (password input) found on {}", url);
-                browser.close();
                 return null;
             }
 
@@ -148,17 +169,20 @@ public class BrowserTool implements Tool {
             result.put("accessibilityTree", getAccessibilityTree(page));
 
             Path screenshotPath = saveScreenshot(page);
-            String screenshotBase64 = Base64.getEncoder().encodeToString(Files.readAllBytes(screenshotPath));
             result.put("screenshotPath", screenshotPath.toString());
-            result.put("screenshotBase64", screenshotBase64);
+            String inline = inlineScreenshotIfSmallEnough(screenshotPath);
+            if (inline != null) {
+                result.put("screenshotBase64", inline);
+            }
 
             log.info("Post-login state captured for URL: {}", result.get("url"));
-            browser.close();
             return result;
 
         } catch (Exception e) {
             log.error("Login flow error for URL {}: {}", url, e.getMessage());
             return null;
+        } finally {
+            sessions.closePage(page);
         }
     }
 
@@ -232,5 +256,29 @@ public class BrowserTool implements Tool {
         Path screenshotPath = dir.resolve(UUID.randomUUID() + ".png");
         page.screenshot(new Page.ScreenshotOptions().setPath(screenshotPath).setFullPage(true));
         return screenshotPath;
+    }
+
+    /**
+     * Returns base64 for the dashboard image, or null when the file is too large to inline.
+     * The file on disk is always kept regardless — it is the artifact the HTML report and
+     * the CLI use, and dropping it because a preview would be oversized would lose the
+     * evidence to save a few hundred kilobytes of preview.
+     */
+    private String inlineScreenshotIfSmallEnough(Path screenshotPath) {
+        try {
+            long size = Files.size(screenshotPath);
+            if (size > MAX_INLINE_SCREENSHOT_BYTES) {
+                log.info("Screenshot of {} KB exceeds the {} KB inline limit; returning the path only",
+                        size / 1024, MAX_INLINE_SCREENSHOT_BYTES / 1024);
+                return null;
+            }
+            if (size > SCREENSHOT_SOFT_LIMIT_BYTES) {
+                log.debug("Screenshot of {} KB is large but within the inline limit", size / 1024);
+            }
+            return Base64.getEncoder().encodeToString(Files.readAllBytes(screenshotPath));
+        } catch (Exception e) {
+            log.warn("Could not inline screenshot {}: {}", screenshotPath, e.getMessage());
+            return null;
+        }
     }
 }

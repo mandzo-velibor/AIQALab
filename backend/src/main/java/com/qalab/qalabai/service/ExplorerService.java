@@ -107,7 +107,7 @@ public class ExplorerService {
         String currentUrl = (String) map.get("url");
         String html = (String) map.get("html");
         String accessibilityTree = (String) map.get("accessibilityTree");
-        String screenshotBase64 = (String) map.get("screenshotBase64");
+        String screenshotPath = (String) map.get("screenshotPath");
 
         log.info("Screenshot captured");
         log.info("Accessibility tree collected");
@@ -121,7 +121,7 @@ public class ExplorerService {
         String llmResponse = callLlmWithRetry(userPrompt, projectId);
         log.info("LLM response received");
 
-        AnalysisResponse analysis = parseResponse(llmResponse, screenshotBase64);
+        AnalysisResponse analysis = parseResponse(llmResponse, screenshotPath);
         log.info("DTO parsed");
 
         cache.put(urlHash, analysis, simplifiedHtml);
@@ -170,8 +170,10 @@ public class ExplorerService {
             history.setUrl(url);
             history.setPageType(analysis.pageType());
             history.setAnalysisJson(objectMapper.writeValueAsString(analysis));
-            history.setScreenshotReference(analysis.screenshotBase64() != null
-                    ? "embedded" : null);
+            // The path, not the bytes. This column is varchar(255) and the sibling
+            // analysis_json is varchar(10000): a base64 screenshot is orders of magnitude
+            // larger than either, so persisting it is what made a page analysis unsaveable.
+            history.setScreenshotReference(analysis.screenshotPath());
             int version = 1;
             var existing = historyRepository.findByProjectIdAndUrlOrderByVersionDesc(projectId, url);
             if (!existing.isEmpty()) {
@@ -237,7 +239,7 @@ public class ExplorerService {
         }
     }
 
-    private AnalysisResponse parseResponse(String llmResponse, String screenshotBase64) {
+    private AnalysisResponse parseResponse(String llmResponse, String screenshotPath) {
         try {
             String json = LlmJson.extract(llmResponse);
             JsonNode root = objectMapper.readTree(json);
@@ -257,7 +259,7 @@ public class ExplorerService {
             return new AnalysisResponse(
                     pageType, summary, confidence,
                     forms, buttons, navigation, dialogs, tables,
-                    possibleFlows, riskAreas, screenshotBase64
+                    possibleFlows, riskAreas, screenshotPath
             );
         } catch (Exception e) {
             log.error("Failed to parse LLM response: {}", e.getMessage());

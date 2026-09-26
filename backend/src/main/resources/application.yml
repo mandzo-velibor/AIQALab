@@ -35,6 +35,15 @@ qalab:
   auto-install-playwright: true
   # Wall-clock budget for one Playwright run. Always finite so a hung run cannot
   # pin a request thread forever; raise it for very large suites.
+  # One Chromium process is shared by every browser call, and each call gets a fresh
+  # context and page, so state never leaks between runs. max-concurrent-pages bounds how
+  # many may be open at once: each holds a renderer and a page of its own, and an
+  # unbounded number is how a small VM runs out of memory. idle-timeout closes the process
+  # after a quiet spell rather than holding ~100 MB open forever.
+  browser:
+    max-concurrent-pages: 4
+    idle-timeout-seconds: 300
+    headless: true
   playwright:
     timeout-seconds: 600
     # Artifact profile for GENERATED workspaces. The defaults capture evidence for

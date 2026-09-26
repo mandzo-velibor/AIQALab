@@ -1,10 +1,8 @@
 package com.qalab.qalabai.service.healing;
 
-import com.microsoft.playwright.Browser;
-import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.AriaRole;
+import com.qalab.qalabai.tool.browser.BrowserSessionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,9 +21,12 @@ public class ElementMatcherService {
     private static final Logger log = LoggerFactory.getLogger(ElementMatcherService.class);
 
     private final LocatorSimilarityService similarityService;
+    private final BrowserSessionManager sessions;
 
-    public ElementMatcherService(LocatorSimilarityService similarityService) {
+    public ElementMatcherService(LocatorSimilarityService similarityService,
+                                 BrowserSessionManager sessions) {
         this.similarityService = similarityService;
+        this.sessions = sessions;
     }
 
     public record Candidate(String role, String name, String locator, double score) {
@@ -34,11 +35,9 @@ public class ElementMatcherService {
     public List<Candidate> findCandidates(String url, String brokenLocator, String elementName) {
         List<Candidate> candidates = new ArrayList<>();
 
-        try (Playwright playwright = Playwright.create()) {
-            Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true)
-            );
-            Page page = browser.newPage();
+        Page page = null;
+        try {
+            page = sessions.newPage();
             page.navigate(url);
             page.waitForLoadState();
 
@@ -52,9 +51,12 @@ public class ElementMatcherService {
             }
 
             candidates.sort((a, b) -> Double.compare(b.score(), a.score()));
-            browser.close();
         } catch (Exception e) {
             log.error("ElementMatcherService failed for {}: {}", url, e.getMessage());
+        } finally {
+            if (page != null) {
+                sessions.closePage(page);
+            }
         }
 
         return candidates.stream().limit(10).toList();

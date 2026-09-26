@@ -1,10 +1,8 @@
 package com.qalab.qalabai.locator.intelligence;
 
-import com.microsoft.playwright.Browser;
-import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.Playwright;
+import com.qalab.qalabai.tool.browser.BrowserSessionManager;
 import com.qalab.qalabai.locator.intelligence.model.ElementIdentity;
 import com.qalab.qalabai.locator.intelligence.model.LiveEvaluation;
 import org.slf4j.Logger;
@@ -26,6 +24,12 @@ import java.util.regex.Pattern;
 public class LocatorLiveEvaluator {
 
     private static final Logger log = LoggerFactory.getLogger(LocatorLiveEvaluator.class);
+
+    private final BrowserSessionManager sessions;
+
+    public LocatorLiveEvaluator(BrowserSessionManager sessions) {
+        this.sessions = sessions;
+    }
 
     private static final Pattern GET_BY_ROLE = Pattern.compile(
             "getByRole\\(\\s*['\"]([a-zA-Z]+)['\"]\\s*(?:,\\s*\\{?\\s*name:\\s*['\"]([^'\"]+)['\"])?");
@@ -53,10 +57,9 @@ public class LocatorLiveEvaluator {
         if (locator == null || locator.isBlank()) {
             return LiveEvaluation.failed("Locator is required for live analysis.");
         }
-        try (Playwright playwright = Playwright.create()) {
-            Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true));
-            Page page = browser.newPage();
+        Page page = null;
+        try {
+            page = sessions.newPage();
             page.navigate(url);
             page.waitForLoadState();
 
@@ -72,11 +75,14 @@ public class LocatorLiveEvaluator {
                 enabled = safe(() -> first.isEnabled(), false);
                 identity = extractIdentity(page, first, url);
             }
-            browser.close();
             return new LiveEvaluation(count, visible, enabled, identity, null);
         } catch (Exception e) {
             log.warn("Live evaluation failed for {} on {}: {}", locator, url, e.getMessage());
             return LiveEvaluation.failed(e.getMessage());
+        } finally {
+            if (page != null) {
+                sessions.closePage(page);
+            }
         }
     }
 

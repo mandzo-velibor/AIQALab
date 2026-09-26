@@ -13,7 +13,7 @@ public record AnalysisResponse(
         List<DetectedTable> tables,
         List<DetectedFlow> possibleFlows,
         List<RiskArea> riskAreas,
-        String screenshotBase64
+        String screenshotPath
 ) {
     public AnalysisResponse {
         forms = forms != null ? List.copyOf(forms) : List.of();
