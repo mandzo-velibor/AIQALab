@@ -748,7 +748,7 @@ it has.
 | B-027 | Fix `AnalysisCache` semantics | P1 | M | **DONE** | `0051410` |
 | B-028 | Reuse the browser instead of relaunching per call | P1 | M | TODO | — |
 | B-023 | Consolidate the provider clients | P2 | M | TODO | — |
-| B-026 | Structured logging + LLM metrics | P2 | M | TODO | — |
+| B-026 | Structured logging + LLM metrics | P1 | M | **DONE** | `27df82a` |
 
 **Totals:** 4/7 done · 4 commits · elapsed 335m
 
@@ -1187,3 +1187,56 @@ flaky, and usually ends up asserted loosely enough to pass either way.
 **Left for B-026:** breaker state is exposed through `AiGateway.circuitState()` and logged
 on every transition, but there are no metrics yet. That is B-026's job and the data now
 exists to feed it.
+
+
+### B-026 · Structured logging + queryable metrics
+
+`27df82a` · P1 · M
+
+**What shipped**
+
+A run is now traceable end to end: every response carries `X-Operation-Id` and every
+log line for that request carries the same id. The prod profile writes JSON logs, so
+the trace can be reconstructed from log storage instead of only from a terminal.
+
+Ten metrics: `qalab.ai.calls`, `.latency`, `.tokens` (by direction), `.cost`,
+`.cascade.extra.attempts`, `qalab.playwright.duration`, `.tests`,
+`qalab.workflow.duration`, `qalab.ai.circuit.state` and `.circuit.rejections`.
+
+**Decisions worth recording**
+
+- `outcome` is a required label on the latency timer. Without it a timer averages a
+  fast failure in with a slow success and answers nothing.
+- **No metric carries an account or project label.** Both are unbounded, and that is
+  the standard way to take down a metrics backend. `AiMetricsTest` walks every
+  registered meter and fails on such a label, so the instinct cannot creep back in.
+- Circuit state is a gauge, not a pushed value: a circuit can half-open and recover
+  between scrapes, and a pushed value would go stale and report "open" for a healthy
+  provider.
+- Counters and timers register lazily; the circuit gauges bind eagerly so a fresh
+  instance is not indistinguishable from one with no metrics wired up.
+
+**Two gaps found during verification, both fixed**
+
+1. The bulkhead rejection gauge was driven by breakers alone, so a provider that was
+   only ever *rate-limited* — where the bulkhead is the mechanism doing the work — was
+   invisible. Gauges now bind for every known provider.
+2. `/actuator/**` was denied by `anyRequest().denyAll()`. This would have broken a
+   container liveness probe with a 401, and a platform kills a pod whose probe fails.
+   Health is public; metrics and info require the API key since they reveal model
+   names, latencies and costs. Only those three endpoints are exposed at all.
+
+**Verification**
+
+544 tests green, 21 new. Metrics asserted against a real `SimpleMeterRegistry` rather
+than against the writing code, because a registered-but-never-incremented meter is
+indistinguishable from one that does not exist. The MDC filter is checked on both the
+happy and the failing path, since the leak case is the one that matters. The prod
+profile was booted for real: JSON lines parse, a request is traceable by its id, and
+health answers 200 without a key.
+
+**Still open, deliberately**
+
+`qalab.ai.cascade.extra.attempts` now gives the data the page-analysis caching decision
+(B-028's neighbour) was blocked on. Reconsider that trade once real hit-rate numbers
+exist rather than guessing now.

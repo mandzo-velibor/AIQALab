@@ -602,6 +602,7 @@ malformed. That is the criterion that mattered, and it is now tested.
 
 ### B-026 · Structured logging + LLM metrics
 **P1 · M · area: observability**
+**Status: DONE** — `27df82a`
 
 No JSON logging, no correlation IDs, no metrics. One INFO line per AI call; no aggregate view. Answering "why was it slow?" today means log scraping — and the caching decision in Sprint 3 is impossible without this.
 
@@ -612,9 +613,9 @@ No JSON logging, no correlation IDs, no metrics. One INFO line per AI call; no a
 - Request logging filter for `/api/**`.
 
 **Acceptance criteria**
-- [ ] One request can be traced end-to-end by `operationId` in the logs
-- [ ] Dashboards/queryable metrics for the 5 counters above
-- [ ] Logs are valid JSON in prod profile
+- [x] One request can be traced end-to-end by `operationId` in the logs
+- [x] Dashboards/queryable metrics for the 5 counters above
+- [x] Logs are valid JSON in prod profile
 
 **Files:** `application-prod.yml`, `pom.xml`, new `config/`, gateway services
 **Depends on:** B-013 (tenant key for metric tags)
