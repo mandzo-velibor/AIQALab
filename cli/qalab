@@ -196,6 +196,84 @@ print_healing() {
   fi
 }
 
+write_test_plan() {
+  # write_test_plan <response-json> <report_dir>
+  # The planner produces a full scenario list, but until now it only lived in the
+  # database and as a scenarioCount in the response. Persist it in both a readable
+  # and a machine-readable form so the plan can be reviewed, diffed and re-run.
+  local json report_dir
+  json="$1"
+  report_dir="$2"
+
+  local count
+  count="$(printf '%s' "$json" | jq -r '.steps.testPlan.scenarioCount // 0')"
+  if [ "${count:-0}" -eq 0 ]; then
+    return 0
+  fi
+
+  printf '%s' "$json" | jq '.steps.testPlan' > "$report_dir/test-plan.json"
+
+  if command -v jq >/dev/null 2>&1; then
+    {
+      echo "# Test Plan"
+      echo ""
+      echo "- **Scenarios:** $count"
+      url="$(printf '%s' "$json" | jq -r '.url // "-"')"
+      echo "- **Target:** $url"
+      echo ""
+      echo "| # | Scenario | Type | Priority | Description |"
+      echo "|---|----------|------|----------|-------------|"
+      printf '%s' "$json" | jq -r '
+        .steps.testPlan.scenarios // [] | to_entries[] |
+        "| \(.key + 1) | \(.value.name // "-") | \(.value.type // "-") | \(.value.priority // "-") | \(.value.description // "-") |"'
+      echo ""
+      echo "## Steps"
+      echo ""
+      printf '%s' "$json" | jq -r '
+        .steps.testPlan.scenarios // [] | to_entries[] |
+        "### \(.key + 1). \(.value.name // "Scenario")\n" +
+        (if (.value.requiredElements // []) | length > 0
+         then "**Required elements:** " + ((.value.requiredElements) | join(", ")) + "\n"
+         else "" end) +
+        ((.value.steps // []) | to_entries | map("  \(.key + 1). \(.value)") | join("\n")) + "\n"'
+    } > "$report_dir/test-plan.md"
+  else
+    python3 - "$report_dir" <<'PYEOF'
+import json, os, sys
+report_dir = sys.argv[1]
+with open(os.path.join(report_dir, 'report.json')) as fh:
+    data = json.load(fh)
+plan = (data.get('steps') or {}).get('testPlan') or {}
+scenarios = plan.get('scenarios') or []
+if not scenarios:
+    sys.exit(0)
+with open(os.path.join(report_dir, 'test-plan.json'), 'w') as fh:
+    json.dump(plan, fh, indent=2)
+lines = ['# Test Plan', '',
+         f"- **Scenarios:** {len(scenarios)}",
+         f"- **Target:** {data.get('url', '-')}", '',
+         '| # | Scenario | Type | Priority | Description |',
+         '|---|----------|------|----------|-------------|']
+for i, s in enumerate(scenarios, 1):
+    lines.append('| {} | {} | {} | {} | {} |'.format(
+        i, s.get('name', '-'), s.get('type', '-'),
+        s.get('priority', '-'), (s.get('description') or '-').replace('|', '\\|')))
+lines += ['', '## Steps', '']
+for i, s in enumerate(scenarios, 1):
+    lines.append(f"### {i}. {s.get('name', 'Scenario')}")
+    req = s.get('requiredElements') or []
+    if req:
+        lines.append('**Required elements:** ' + ', '.join(req))
+    lines.append('')
+    for j, step in enumerate(s.get('steps') or [], 1):
+        lines.append(f'  {j}. {step}')
+    lines.append('')
+with open(os.path.join(report_dir, 'test-plan.md'), 'w') as fh:
+    fh.write('\n'.join(lines))
+PYEOF
+  fi
+}
+
 print_summary() {
   # print_summary <response-json> <report_dir>
   # Human-readable digest of a full-test workflow. Replaces dumping the raw
@@ -583,6 +661,7 @@ EOF
       if [ "$(printf '%s' "$files_json" | jq '.files | length')" -gt 0 ]; then
         write_files_from_json "$files_json" "$WORKSPACE"
       fi
+      write_test_plan "$response" "$report_dir"
       bug_id="$(printf '%s' "$response" | jq -r '.steps.bugReport.reportId // empty')"
       if [ -n "$bug_id" ]; then
         curl -sS "$API_URL/api/v1/bug-reports/$bug_id" > "$report_dir/bug-report.json"
