@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Create account</title>
+  <style>
+    body { font-family: sans-serif; margin: 3rem auto; max-width: 30rem; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    input { width: 100%; padding: .5rem; }
+    button { margin-top: 1.5rem; padding: .6rem 1.2rem; }
+    .error { color: #b42318; min-height: 1.2rem; }
+  </style>
+</head>
+<body>
+  <h1>Create account</h1>
+  <form id="signup">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email">
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="new-password">
+
+    <label for="confirm">Confirm password</label>
+    <input id="confirm" name="confirm" type="password" autocomplete="new-password">
+
+    <button type="submit">Create account</button>
+  </form>
+  <p class="error" id="error" role="alert"></p>
+  <!-- PLANTED DEFECT (cross-field-validation): the two password fields must match,
+       and nothing checks that. This is a cross-field rule, so no HTML attribute
+       can enforce it — it has to be checked in code, and here it is not. A user
+       who mistypes the confirmation gets a successful-looking form. -->
+  <script>
+    document.getElementById('signup').addEventListener('submit', function (e) {
+      e.preventDefault();
+      document.getElementById('error').textContent = '';
+    });
+  </script>
+</body>
+</html>

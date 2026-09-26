@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Checkout</title>
+  <style>
+    body { font-family: sans-serif; margin: 3rem auto; max-width: 32rem; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    input, select { width: 100%; padding: .5rem; }
+    button { margin-top: 1.5rem; padding: .6rem 1.2rem; }
+  </style>
+</head>
+<body>
+  <h1>Checkout</h1>
+  <form id="checkout">
+    <label for="card">Card number</label>
+    <input id="card" name="card" type="text" autocomplete="cc-number">
+
+    <label for="method">Payment method</label>
+    <!-- PLANTED DEFECT (wrong-role): a clickable div is used as a control.
+         It has no role, is not focusable and does not respond to Enter or Space,
+         so it cannot be operated by keyboard or announced as a control. -->
+    <div class="picker" data-value="card" onclick="selectCard()">Card</div>
+    <div class="picker" data-value="invoice" onclick="selectCard()">Invoice</div>
+    <input type="hidden" id="method" name="method" value="card">
+
+    <button type="submit">Pay</button>
+  </form>
+  <script>
+    function selectCard() { document.getElementById('method').value = 'card'; }
+    document.getElementById('checkout').addEventListener('submit', function (e) {
+      e.preventDefault();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "qalab-evals-golden",
+  "private": true,
+  "version": "1.0.0",
+  "description": "The golden eval suite: one oracle test per planted defect, run against evals/fixtures.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.48.0"
+  }
+}

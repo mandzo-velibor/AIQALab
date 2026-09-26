@@ -1,0 +1,45 @@
+{
+  "$comment": "One defect per fixture. Each fixture has a defective app.html and a correct.html twin, which is what makes attribution unambiguous: a suite that fails on the defective variant and passes on the correct one has caught that defect and nothing else.",
+  "fixtures": [
+    {
+      "id": "missing-label",
+      "category": "accessibility",
+      "severity": "MEDIUM",
+      "title": "Password field has no label",
+      "description": "The password control is a bare placeholder with no <label for>, so it has no accessible name.",
+      "whyItMatters": "Screen reader users are told only 'edit text'. A core login control is unusable without sight."
+    },
+    {
+      "id": "wrong-role",
+      "category": "accessibility",
+      "severity": "HIGH",
+      "title": "Clickable div used as a radio control",
+      "description": "Payment method is a pair of divs with onclick. No role, not focusable, no keyboard operation.",
+      "whyItMatters": "The control cannot be operated by keyboard at all, and assistive technology does not announce it as a control."
+    },
+    {
+      "id": "no-error-state",
+      "category": "error-handling",
+      "severity": "HIGH",
+      "title": "Empty submit produces no feedback",
+      "description": "Submitting the login form with empty fields does nothing: no message, no alert, no focus move.",
+      "whyItMatters": "The user cannot tell whether the form was ignored, failed, or is still submitting."
+    },
+    {
+      "id": "xss-reflection",
+      "category": "security",
+      "severity": "CRITICAL",
+      "title": "Reflected XSS via innerHTML",
+      "description": "The search query is written into the DOM with innerHTML and no escaping, so a crafted query executes script.",
+      "whyItMatters": "Arbitrary script execution in the user's session. Highest severity in the corpus."
+    },
+    {
+      "id": "broken-validation",
+      "category": "validation",
+      "severity": "MEDIUM",
+      "title": "Declared age range is not enforced",
+      "description": "min=18 and max=120 are present in the markup, but nothing checks them in code, so an age of 5 is accepted silently.",
+      "whyItMatters": "A declared constraint that is not enforced is worse than no constraint: it looks handled."
+    }
+  ]
+}

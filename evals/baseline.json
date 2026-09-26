@@ -1,0 +1,11 @@
+{
+  "$comment": "Committed floor for defect recall. The harness fails when a run scores below this. Raise it deliberately, never automatically — a baseline that moves itself cannot detect a regression. See evals/README.md.",
+  "recordedAt": "2026-09-26",
+  "suite": "golden committed oracle suite",
+  "note": "This is the recall of the COMMITTED golden suite against the planted defects. It is the instrument's own health check and the floor any future change must not fall below. Measuring the recall of GENERATED tests additionally requires provider credentials; see evals/README.md.",
+  "plantedDefects": 5,
+  "oracleTests": 7,
+  "defectRecall": 1.0,
+  "falsePositiveRate": 0.0,
+  "flakeRate": 0.0
+}

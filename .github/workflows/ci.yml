@@ -190,3 +190,52 @@ jobs:
             ghcr.io/${{ steps.repo.outputs.name }}/frontend:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # B-034: the product claims it finds defects. This is the only job that measures
+  # whether that is still true. Runs the golden suite against pages with known planted
+  # defects and fails if defect recall drops below the committed baseline.
+  #
+  # A separate job from backend-build because it needs `npm install` in evals/golden and
+  # a matching browser; without those the harness correctly skips, which would make the
+  # check silently absent rather than green.
+  eval-recall:
+    name: Eval — defect recall
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install the eval suite's dependencies
+        run: npm install --no-audit --no-fund
+        working-directory: evals/golden
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+        working-directory: evals/golden
+
+      - name: Score defect recall against the committed baseline
+        run: mvn -B test -Dtest=DefectRecallHarnessTest -DfailIfNoTests=false
+        working-directory: backend
+        env:
+          DATABASE_URL: jdbc:h2:mem:testdb
+          DATABASE_USERNAME: sa
+          DATABASE_PASSWORD: ""
+
+      - name: Publish the score
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: defect-recall
+          path: evals/last-run.json
+          if-no-files-found: ignore

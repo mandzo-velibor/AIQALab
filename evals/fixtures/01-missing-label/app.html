@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sign in</title>
+  <style>
+    body { font-family: sans-serif; margin: 3rem auto; max-width: 30rem; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    input { width: 100%; padding: .5rem; }
+    button { margin-top: 1.5rem; padding: .6rem 1.2rem; }
+    .error { color: #b42318; min-height: 1.2rem; margin-top: .5rem; }
+  </style>
+</head>
+<body>
+  <h1>Sign in</h1>
+  <!-- PLANTED DEFECT (missing-label): the password field has no <label>.
+       It is a bare placeholder, so the control has no accessible name. -->
+  <form id="login">
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" autocomplete="username">
+
+    <input id="password" name="password" type="password" placeholder="Password"
+           autocomplete="current-password">
+
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="error" id="error" role="alert"></p>
+  <script>
+    document.getElementById('login').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var u = document.getElementById('username').value;
+      document.getElementById('error').textContent = u ? '' : 'Enter a username';
+    });
+  </script>
+</body>
+</html>

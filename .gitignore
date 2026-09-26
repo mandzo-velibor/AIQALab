@@ -48,3 +48,8 @@ playwright-report/
 *.bak
 *.swp
 *~
+
+# Evaluation harness (B-034). The baseline is committed; a run's own report is not,
+# because it changes on every run and would make diffs unreadable. node_modules and
+# test-results are already covered by the rules above.
+evals/last-run.json

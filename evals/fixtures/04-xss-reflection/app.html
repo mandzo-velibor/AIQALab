@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Search</title>
+  <style>
+    body { font-family: sans-serif; margin: 3rem auto; max-width: 36rem; }
+    input { width: 100%; padding: .5rem; }
+  </style>
+</head>
+<body>
+  <h1>Search</h1>
+  <label for="q">Search products</label>
+  <input id="q" name="q" type="search">
+  <p id="results"></p>
+  <!-- PLANTED DEFECT (xss-reflection): the query is echoed into the DOM with
+       innerHTML and no escaping, so a crafted query executes script. Reflected
+       XSS is a real, high-severity finding. -->
+  <script>
+    document.getElementById('q').addEventListener('input', function () {
+      document.getElementById('results').innerHTML =
+        'No results for <b>' + this.value + '</b>';
+    });
+  </script>
+</body>
+</html>
