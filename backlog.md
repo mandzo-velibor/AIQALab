@@ -155,7 +155,7 @@ For an unregistered project, `runInWorkspace` writes to `project.getWorkspacePat
 - [ ] Exit code is non-zero when the workflow status is `FAILED` (CI-usable)
 
 **Files:** `cli/qalab`
-**Depends on:** B-004 (summary should report page objects), B-007
+**Depends on:** B-004 (summary must report page objects)
 
 ---
 
@@ -174,7 +174,7 @@ The plan is generated and stored in the DB but was never surfaced: the workflow 
 - [ ] No `jq` dependency for the non-`jq` fallback path (mirror the existing dual jq/python3 pattern)
 
 **Files:** `cli/qalab`
-**Depends on:** B-006
+**Depends on:** B-006 (the artifact list it extends)
 
 ---
 
