@@ -585,9 +585,15 @@ WARN BugReportService : Failed to parse bug report AI response:
 - Unit tests against a corpus of real malformed LLM outputs (capture ~20 from the logs).
 
 **Acceptance criteria**
-- [ ] `grep -rc "private String extractJson"` → 1
-- [ ] Corpus tests pass, including the captured real failures
-- [ ] Validator and parser share the same extractor so validation matches parsing
+- [x] `grep -rc "private String extractJson"` → 0 (one shared static `LlmJson.extract`, not a private method)
+- [x] Corpus tests pass, including the captured real failures
+- [x] Validator and parser share the same extractor so validation matches parsing
+
+**Shipped in** `56f62d9`. The duplication was also hiding a second bug: `JsonValidators`
+had its own extractor, so the validator and the parser had drifted — and since the
+validators drive the cascade's fallback decision, a response the validator accepted but
+the parser rejected would spend a fallback provider on a response that was never
+malformed. That is the criterion that mattered, and it is now tested.
 
 **Files:** the 9 agent/service classes, `ai/provider/JsonValidators.java`
 **Depends on:** —

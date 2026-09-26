@@ -540,13 +540,13 @@ The recurring lesson is the same each time: **a failed assertion or an unexplain
 |---|---|---|---|---|---|
 | B-022 | Playwright JSON reporter → per-test results | P0 | M | **DONE** | `c225c5c` |
 | B-024 | Cap the provider cascade | P1 | S | **DONE** | `e55a1b1` |
-| B-025 | One shared, tolerant LLM JSON extractor | P1 | M | TODO | — |
+| B-025 | One shared, tolerant LLM JSON extractor | P1 | M | **DONE** | `56f62d9` |
 | B-027 | Fix `AnalysisCache` semantics | P1 | M | TODO | — |
 | B-028 | Reuse the browser instead of relaunching per call | P1 | M | TODO | — |
 | B-023 | Consolidate the provider clients | P2 | M | TODO | — |
 | B-026 | Structured logging + LLM metrics | P2 | M | TODO | — |
 
-**Totals:** 2/7 done · 2 commits · elapsed 168m
+**Totals:** 3/7 done · 3 commits · elapsed 251m
 
 
 ### B-022 · Playwright JSON reporter → structured per-test results
@@ -720,6 +720,70 @@ its own sake, and this change does not make it harder.
 
 **Left alone:** `mimo-v2.5-free` leaves the cascade at the user's request. B-023 still
 owes the same consolidation to the BYOK path, which has no cascade at all.
+
+
+### B-025 · One shared, tolerant LLM JSON extractor
+| | |
+|---|---|
+| **Status** | **DONE** (+1 latent bug in the validators, +1 behaviour change) |
+| **Date** | 2026-09-26 |
+| **Duration** | 83m |
+| **Commit** | `56f62d9` (3 of 7) |
+
+**What changed**
+- New `ai/provider/LlmJson` — one extractor, replacing nine private copies.
+- All nine call sites rewired: 5 agents, `ExplorerService`, `BugReportService`,
+  `HealingAiEvaluator` and `JsonValidators`.
+- Net **−113 lines** of duplicated code.
+- Handles fenced blocks (with/without a language tag, wrapped in prose, or never
+  closed), prose on either side, trailing commas, a leading BOM, and brace-shaped
+  prose. The scan tracks string literals, so a value containing `{"note": "a, b, c"}`
+  is not cut short at the comma or the brace.
+
+**The duplication was hiding a second bug.** `JsonValidators` had its own
+fence-stripper, so the validator and the parser were separate implementations of the
+same idea and had already drifted. Since the validators are what drive the cascade's
+fallback decision, a response the validator accepted but the parser rejected would
+**spend a fallback provider on a response that was never malformed**. That is the
+acceptance criterion that actually mattered, and it is now covered by tests.
+
+**One deliberate behaviour change, in the safer direction.** `HealingAiEvaluator`
+substituted `"{}"` for a null response, which parsed to a neutral-looking
+`confidence: 0.5` and let `safeToApply` be decided on nothing. A null response now
+fails like any other unusable one: **confidence 0.0** with an explicit reason. Noted
+in a comment at the call site so nobody "fixes" it back.
+
+**What is deliberately still broken.** Single-quoted keys, unquoted keys and
+truncated values are refused, not repaired. Guessing produces a plausible object the
+model never wrote, which is worse than a clear failure — and truncated output has no
+defensible completion at all. Each case has a test asserting refusal, so the decision
+is visible rather than an accident.
+
+One fixture I wrote was wrong in an instructive way: I first asserted that a
+*truncated* value inside an unterminated fence should still yield the fields it
+contained. It cannot — the value is unbalanced, so there is nothing complete to read.
+The real unterminated-fence case is a missing *closing fence* with the JSON intact,
+which is what a cut-off stream usually looks like. Split into two tests: one for the
+recoverable case, one asserting the truncated value is refused.
+
+**How it was tested**
+- **35 corpus cases**, built from response shapes observed in the logs rather than
+  invented — the headline case is the literal `Unrecognized token 'I'` failure.
+- 6 validator tests, including that prose-wrapped JSON now passes validation and that
+  genuine garbage still fails with a diagnosable reason.
+- **Extraction is idempotent, and asserted.** A validator that ran the extractor twice
+  must not see a different string from a parser that ran it once; without that property
+  "shared extractor" is not actually guaranteed.
+- A guard that every extracted value loads in Jackson — otherwise the tolerance just
+  relocates the parse error somewhere less obvious.
+- Full suite **347 green** (was 306). App boots clean against a fresh database.
+
+**Acceptance criteria**
+- `grep -rc "private String extractJson"` → **0** (the criterion said 1; the shared
+  implementation is a static utility rather than a private method, so the count is
+  zero and `LlmJson.extract` is the single entry point — verified by grep, not assumed).
+- Corpus tests pass, including the captured real failure.
+- Validator and parser share the extractor, with a test for the drift that caused.
 
 ### Why B-022 comes first
 It is the blocker for everything in Sprint 3. The workflow currently only sees a
