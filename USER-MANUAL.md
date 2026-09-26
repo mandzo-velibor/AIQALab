@@ -872,7 +872,7 @@ Ordered by how likely you are to hit them.
 | 10 | **Default token budget (4000/month) is below one workflow run.** | `AI_BUDGET_EXCEEDED` on a default local start. | B-015 |
 | 11 | **No caching of page analysis between runs** (deliberate). | Every run re-explores and re-analyses. The largest available latency win, but it trades correctness for speed and that trade is unchosen. | deferred |
 | 12 | ~~Playwright records artifacts for every test~~ **Fixed in Sprint 1** — generated workspaces now default to `only-on-failure` / `off` / `retain-on-failure`. Existing workspaces keep their own config until regenerated. | — | — |
-| 13 | **Playwright concurrency is unset** — the runner picks a default. | Flakiness and timeouts on small VMs. | B-021 |
+| 13 | ~~Playwright concurrency unset~~ **Fixed in Sprint 1** — generated workspaces now pin workers to `cores - 1` (override with `QALAB_PLAYWRIGHT_WORKERS`) and report the effective value. Existing workspaces keep their own config until regenerated. | — | — |
 | 14 | **Legacy `/api/*` surface still live and used by the UI.** | Two contracts to maintain; doubles the security review surface. | B-033 |
 | 15 | **Generated tests inherit the generator's limits.** Assertions are grounded in the captured page content, so a defect that is invisible in a static snapshot cannot be found. | Fundamental to the approach. | by design |
 | 16 | **No prompt versioning or eval harness.** | No signal on whether a prompt or model change improved or degraded output. | B-034, B-035 |
@@ -1050,13 +1050,21 @@ Override the profile per deployment:
 | `QALAB_PLAYWRIGHT_VIDEO` | `off` |
 | `QALAB_PLAYWRIGHT_TRACE` | `retain-on-failure` |
 
-For anything beyond these, edit the workspace's own config. Two settings worth
-considering on a small VM:
+Concurrency and timeouts are baked in too, and are also overridable:
 
-```ts
-workers: 2,        // bound concurrency; see §20.5
-retries: 0,        // surface flakiness rather than hiding it
-```
+| Variable | Default | Meaning |
+|---|---|---|
+| `QALAB_PLAYWRIGHT_WORKERS` | `0` = auto | Worker count. Auto is `cores - 1`, minimum 1. |
+| `QALAB_PLAYWRIGHT_TEST_TIMEOUT_MS` | `30000` | Per-test timeout |
+| `QALAB_PLAYWRIGHT_EXPECT_TIMEOUT_MS` | `5000` | Per-expectation timeout |
+
+`retries: 0` is deliberate and not configurable: a retried failure is a flake, and
+silently re-running it hides the signal the run exists to produce. If you see flakes,
+fix them rather than enabling retries.
+
+The worker count is reported back in the execution result as `effectiveWorkers`, so
+"how many workers was this actually running with?" is always answerable from
+`report.json` — the first question when a suite times out or flakes.
 
 ### 21.3 Adding a provider
 

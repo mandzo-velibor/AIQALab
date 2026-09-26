@@ -16,7 +16,10 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import java.util.HashMap;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -112,5 +115,30 @@ class WorkspaceManagerRunFilterTest {
         test.setScenarioName("Login with valid credentials");
         test.setTestType(null);
         assertEquals("login-with-valid-credentials.spec.ts", WorkspaceManager.resolveFileName(test));
+    }
+
+    @Test
+    void enrichesTheResultEvenWhenTheRunnerReturnsAnImmutableMap() {
+        // Regression guard. The early-return paths (no tests of a type, runner error)
+        // return Map.of(...), which is immutable. Mutating it in place threw
+        // UnsupportedOperationException when effectiveWorkers was added to the result.
+        when(playwrightTool.execute(any())).thenReturn(Map.of("status", "TIMEOUT", "duration", 5L));
+
+        Map<String, Object> result = manager.execute(project, null, true);
+
+        assertEquals("TIMEOUT", result.get("status"));
+        assertNotNull(result.get("effectiveWorkers"),
+                "effectiveWorkers must be reported even on the immutable-map path");
+    }
+
+    @Test
+    void doesNotOverrideAWorkerCountSuppliedByTheRunner() {
+        when(playwrightTool.execute(any())).thenReturn(
+                new HashMap<>(Map.of("status", "PASSED", "duration", 1L, "effectiveWorkers", 99)));
+
+        Map<String, Object> result = manager.execute(project, null, true);
+
+        assertEquals(99, result.get("effectiveWorkers"),
+                "a value the runner already reported must win over our computed default");
     }
 }

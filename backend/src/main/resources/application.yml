@@ -39,6 +39,13 @@ qalab:
     screenshot: only-on-failure
     video: off
     trace: retain-on-failure
+    # Playwright worker count. 0 = auto (cores - 1, minimum 1). Unset, Playwright
+    # spawns ~half the cores as browser contexts, which thrashes memory and causes
+    # timeouts on the small VMs this usually runs on. Set explicitly on a shared host.
+    workers: 0
+    # Per-test and per-expectation timeouts baked into generated configs.
+    test-timeout-ms: 30000
+    expect-timeout-ms: 5000
   cors:
     # Comma-separated browser origins allowed to call /api/**. Must be set for any
     # deployment that is not on localhost, or every frontend call is blocked by the

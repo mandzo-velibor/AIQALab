@@ -38,6 +38,9 @@ class WorkspaceManagerPlaywrightConfigTest {
         ReflectionTestUtils.setField(manager, "screenshotMode", "only-on-failure");
         ReflectionTestUtils.setField(manager, "videoMode", "off");
         ReflectionTestUtils.setField(manager, "traceMode", "retain-on-failure");
+        ReflectionTestUtils.setField(manager, "configuredWorkers", 0);
+        ReflectionTestUtils.setField(manager, "testTimeoutMs", 30000);
+        ReflectionTestUtils.setField(manager, "expectTimeoutMs", 5000);
     }
 
     /**
@@ -143,6 +146,78 @@ class WorkspaceManagerPlaywrightConfigTest {
         assertTrue(Files.isDirectory(workspace.resolve("pages")));
         assertTrue(Files.isDirectory(workspace.resolve("fixtures")));
         assertTrue(Files.exists(workspace.resolve("package.json")));
+    }
+
+    // ------------------------------------------------------- B-021 concurrency
+
+    @Test
+    void workerCountDefaultsToCoresMinusOne() {
+        int expected = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+
+        assertEquals(expected, manager.effectiveWorkers());
+        assertTrue(manager.playwrightConfig().contains("workers: " + expected + ","),
+                manager.playwrightConfig());
+    }
+
+    @Test
+    void workerCountIsNeverZeroOrNegative() {
+        for (int configured : new int[]{0, -1, -100}) {
+            ReflectionTestUtils.setField(manager, "configuredWorkers", configured);
+            assertTrue(manager.effectiveWorkers() >= 1,
+                    "workers must be at least 1, got " + manager.effectiveWorkers());
+        }
+    }
+
+    @Test
+    void explicitWorkerCountOverridesTheDefault() {
+        ReflectionTestUtils.setField(manager, "configuredWorkers", 2);
+
+        assertEquals(2, manager.effectiveWorkers());
+        assertTrue(manager.playwrightConfig().contains("workers: 2,"), manager.playwrightConfig());
+    }
+
+    @Test
+    void singleCoreHostStillGetsOneWorker() {
+        // Math.max(1, cores - 1) must not produce 0 on a 1-core box, which would make
+        // Playwright refuse to run at all.
+        assertTrue(WorkspaceManager.defaultWorkers() >= 1,
+                "defaultWorkers must be >= 1, got " + WorkspaceManager.defaultWorkers());
+    }
+
+    @Test
+    void retriesAreDisabledSoFlakesAreNotHidden() {
+        assertTrue(manager.playwrightConfig().contains("retries: 0,"),
+                "a retried failure is a flake and must be surfaced, not hidden:\n"
+                        + manager.playwrightConfig());
+    }
+
+    @Test
+    void timeoutsAreExplicitRatherThanRelyingOnPlaywrightDefaults() {
+        String config = manager.playwrightConfig();
+
+        assertTrue(config.contains("timeout: 30000,"), config);
+        assertTrue(config.contains("expect: { timeout: 5000 },"), config);
+    }
+
+    @Test
+    void timeoutsAreConfigurable() {
+        ReflectionTestUtils.setField(manager, "testTimeoutMs", 60000);
+        ReflectionTestUtils.setField(manager, "expectTimeoutMs", 10000);
+
+        String config = manager.playwrightConfig();
+
+        assertTrue(config.contains("timeout: 60000,"), config);
+        assertTrue(config.contains("expect: { timeout: 10000 },"), config);
+    }
+
+    @Test
+    void everyGeneratedPlaceholderIsSubstituted() {
+        ReflectionTestUtils.setField(manager, "configuredWorkers", 3);
+
+        String config = manager.playwrightConfig();
+
+        assertFalse(config.contains("%s"), "unsubstituted string placeholder:\n" + config);
+        assertFalse(config.contains("%d"), "unsubstituted numeric placeholder:\n" + config);
     }
 
     private static int countOf(String haystack, char needle) {

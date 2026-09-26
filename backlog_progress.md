@@ -204,9 +204,32 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
+### B-020 · Sensible default artifact profile
+| | |
+|---|---|
+| **Status** | **DONE** |
+| **Date** | 2026-09-26 |
+| **Duration** | 11m |
+| **Commit** | `6767e45` (3 of 10) |
+
+**What changed**
+- The generated workspace config used `screenshot: 'on', video: 'on', trace: 'on'`. Note `'on'` is **not** Playwright's default for screenshots (`only-on-failure` is) — it captures for passing tests too. A 20-test run produced 20 videos and 20 traces regardless of outcome.
+- Defaults are now `screenshot: only-on-failure`, `video: off`, `trace: retain-on-failure` — evidence for what actually broke.
+- Configurable per deployment via `qalab.playwright.screenshot|video|trace` (`QALAB_PLAYWRIGHT_*`), documented in `application.yml` and `.env.example`.
+- Config extracted into `playwrightConfig()` carrying a comment that it is written **only when absent**, so the "never clobber a user config" contract is visible at the definition site, not only in the caller.
+- Removed a duplicate `Initialized project structure` log line left behind by the edit; the surviving line now records the effective profile.
+
+**How it was tested** — 8 cases in `WorkspaceManagerPlaywrightConfigTest`: failures-only defaults; the old all-tests profile **explicitly asserted absent** (the regression guard); profile overridable; rendered config structurally valid with all `%s` placeholders substituted and braces balanced; an existing user config survives `prepareWorkspace` untouched; a missing one is generated with the configured profile; the file advertises that editing is safe; directory layout created. Full suite **186 green**.
+
+**Process feedback worth keeping:** the first version of this test took **151 seconds** because `prepareWorkspace` legitimately shelled out to `npm install`. The tests now satisfy its dependency checks up front and the class runs in **1.7 s**. A test that reaches the network is a CI liability, not merely a slow test.
+
+---
+
+| # | Task | Priority | Size | Status | Commit |
+|---|---|---|---|---|---|
 | B-018 | Playwright install off the startup path | P1 | M | **DONE** | `218450d` |
 | B-019 | Frontend API base URL at runtime | P1 | S | **DONE** | `7e2c5ec` |
-| B-020 | Sensible default artifact profile | P1 | S | TODO | — |
+| B-020 | Sensible default artifact profile | P1 | S | **DONE** | `6767e45` |
 | B-021 | Bounded Playwright concurrency | P1 | S | TODO | — |
 | B-015 | Real `qalab.ai` config block | P0 | M | TODO | — |
 | B-012 | Spike: auth & tenancy ADR | P0 | S | TODO | — |
@@ -215,7 +238,7 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 | B-014 | Database migrations with Flyway | P0 | L | TODO | — |
 | B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
 
-**Totals:** 2/10 done · 2 commits · elapsed 20m
+**Totals:** 3/10 done · 3 commits · elapsed 31m
 
 ### Parallel work: user manual
 Started 2026-09-26 alongside the sprint, at the user's request: a comprehensive
