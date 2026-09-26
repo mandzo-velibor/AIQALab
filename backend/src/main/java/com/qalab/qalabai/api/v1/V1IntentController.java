@@ -7,7 +7,6 @@ import com.qalab.qalabai.api.v1.dto.V1IntentRequest;
 import com.qalab.qalabai.api.v1.dto.V1IntentResponse;
 import com.qalab.qalabai.dto.analysis.AnalysisResponse;
 import com.qalab.qalabai.dto.planner.TestPlanResponse;
-import com.qalab.qalabai.dto.testgen.GeneratedFile;
 import com.qalab.qalabai.intent.Intent;
 import com.qalab.qalabai.intent.IntentResult;
 import com.qalab.qalabai.intent.IntentService;
@@ -17,6 +16,7 @@ import com.qalab.qalabai.service.ExplorerService;
 import com.qalab.qalabai.service.PlanningService;
 import com.qalab.qalabai.service.ProjectContextResolver;
 import com.qalab.qalabai.service.QaWorkflowService;
+import com.qalab.qalabai.util.UserInstructions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -86,32 +86,58 @@ public class V1IntentController extends AbstractV1Controller {
         Long dbId = databaseId(request.project());
         log.info("POST /api/v1/intent/run operationId={} intent={} url={}", operationId, result.intent(), request.url());
 
-        dispatch(result.intent(), request.url(), dbId, project);
+        dispatch(result.intent(), request, dbId, project);
 
         return ResponseEntity.ok(new V1IntentResponse(
                 operationId, OperationStatus.COMPLETED, result.intent(),
                 request.url(), result.steps(), result.matchedKeywords(), LocalDateTime.now()));
     }
 
-    private void dispatch(Intent intent, String url, Long dbId, ProjectContext project) {
+    /**
+     * Dispatches to the operation the intent resolved to, carrying the user's own
+     * instruction and credentials through.
+     *
+     * <p>The {@code prompt} is used twice on purpose: once to detect the intent, and
+     * again as the instruction for whatever it triggered. It used to be used only for
+     * detection, so a user who typed "generate tests for the login page, focus on the
+     * red border" got generic tests and no indication why. The same class of defect as
+     * B-003, on the other entry point — see
+     * {@code docs/known-limitations/intent-drops-instruction.md}.</p>
+     */
+    private void dispatch(Intent intent, V1IntentRequest request, Long dbId, ProjectContext project) {
+        String url = request.url();
+        String instruction = UserInstructions.normalize(request.prompt());
+        String testType = CodeGenerationService.normalizeTestType(request.testType());
+
+        log.info("Dispatching intent {} with instruction of {} chars, testType={}, credentials={}",
+                intent, instruction == null ? 0 : instruction.length(),
+                testType, request.username() != null ? "present" : "absent");
+
         switch (intent) {
             case EXPLORE -> {
-                AnalysisResponse analysis = explorerService.analyze(url, true, dbId, null, null);
+                AnalysisResponse analysis = explorerService.analyze(url, true, dbId,
+                        request.username(), request.password(), instruction);
                 log.info("Intent EXPLORE done for {} pageType={}", url, analysis.pageType());
             }
             case TEST_PLAN -> {
-                TestPlanResponse plan = planningService.generateTestPlan(url, dbId);
+                TestPlanResponse plan = planningService.generateTestPlan(url, dbId, instruction);
                 log.info("Intent TEST_PLAN done for {} scenarios={}", url, plan.scenarioCount());
             }
             case GENERATE_TESTS -> {
-                List<GeneratedFile> files = codeGenerationService.generateTestsContent(url, dbId);
-                log.info("Intent GENERATE_TESTS done for {} files={}", url, files.size());
+                // The persisting path, not generateTestsContent. Generating through the
+                // intent route used to leave no GeneratedTest rows, so the tests existed
+                // only in the response: no execution history, no healing, and nothing to
+                // run afterwards. The full-test route has always persisted.
+                List<com.qalab.qalabai.model.GeneratedTest> generated =
+                        codeGenerationService.generateTestsEntities(url, dbId, instruction, testType,
+                                request.username(), request.password());
+                log.info("Intent GENERATE_TESTS done for {} tests={} (persisted)", url, generated.size());
             }
             case RUN_TESTS -> {
                 if (dbId == null) {
                     throw ApiException.invalidRequest("run tests requires a registered project (databaseId)");
                 }
-                executionService.runAllTests(dbId);
+                executionService.runAllTests(dbId, false, testType, instruction);
                 log.info("Intent RUN_TESTS done for project {}", dbId);
             }
             case FULL_TEST -> {
@@ -121,7 +147,7 @@ public class V1IntentController extends AbstractV1Controller {
                                         project.getProjectId(), project.getProjectName(), project.getBaseUrl(),
                                         project.getFramework(), project.getLanguage(), project.getWorkspacePath(),
                                         dbId),
-                                url, null, null, null, null, null);
+                                url, request.username(), request.password(), instruction, null, testType);
                 workflowService.runFullTest(full);
                 log.info("Intent FULL_TEST done for {}", url);
             }

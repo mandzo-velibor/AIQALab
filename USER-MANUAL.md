@@ -412,8 +412,24 @@ Detects the intent behind a natural-language request and dispatches to the match
 operation (`EXPLORE`, `TEST_PLAN`, `GENERATE_TESTS`, `RUN_TESTS`, `FULL_TEST`).
 Returns `INVALID_REQUEST` for `UNKNOWN` and for intents needing inputs it cannot get.
 
-> **Known gap:** the prompt is used only for intent *detection* and is **not** forwarded
-> to the operation it triggers. See §18.
+The prompt is used **twice**: once to detect which operation you meant, and again as the
+instruction for that operation. So `"generate tests for the login page, focus on the red
+border"` produces tests that focus on the red border.
+
+The HTTP entry point accepts `username`, `password` and `testType` alongside `prompt` and
+`url`, all optional:
+
+```bash
+curl -X POST localhost:8080/api/v1/intent/run \
+  -H 'Content-Type: application/json' \
+  -d '{"project":{"name":"demo","baseUrl":"https://app.example.com/login","databaseId":1},
+       "prompt":"generate tests, focus on the red border",
+       "url":"https://app.example.com/login",
+       "username":"alice","password":"…","testType":"ui"}'
+```
+
+Tests generated through this route are **persisted**, so they can be executed, reviewed
+and healed like any others.
 
 ### 7.12 `qalab budget-policy [set <HARD|SOFT|NONE>]`
 

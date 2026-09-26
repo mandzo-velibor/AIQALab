@@ -286,8 +286,16 @@ public class CodeGenerationService {
         };
     }
 
-    /** Normalizes the structured test type to UI/E2E/API or null for ALL. */
-    static String normalizeTestType(String testType) {
+    /**
+     * Normalizes the structured test type to its canonical lower-case form
+     * ({@code ui}, {@code e2e}, {@code api}), or null for ALL and for anything
+     * unrecognised.
+     *
+     * <p>Public because every entry point must resolve the filter the same way: a
+     * textual instruction and a structured filter that disagree silently is exactly the
+     * bug B-003 was about, and it is only preventable if they share one resolver.</p>
+     */
+    public static String normalizeTestType(String testType) {
         if (testType == null || testType.isBlank()) {
             return null;
         }
