@@ -376,6 +376,9 @@ stripped from the output.
 AI analysis of the page. Without `--force`, a cached analysis for the URL is reused.
 Credentials and instruction accepted.
 
+The cache is bounded and expires — see §16.5. `--force` re-analyses unconditionally,
+and the hit/miss counters are what tell you whether the cache is earning its place.
+
 ### 7.6 `qalab execute --all | --test <id>`
 
 Runs previously generated tests. Requires a registered project or a workspace.
@@ -1026,7 +1029,26 @@ A request may still override its own ceiling. Previously every operation asked f
 | Rate limit | off | Token bucket per provider **and** per account. Bursts allowed, sustained rate bounded. In-memory, per process. |
 | Circuit breaker | — | **Not implemented.** Tracked as **B-037** |
 
-### 16.5 Rate limiting
+### 16.5 Analysis cache
+
+Page analyses are expensive to recompute — a browser navigation plus an LLM call — and
+hold nothing sensitive, so they are cached briefly and bounded:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `QALAB_CACHE_ANALYSIS_TTL_SECONDS` | `1800` | How long an analysis stays valid. |
+| `QALAB_CACHE_MAX_ENTRIES` | `200` | Size bound; the oldest entry is evicted. |
+
+The app logs the policy at startup (`Analysis cache: ttl=1800s, maxEntries=200`).
+
+**Login credentials are not cached at all.** They used to be, keyed by a hash of the
+URL, and that was a cross-request leak rather than merely untidy: because the key was
+the URL and not the request, an *anonymous* run against a previously-visited URL did not
+overwrite the entry — it read the previous user's password back out and attached it to
+its own generated tests. Credentials now travel with the request that supplied them and
+are never written to a cache.
+
+### 16.6 Rate limiting
 
 Each provider and each account gets a token bucket holding `burst` tokens that refills
 at `rps`. A call spends one token; an empty bucket yields `AI_RATE_LIMITED` (HTTP 429)
@@ -1039,7 +1061,7 @@ would not bound cost. Set `QALAB_AI_RATE_LIMIT_ENABLED=true` to switch it on.
 State is in memory and per process, which is correct for the single-node deployment this
 is. A multi-node deployment would need a shared store.
 
-### 16.4 Token accounting
+### 16.7 Token accounting
 
 When a provider does not report usage, tokens are estimated at roughly four characters
 per token and the record is flagged `estimated`. Cost is estimated from a pricing

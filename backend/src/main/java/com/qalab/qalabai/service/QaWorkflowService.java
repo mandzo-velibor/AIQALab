@@ -141,7 +141,11 @@ public class QaWorkflowService {
             // (generateTestsContent here, generateTestsEntities inside runInWorkspace),
             // doubling cost and letting the two invocations diverge.
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_TESTS", "generating tests...");
-            List<GeneratedTest> tests = codeGenerationService.generateTestsEntities(url, dbId, instruction, testType);
+            // The credentials travel with the request instead of being read back out of
+            // a URL-keyed cache, which used to hand one user's password to another
+            // user's run (B-027).
+            List<GeneratedTest> tests = codeGenerationService.generateTestsEntities(
+                    url, dbId, instruction, testType, request.username(), request.password());
             steps.put("generatedTests", step("COMPLETED", Map.of(
                     "count", tests.size(),
                     "files", toGeneratedFiles(tests))));

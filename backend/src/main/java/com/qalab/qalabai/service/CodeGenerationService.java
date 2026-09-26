@@ -63,6 +63,11 @@ public class CodeGenerationService {
     }
 
     public TestGenResponse generateTests(String url, Long projectId, String instruction, String testType) {
+        return generateTests(url, projectId, instruction, testType, null, null);
+    }
+
+    public TestGenResponse generateTests(String url, Long projectId, String instruction, String testType,
+                                         String username, String password) {
         log.info("Generating tests for URL: {} (testType={})", url, testType);
 
         String normalizedInstruction = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
@@ -71,7 +76,8 @@ public class CodeGenerationService {
             log.info("Applying user instruction for test generation: {}", normalizedInstruction);
         }
 
-        List<GeneratedTest> tests = runGenerator(url, projectId, normalizedInstruction, normalizedType);
+        List<GeneratedTest> tests = runGenerator(url, projectId, normalizedInstruction, normalizedType,
+                username, password);
 
         List<GeneratedTest> saved = testRepository.saveAll(tests);
         log.info("Saved {} tests to database", saved.size());
@@ -94,9 +100,23 @@ public class CodeGenerationService {
     }
 
     public List<GeneratedTest> generateTestsEntities(String url, Long projectId, String instruction, String testType) {
+        return generateTestsEntities(url, projectId, instruction, testType, null, null);
+    }
+
+    /**
+     * @param username login user for the generated tests, or null. Passed in from the
+     *                 caller rather than read back from a cache: the credentials used to
+     *                 be cached keyed by a hash of the URL, so an anonymous run against
+     *                 a previously-visited URL picked up the earlier user's password and
+     *                 attached it to its own tests. See {@code AnalysisCache}.
+     * @param password login password for the generated tests, or null
+     */
+    public List<GeneratedTest> generateTestsEntities(String url, Long projectId, String instruction,
+                                                      String testType, String username, String password) {
         log.info("Generating tests (entities, no persist) for URL: {}", url);
         String normalizedType = normalizeTestType(testType);
-        return runGenerator(url, projectId, com.qalab.qalabai.util.UserInstructions.normalize(instruction), normalizedType);
+        return runGenerator(url, projectId, com.qalab.qalabai.util.UserInstructions.normalize(instruction),
+                normalizedType, username, password);
     }
 
     /**
@@ -118,12 +138,18 @@ public class CodeGenerationService {
      * deterministic type filter conflicts with the textual instruction).
      */
     public GeneratedContent generateContent(String url, Long projectId, String instruction, String testType) {
+        return generateContent(url, projectId, instruction, testType, null, null);
+    }
+
+    public GeneratedContent generateContent(String url, Long projectId, String instruction, String testType,
+                                            String username, String password) {
         log.info("Generating test content (service path) for URL: {}", url);
 
         String normalizedInstruction = com.qalab.qalabai.util.UserInstructions.normalize(instruction);
         String normalizedType = normalizeTestType(testType);
 
-        List<GeneratedTest> tests = runGenerator(url, projectId, normalizedInstruction, normalizedType);
+        List<GeneratedTest> tests = runGenerator(url, projectId, normalizedInstruction, normalizedType,
+                username, password);
 
         List<GeneratedFile> files = tests.stream()
                 .map(t -> new GeneratedFile(TestWorkspaceService.resolveFileName(t), t.getTestCode()))
@@ -137,7 +163,8 @@ public class CodeGenerationService {
     public record GeneratedContent(List<GeneratedFile> files, String instruction, String testType, String note) {
     }
 
-    private List<GeneratedTest> runGenerator(String url, Long projectId, String instruction, String testType) {
+    private List<GeneratedTest> runGenerator(String url, Long projectId, String instruction, String testType,
+                                            String username, String password) {
         AnalysisResponse analysis = analysisCache.getByUrl(url);
         if (analysis == null) {
             throw new RuntimeException("No analysis found for URL: " + url + ". Please analyze the page first.");
@@ -165,7 +192,7 @@ public class CodeGenerationService {
         String locatorJson = "[]";
         String pageContentHtml = analysisCache.getSimplifiedHtmlByUrl(url);
         String postLoginContentHtml = analysisCache.getPostLoginContentByUrl(url);
-        AnalysisCache.LoginCredentials credentials = analysisCache.getLoginCredentialsByUrl(url);
+
         try {
             Map<String, Object> testPlanMap = new HashMap<>();
             testPlanMap.put("id", testPlan.getId());
@@ -214,9 +241,11 @@ public class CodeGenerationService {
         task.putContext("locatorRepositoryJson", locatorJson);
         task.putContext("pageContentHtml", pageContentHtml != null ? pageContentHtml : "");
         task.putContext("postLoginContentHtml", postLoginContentHtml != null ? postLoginContentHtml : "");
-        if (credentials != null) {
-            task.putContext("loginUsername", credentials.username());
-            task.putContext("loginPassword", credentials.password());
+        if (username != null && !username.isBlank()) {
+            task.putContext("loginUsername", username);
+            if (password != null) {
+                task.putContext("loginPassword", password);
+            }
         }
         if (projectId != null) {
             task.putContext("projectId", projectId);

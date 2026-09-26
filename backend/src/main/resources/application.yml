@@ -117,6 +117,7 @@ qalab:
       ollama:
         base-url: ${OLLAMA_BASE_URL:https://ollama.com/v1}
         model: ${OLLAMA_MODEL:gpt-oss:20b}
+
     # Outbound AI HTTP timeouts. Both must be finite: the default RestTemplate
     # uses infinite timeouts, so a provider that accepts the connection and then
     # stalls would never raise and the gateway could neither retry nor fail over.
@@ -124,6 +125,16 @@ qalab:
     # minutes, but it is not unbounded.
     connect-timeout-ms: 10000
     read-timeout-ms: 180000
+  cache:
+    # Page analyses are expensive to recompute (a browser navigation plus an LLM call)
+    # and hold nothing sensitive, so they are worth caching briefly. A short TTL stops a
+    # stale reading of the page quietly becoming the basis for a generated test suite.
+    #
+    # Credential caching was removed outright in B-027 rather than bounded: it stored
+    # plaintext passwords keyed by a hash of the URL, so an anonymous run against a
+    # previously-visited URL could read the previous user's password back out.
+    analysis-ttl-seconds: ${QALAB_CACHE_ANALYSIS_TTL_SECONDS:1800}
+    max-entries: ${QALAB_CACHE_MAX_ENTRIES:200}
 
 openai:
   api-key: ${OPENAI_API_KEY:}

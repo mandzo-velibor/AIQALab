@@ -74,7 +74,7 @@ class QaWorkflowServiceTest {
                 new AnalysisResponse("LOGIN", "summary", 95, null, null, null, null, null, null, null, null));
         when(locatorService.generateLocators(any(), any())).thenReturn(new LocatorResponse(0, List.of(), null, List.of()));
         when(planningService.generateTestPlan(any(), any(), any())).thenReturn(new TestPlanResponse(0, List.of(), null));
-        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenAnswer(inv -> {
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
             GeneratedTest t = new GeneratedTest();
             t.setScenarioName("Successful login");
             t.setTestCode("test('x', async () => {});");
@@ -130,7 +130,7 @@ class QaWorkflowServiceTest {
         // (generateTestsContent for the response, generateTestsEntities for the
         // workspace), which doubled cost and let the two invocations diverge.
         verify(codeGenerationService, org.mockito.Mockito.times(1))
-                .generateTestsEntities(any(), any(), any(), any());
+                .generateTestsEntities(any(), any(), any(), any(), any(), any());
         verify(codeGenerationService, never()).generateTestsContent(any(), any());
     }
 
@@ -150,7 +150,31 @@ class QaWorkflowServiceTest {
         // user's --instruction was silently dropped from planning and generation.
         verify(planningService).generateTestPlan(any(), any(), eq("focus on the username hint and red border"));
         verify(codeGenerationService).generateTestsEntities(
-                any(), any(), eq("focus on the username hint and red border"), eq("ui"));
+                any(), any(), eq("focus on the username hint and red border"), eq("ui"),
+                any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void passesTheRequestCredentialsToGenerationInsteadOfRelyingOnACache() {
+        // The credentials used to be cached by ExplorerService under a hash of the URL
+        // and read back by CodeGenerationService. Because the key was the URL and not
+        // the request, an anonymous run against a previously-visited URL picked up the
+        // previous user's password. They now travel with the request (B-027).
+        var request = new V1FullWorkflowRequest(info, "https://app.example.com/login",
+                "alice", "alice-secret", null, null, "ui");
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        try {
+            workflow.runFullTest(request);
+        } catch (RuntimeException ignored) {
+            // The workflow may fail later for unrelated reasons; the assertion below is
+            // about how generation was called, not about the run succeeding.
+        }
+
+        verify(codeGenerationService).generateTestsEntities(
+                any(), any(), any(), any(), eq("alice"), eq("alice-secret"));
     }
 
     @Test
@@ -192,7 +216,7 @@ class QaWorkflowServiceTest {
     @Test
     void runsInWorkspaceAndSkipsFailureAnalysisWhenTestsPass() {
         project.setWorkspacePath("/home/dev/internet-tests");
-        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenReturn(List.of());
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any(), any(), any())).thenReturn(List.of());
         when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
                 Map.of("status", "PASSED", "duration", 1200L, "output", "ok"));
         TestExecution record = new TestExecution();
@@ -213,7 +237,7 @@ class QaWorkflowServiceTest {
     void analyzesFailureAndGeneratesHealingCandidate() {
         project.setWorkspacePath("/home/dev/internet-tests");
         when(contextResolver.databaseId(info)).thenReturn(3L);
-        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenReturn(List.of());
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any(), any(), any())).thenReturn(List.of());
         when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
                 Map.of("status", "FAILED", "duration", 500L, "output", "timeout", "error", "locator not found"));
         TestExecution record = new TestExecution();
@@ -261,7 +285,7 @@ class QaWorkflowServiceTest {
     void skipsHealingWhenNotACandidate() {
         project.setWorkspacePath("/home/dev/internet-tests");
         when(contextResolver.databaseId(info)).thenReturn(3L);
-        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenReturn(List.of());
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any(), any(), any())).thenReturn(List.of());
         when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
                 Map.of("status", "FAILED", "duration", 500L, "output", "500", "error", "http 500"));
         TestExecution record = new TestExecution();

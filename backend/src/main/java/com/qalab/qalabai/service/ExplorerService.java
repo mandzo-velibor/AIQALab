@@ -131,7 +131,10 @@ public class ExplorerService {
         if (postLoginHtml != null) {
             String postLoginSimplified = domSimplifier.simplify(postLoginHtml);
             cache.putPostLoginContent(urlHash, postLoginSimplified);
-            cache.putLoginCredentials(urlHash, username, password);
+            // The credentials are deliberately NOT cached. They used to be stored here
+            // keyed by a hash of the URL, which meant a later anonymous run against the
+            // same URL read the previous user's password back out and attached it to its
+            // own generated tests. They travel with the request instead (B-027).
             log.info("Post-login content cached, simplified to {} chars", postLoginSimplified.length());
         }
 
