@@ -658,6 +658,7 @@ than as a side effect of a security fix.
 
 ### B-028 · Reuse the browser instead of relaunching per call
 **P1 · M · area: backend/tooling**
+**Status: DONE** — `cd0e67f`
 
 `BrowserTool.java:41,83,106` calls `Playwright.create()` + `chromium().launch()` on **every** invocation (≈1–2 s overhead each), with no `--no-sandbox` arg — which commonly breaks Chromium in containers running as root. `screenshotBase64` (full-page PNG) is carried in-band through the API and `AnalysisResponse`; the CLI has to `del(.screenshotBase64)`, a symptom of the payload problem.
 
@@ -668,9 +669,9 @@ than as a side effect of a security fix.
 - Bound concurrent pages.
 
 **Acceptance criteria**
-- [ ] N explore calls launch 1 browser, not N
-- [ ] Chromium launches successfully in the container image
-- [ ] No unbounded base64 in API responses
+- [x] N explore calls launch 1 browser, not N
+- [x] Chromium launches successfully in the container image
+- [x] No unbounded base64 in API responses
 
 **Files:** `tool/browser/BrowserTool.java`, `service/ExplorerService.java`
 **Depends on:** —

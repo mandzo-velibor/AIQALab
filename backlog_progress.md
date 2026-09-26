@@ -746,7 +746,7 @@ it has.
 | B-024 | Cap the provider cascade | P1 | S | **DONE** | `e55a1b1` |
 | B-025 | One shared, tolerant LLM JSON extractor | P1 | M | **DONE** | `56f62d9` |
 | B-027 | Fix `AnalysisCache` semantics | P1 | M | **DONE** | `0051410` |
-| B-028 | Reuse the browser instead of relaunching per call | P1 | M | TODO | — |
+| B-028 | Reuse the browser instead of relaunching per call | P1 | M | **DONE** | `cd0e67f` |
 | B-023 | Consolidate the provider clients | P2 | M | TODO | — |
 | B-026 | Structured logging + LLM metrics | P1 | M | **DONE** | `27df82a` |
 
@@ -1240,3 +1240,43 @@ health answers 200 without a key.
 `qalab.ai.cascade.extra.attempts` now gives the data the page-analysis caching decision
 (B-028's neighbour) was blocked on. Reconsider that trade once real hit-rate numbers
 exist rather than guessing now.
+
+
+### B-028 · Shared browser, and the screenshot that did not fit
+
+`cd0e67f` · P1 · M
+
+**What shipped**
+
+One `BrowserSessionManager` owns the Playwright process for the whole JVM. Each caller
+still gets a fresh context and page, so state cannot leak between runs — a shared
+*process* is not shared session state. Lazy launch, a page semaphore, relaunch-on-crash,
+and an idle close so a quiet server does not hold ~100 MB open.
+
+**The find that mattered more than the perf win**
+
+`AnalysisResponse` carried a full-page PNG as base64, and `ExplorerService` serialises
+that record into `page_analysis_history.analysis_json` — `varchar(10000)`. Any real
+analysis exceeded the column and the write failed. It read as a payload-size concern in
+the backlog; it was actually a broken write on the main analysis path. The field is now
+the screenshot path.
+
+`AnalysisResponsePersistenceSizeTest` asserts the serialised record fits the column and
+reads the limit from the migration, so widening the column later cannot quietly turn the
+guard into a no-op.
+
+**Still true, and worth restating:** base64 survives in one place — the dashboard
+`<img>` — because artifacts are not served over HTTP until the access model is chosen. It
+is capped at 512 KB, and the file on disk is kept regardless. Losing the artifact to save
+a preview would be the wrong trade.
+
+**Verification**
+
+562 tests green, 18 new. The acceptance criterion is a claim about a process, so it was
+checked against a real Chromium: 3 real navigations → exactly 1 launch, 0 leaked pages,
+and a 400-row page yields a screenshot past the cap that exists on disk and is not
+inlined. The mocked suite covers concurrency the real test cannot force.
+
+**Now unblocked:** page-analysis caching was deferred pending latency numbers, and
+`qalab.ai.latency` plus `qalab.ai.calls` from B-026 can now supply them. Still a
+correctness-for-speed trade, so it stays a decision rather than a default.
