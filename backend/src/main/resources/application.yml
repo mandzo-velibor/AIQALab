@@ -99,10 +99,15 @@ qalab:
     # The key is the lowercased AiProviderType name.
     providers:
       # AIQALAB is the managed provider served by OpenCodeManagedProviderClient. The
-      # client runs its own cross-provider cascade and reads its own model settings,
-      # so this entry exists only so a model always resolves for the gateway.
+      # client runs its own cross-provider cascade and reads its own model settings, so
+      # this entry exists only so a model always resolves for the gateway — and it must
+      # name the model the cascade actually tries FIRST, which is the managed Zen
+      # primary. It used to say big-pickle, which is the *fallback*: left behind when
+      # Space Bunny Free became the primary, so the gateway reported a model the
+      # cascade only reached if the first two failed. There is a test asserting the two
+      # agree.
       aiqalab:
-        model: ${AIQALAB_MODEL:big-pickle}
+        model: ${AIQALAB_MODEL:space-bunny-free}
       opencode:
         model: ${OPENCODE_MODEL:qwen3.7-plus}
       openai:

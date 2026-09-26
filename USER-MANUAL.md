@@ -161,6 +161,7 @@ in a cascade and falls back on failure.
 |---|---|---|
 | `OPENCODE_GO_API_KEY` | OpenCode Zen "go" | `qwen3.7-plus` |
 | `OPENCODE_ZEN_API_KEY` | OpenCode Zen | `space-bunny-free`, then `big-pickle` |
+| `AIQALAB_MODEL` | Managed (all of the above) | `space-bunny-free` |
 | `GEMINI_API_KEY` | Google Gemini | `gemini-1.5-flash` |
 | `OPENAI_API_KEY` | OpenAI | `gpt-4o-mini` |
 | `OLLAMA_API_KEY` | Ollama | `gpt-oss:20b` |
@@ -1015,6 +1016,12 @@ The managed path tries, in order: **OpenCode Go → Zen `space-bunny-free` → Z
 `big-pickle` → Gemini → Ollama**, skipping a provider whose key is absent, and stopping
 early on a usage-limit signal. This is why a single provider being down does not fail
 your run.
+
+`AIQALAB_MODEL` names the model the managed path tries **first**, and is what appears in
+usage records. It must stay equal to `OPENCODE_ZEN_MODEL`; it was left on the old
+fallback once, so the gateway reported a model the cascade only reached after two
+providers had already failed. A test now reads both out of the shipped config and fails
+if they disagree.
 
 Override the two Zen models without touching the config file:
 
