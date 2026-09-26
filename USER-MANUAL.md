@@ -215,6 +215,9 @@ qalab budget-policy set SOFT   # change
 | `QALAB_PLAYWRIGHT_SCREENSHOT` | `only-on-failure` | Artifact profile for **generated** workspaces |
 | `QALAB_PLAYWRIGHT_VIDEO` | `off` | " |
 | `QALAB_PLAYWRIGHT_TRACE` | `retain-on-failure` | " |
+| `QALAB_WORKFLOW_WORKERS` | `2` | Concurrent full-test workflows. Each holds a browser. |
+| `QALAB_WORKFLOW_QUEUE_CAPACITY` | `20` | Queued workflows before the API returns `429` |
+| `QALAB_WAIT_SECONDS` | `3600` | Client-side cap on how long `qalab test` waits for a result |
 | `QALAB_AI_CONNECT_TIMEOUT_MS` | `10000` | Outbound AI connect timeout |
 | `QALAB_AI_READ_TIMEOUT_MS` | `180000` | Outbound AI read timeout |
 | `QALAB_AI_FREEMONTHLYTOKENLIMIT` | `0` | Managed monthly token allowance; `0` = unlimited |
@@ -339,6 +342,12 @@ workflow whose tests failed exits `1`, so the command is usable directly as a CI
 **Requires a workspace.** Without one the command refuses to run, because it could not
 execute the suite and writing files to the current directory instead would be
 misleading. Use `qalab generate --write` if you only want files.
+
+**How it waits.** The CLI submits the workflow and polls for the result, printing live
+stage changes to stderr as before. The server runs the work off its own request
+threads, so a long run is no longer cut short by a proxy timeout (§14.1).
+`QALAB_WAIT_SECONDS` (default 3600) caps the client-side wait; on expiry the CLI tells
+you the operation id so you can check on it later rather than hanging.
 
 ### 7.2 `qalab plan --url <url>`
 
@@ -672,8 +681,42 @@ log) and §19.3 for deployment guidance.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/v1/workflows/full-test` | Run the full pipeline synchronously. Returns the complete step map. |
-| `GET` | `/api/v1/workflows/{operationId}/progress` | Current stage and message. Poll this for live progress. |
+| `POST` | `/api/v1/workflows/full-test` | Submit the full pipeline. Returns **`202 Accepted`** immediately with an `operationId` and `statusUrl`. |
+| `GET` | `/api/v1/workflows/{operationId}` | The result: `200` when terminal, `202` with the current stage while running, `404` unknown, `500` if the workflow threw. |
+| `GET` | `/api/v1/workflows/{operationId}/progress` | Current stage and message. Unchanged, for clients already watching progress. |
+
+**Why it is asynchronous.** A full run takes minutes — a headless browser, npm and
+six to seven LLM calls. When it ran on the request thread, every concurrent run held
+a server thread for its whole duration and any reverse proxy dropped the connection at
+its own read timeout: the backend kept working while the user was told the run had
+failed. Submitting and polling removes that failure mode.
+
+Calling it directly from a script:
+
+```bash
+# 1. submit
+ACK=$(curl -sS -X POST http://localhost:8080/api/v1/workflows/full-test \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"project":{...},"url":"https://staging.example.com","operationId":"my-run-1"}')
+echo "$ACK"
+# {"operationId":"my-run-1","status":"QUEUED","statusUrl":"/api/v1/workflows/my-run-1",...}
+
+# 2. poll until it is no longer 202
+while :; do
+  CODE=$(curl -sS -o /tmp/wf.json -w '%{http_code}' \
+    -H "Authorization: Bearer $KEY" http://localhost:8080/api/v1/workflows/my-run-1)
+  [ "$CODE" = "202" ] && { sleep 5; continue; }
+  break
+done
+cat /tmp/wf.json
+```
+
+**Capacity.** The pool is bounded (`QALAB_WORKFLOW_WORKERS`, default 2 — each worker
+holds a browser). Beyond `QALAB_WORKFLOW_QUEUE_CAPACITY` (default 20) queued jobs the
+API returns **`429`** with a retry message rather than accepting work the node cannot
+finish. `POST` returns in well under a second regardless of how long the run takes.
+
+Results are retained for two hours, so a slow or retried poll still succeeds.
 
 Request:
 
@@ -933,7 +976,7 @@ Ordered by how likely you are to hit them.
 | 2 | **No database migrations.** `ddl-auto: update` in dev/base, `validate` in prod. A production schema can be neither created nor evolved reliably. | Blocks trustworthy releases. | B-014 |
 | 3 | ~~`qalab.ai` config block absent~~ **Fixed in Sprint 1** — every provider has a default base URL and model, and a missing model is a loud configuration error. | — | — |
 | 4 | ~~Rate limiting is a no-op~~ **Fixed in Sprint 1** — token bucket per provider and per account, off by default. **Still open:** state is in-memory and per-process, so a multi-node deployment would not share limits. | Single node is now protected; a cluster is not. | — |
-| 5 | **The workflow is one long synchronous HTTP request.** A run holds a request thread for minutes; a proxy may drop the connection mid-run. | Limits concurrency; causes `Connection reset by peer` behind a load balancer. | B-017 |
+| 5 | ~~Workflow runs synchronously on the request thread~~ **Fixed in Sprint 1** — `POST` returns `202` immediately and the work runs on a bounded background pool; the CLI polls. **Still open:** job state is in-memory and per process, so a restart loses in-flight and uncollected results, and a multi-node deployment would not share the queue. | Single node is now safe against proxy timeouts. | — |
 | 6 | **`intent` discards the instruction.** The prompt is used only to detect intent, then dropped. | Intent-driven runs produce generic suites. | `docs/known-limitations/intent-drops-instruction.md` |
 | 7 | **One bug report per execution**, not per distinct failure. | Twenty identical failures yield one vague report. | B-032 |
 | 8 | **No per-test structured results.** Failures are parsed from Playwright's text output; the summary caps the list at 8. | No reliable "which tests failed" for large suites. | B-022 |
@@ -1069,19 +1112,36 @@ The run exceeded `QALAB_PLAYWRIGHT_TIMEOUT_SECONDS`. Either raise it, or narrow 
 with `--test-type` or a single test. If it times out on a modest suite, suspect resource
 contention — constrain workers (§21).
 
-### 20.8 "Connection reset by peer" during a long run
+### 20.8 "Workflow queue is full" (429)
 
-The HTTP request holding the workflow was dropped, typically by a proxy or load
-balancer read timeout. The backend usually continues. Mitigations: raise the proxy read
-timeout, or move to the asynchronous job model (B-017).
+The bounded pool is saturated: `QALAB_WORKFLOW_WORKERS` running, `QALAB_WORKFLOW_QUEUE_CAPACITY`
+waiting. This is deliberate — the alternative is accepting work the node can never
+finish. Retry shortly, or raise the limits if the host has capacity to spare (each
+worker holds a browser, so raise `workers` only with the RAM to back it).
 
-### 20.9 Page objects missing / tests do not compile
+### 20.9 "Connection reset by peer" during a long run
+
+**Fixed in Sprint 1.** This was the workflow being held on a request thread while a
+proxy or load balancer dropped the connection at its own read timeout. `qalab test` now
+submits and polls, and the API returns immediately, so the connection is short either
+way.
+
+If you still see it, the cause is something else:
+
+- A proxy in front of the Core with a very short timeout on the **other** endpoints —
+  check its `proxy_read_timeout`.
+- A dropped connection to an **AI provider**: those calls have their own budget
+  (`QALAB_AI_READ_TIMEOUT_MS`, §16.3) and retry automatically.
+- The browser being killed for exceeding its budget — that surfaces as a `TIMEOUT`
+  execution (§20.7), not a connection reset.
+
+### 20.10 Page objects missing / tests do not compile
 
 Each spec imports `../pages/<Class>_<scenario>`. Both the spec and the page object must
 be written together. If you copied only `tests/`, the import will not resolve. Re-run
 `qalab test`, or `qalab generate --write`, and copy both directories.
 
-### 20.10 Getting help
+### 20.11 Getting help
 
 Backend logs carry `operationId`, `executionId` and `projectId`. With an `operationId`
 you can retrieve the full workflow report:
@@ -1197,6 +1257,7 @@ docs/               architecture notes and known limitations
 | Date | Change |
 |---|---|
 | 2026-09-26 | Created. Documents behaviour after Sprint 0 (reliability + CLI reporting) and the start of Sprint 1 (deployability). All limitations recorded with tracking IDs. |
+| 2026-09-26 | Updated for B-017: §14.1 rewritten for the asynchronous contract (202 + polling, with a worked example), `429` on a saturated queue, new workflow configuration variables, new §20.8 troubleshooting, limitation 5 closed with the remaining in-memory-state caveat. |
 | 2026-09-26 | Updated for B-016: §16.5 rate limiting, new configuration variables, limitation 4 closed. |
 | 2026-09-26 | Updated for B-013: §14.0 authentication, `UNAUTHENTICATED` error code, CLI key configuration, new §20.2 troubleshooting, limitation 1 downgraded to "partly fixed" with the remaining tenancy gaps named. |
 | 2026-09-26 | Updated for B-018 (background Playwright warm-up), B-019 (runtime API base URL), B-020 (artifact profile now failures-only; limitation 12 closed), B-021 (bounded concurrency; limitation 13 closed), B-015 (`qalab.ai` config block; limitations 3 and 10 closed). Added `intent` instruction-dropping to limitations. |
