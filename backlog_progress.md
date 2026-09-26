@@ -539,14 +539,14 @@ The recurring lesson is the same each time: **a failed assertion or an unexplain
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
 | B-022 | Playwright JSON reporter → per-test results | P0 | M | **DONE** | `c225c5c` |
-| B-024 | Cap the provider cascade | P1 | S | TODO | — |
+| B-024 | Cap the provider cascade | P1 | S | **DONE** | `e55a1b1` |
 | B-025 | One shared, tolerant LLM JSON extractor | P1 | M | TODO | — |
 | B-027 | Fix `AnalysisCache` semantics | P1 | M | TODO | — |
 | B-028 | Reuse the browser instead of relaunching per call | P1 | M | TODO | — |
 | B-023 | Consolidate the provider clients | P2 | M | TODO | — |
 | B-026 | Structured logging + LLM metrics | P2 | M | TODO | — |
 
-**Totals:** 1/7 done · 1 commit · elapsed 71m
+**Totals:** 2/7 done · 2 commits · elapsed 168m
 
 
 ### B-022 · Playwright JSON reporter → structured per-test results
@@ -634,6 +634,93 @@ passed; the real run is what caught it. Asserted on the exact specifier now.
   video and trace are classified. Revisit with B-029 if the HTML report wants them.
 
 ---
+
+### B-024 · Cap the provider cascade
+| | |
+|---|---|
+| **Status** | **DONE** (+1 hidden multiplier, +1 config trap) |
+| **Date** | 2026-09-26 |
+| **Duration** | 97m |
+| **Commit** | `e55a1b1` (2 of 7) |
+
+**What changed**
+- The cascade is now a **flat loop over the candidates under one shared budget**, not a
+  retry loop wrapped around a cascade. The cascade *is* the retry mechanism, so a
+  transient failure on one provider is answered by moving to the next.
+- `OPENCODE_MAX_PROVIDER_CALLS` (default 6) is a hard ceiling across the whole
+  operation. `OPENCODE_MAX_ATTEMPTS_PER_PROVIDER` (default 2) abandons a provider that
+  keeps failing, so one broken provider cannot consume the whole budget.
+- **An exhausted cascade is no longer retried by the gateway.** Every configured
+  provider has been tried within its budget by then.
+- Usage reports the **sum across every attempt**, and `ProviderCallResult` carries the
+  attempt count.
+- Each `AiOperation` declares its own output ceiling (1 500 – 8 000) instead of one
+  global 12 000.
+- Per request: **Space Bunny Free** is the primary Zen model ahead of Big Pickle; the
+  cap default moved to 6 so the whole configured cascade stays reachable.
+
+**The stated worst case was 15 calls. The real one was 45.**
+The backlog says `attemptProviders` runs inside "a 3-attempt loop: up to 15 upstream
+LLM calls". True as far as it goes — but `AiGateway.executeWithRetry` sits *outside* it
+and catches `Exception`, retrying the client call up to `max-retries: 2`. So a managed
+cascade that had already spent its budget of 4 was re-run from scratch twice more:
+**4 × 3 = 12 upstream calls**, each with a backoff sleep between gateway attempts.
+Sizing the fix to the provider alone — the obvious reading of the task — would have
+left 12 and produced a commit that claimed to have bounded the cascade.
+
+Fixed by a typed `ProviderCascadeExhaustedException` that the gateway catches
+separately from transport errors. The distinction is the whole point: a cascade that
+exhausted its providers is a final answer, an ordinary connection reset is not. There is
+a test for each, so dropping the retry cannot pass unnoticed.
+
+**A data race I introduced and removed before committing.** The first version
+accumulated attempt telemetry in fields on the `OpenCodeAiProvider` bean. It is a
+singleton `@Component` shared by concurrent workflows, so per-request state there is a
+race — two simultaneous runs would interleave their attempt counts into each other's
+usage records. Attempts are now reported through an `AttemptObserver` the caller passes
+in, so the state lives with the invocation that owns it.
+
+**A config trap worth recording.** The cap has to be at least the number of configured
+candidates, or the tail of the cascade is dead configuration — Gemini and Ollama would
+never be tried in the worst case, which is exactly when you would want them. Adding
+Space Bunny Free made the candidate list 5 long, so the default moved from 4 to 6:
+enough for every candidate plus one retry. Asserted by a test that reads the labels and
+requires all five to appear.
+
+**Also: rejected responses were invisible to the budget.** A response rejected by a
+validator was still billed, but `AiGateway` recorded only the tokens of the response
+that finally succeeded, so a run that drained the allowance looked cheap. The gateway
+also *overwrote* the client's reported tokens with a fresh estimate whenever
+`estimated` was set — which would have quietly undone the fix from the inside. Both
+corrected, with the overwrite now logged rather than silent.
+
+**How it was tested**
+- The bound is asserted **directly**, not inferred: an all-failing cascade issues
+  exactly `max-provider-calls` requests, and a lone failing provider exactly
+  `max-attempts-per-provider`. A fifth request fails the test, so the bound is the
+  runner's doing and not a coincidence of the fixtures.
+- **Latency measured, not asserted**: the failure path takes **~84 ms** with stubbed
+  providers, against a **3 s floor** for the old version from its backoff sleeps alone.
+  The regression test asserts a 1.5 s ceiling — 2× clear of the new behaviour and well
+  clear of the old, without being flaky.
+- Two tests pin the distinct outcomes: a transient client error **is** still retried,
+  an exhausted cascade is not.
+- The cascade order is asserted by label, including Space Bunny Free ahead of Big
+  Pickle.
+- Per-operation budgets are asserted per operation, plus a guard that **no** operation
+  asks for the old 12 000.
+- App boots clean against a fresh database; logs the new order
+  (`Go(qwen3.7-plus) → Zen(space-bunny-free) → Zen(big-pickle) → …`).
+- Full suite **306 green** (was 282).
+
+**Deviation from the backlog's dependency:** B-024 lists B-023 (consolidate the provider
+clients) as a prerequisite. Implemented on the legacy `OpenCodeAiProvider` instead —
+the cap is independent of how many HTTP methods exist. B-023 remains worth doing for
+its own sake, and this change does not make it harder.
+
+**Left alone:** `mimo-v2.5-free` leaves the cascade at the user's request. B-023 still
+owes the same consolidation to the BYOK path, which has no cascade at all.
+
 ### Why B-022 comes first
 It is the blocker for everything in Sprint 3. The workflow currently only sees a
 truncated blob of Playwright's text output, so it cannot say *which* tests failed,

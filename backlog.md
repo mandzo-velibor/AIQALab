@@ -546,9 +546,23 @@ Two provider stacks coexist: the legacy `AiProvider` (`OpenCodeAiProvider`) and 
 - Reduce `MAX_TOKENS` per operation to what the task actually needs.
 
 **Acceptance criteria**
-- [ ] Worst-case upstream calls per operation is bounded and asserted in a test
-- [ ] `usage` records attempts and total tokens including rejected responses
-- [ ] Measurable latency improvement on the provider-failure path
+- [x] Worst-case upstream calls per operation is bounded and asserted in a test
+- [x] `usage` records attempts and total tokens including rejected responses
+- [x] Measurable latency improvement on the provider-failure path
+
+**Shipped in** `e55a1b1` — with three corrections to the plan above:
+- The real worst case was **45** upstream calls, not 15. `AiGateway.executeWithRetry`
+  sat outside the cascade and re-ran all of it up to 3 times. Capping only the provider
+  would have left 12 and looked like a fix.
+- The backoff sleeps (1 s, then 2 s) are gone: sleeping *between different providers*
+  bought nothing, since the next candidate is not a retry of the last.
+- The cap must be **at least the number of configured candidates**, or the tail of the
+  cascade is unreachable in the worst case. Default raised to 6 for 5 candidates.
+
+**Files:** `ai/opencode/OpenCodeAiProvider.java`, `ai/gateway/AiGateway.java`, `ai/gateway/ProviderCascadeExhaustedException.java`, `ai/gateway/ProviderCallResult.java`, `ai/gateway/AiOperation.java`, `ai/gateway/OpenCodeManagedProviderClient.java`
+
+**Done without B-023**, which this task listed as a prerequisite: the cap is
+independent of how many HTTP methods the provider has. B-023 is still owed.
 
 **Files:** `ai/opencode/OpenCodeAiProvider.java` (or its B-023 successor), `ai/gateway/UsageService.java`
 **Depends on:** B-023
