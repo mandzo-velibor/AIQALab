@@ -32,6 +32,13 @@ qalab:
   # pin a request thread forever; raise it for very large suites.
   playwright:
     timeout-seconds: 600
+    # Artifact profile for GENERATED workspaces. The defaults capture evidence for
+    # failures only: recording video and a trace for every passing test is a large
+    # disk and wall-clock cost and buries the failures that matter. A workspace
+    # that already has its own playwright.config.ts is never modified.
+    screenshot: only-on-failure
+    video: off
+    trace: retain-on-failure
   cors:
     # Comma-separated browser origins allowed to call /api/**. Must be set for any
     # deployment that is not on localhost, or every frontend call is blocked by the

@@ -203,6 +203,9 @@ qalab budget-policy set SOFT   # change
 | `QALAB_AUTO_OPEN_BROWSER` | `true` | Dev convenience: opens a browser. Disable in containers. |
 | `QALAB_AUTO_INSTALL_PLAYWRIGHT` | `true` | Warm up workspaces in the **background** after startup. |
 | `QALAB_PLAYWRIGHT_TIMEOUT_SECONDS` | `600` | Wall-clock budget for one Playwright run. Always finite. |
+| `QALAB_PLAYWRIGHT_SCREENSHOT` | `only-on-failure` | Artifact profile for **generated** workspaces |
+| `QALAB_PLAYWRIGHT_VIDEO` | `off` | " |
+| `QALAB_PLAYWRIGHT_TRACE` | `retain-on-failure` | " |
 | `QALAB_AI_CONNECT_TIMEOUT_MS` | `10000` | Outbound AI connect timeout |
 | `QALAB_AI_READ_TIMEOUT_MS` | `180000` | Outbound AI read timeout |
 
@@ -868,7 +871,7 @@ Ordered by how likely you are to hit them.
 | 9 | **No HTML/Allure report.** `report.md` is generated server-side but never surfaced by the CLI. | The most useful artifact is missing. | B-029, B-030 |
 | 10 | **Default token budget (4000/month) is below one workflow run.** | `AI_BUDGET_EXCEEDED` on a default local start. | B-015 |
 | 11 | **No caching of page analysis between runs** (deliberate). | Every run re-explores and re-analyses. The largest available latency win, but it trades correctness for speed and that trade is unchosen. | deferred |
-| 12 | **Playwright `screenshot: 'on'`, `video: 'on'`, `trace: 'on'` by default.** | Heavy disk and wall-clock cost; videos for passing tests too. | B-020 |
+| 12 | ~~Playwright records artifacts for every test~~ **Fixed in Sprint 1** — generated workspaces now default to `only-on-failure` / `off` / `retain-on-failure`. Existing workspaces keep their own config until regenerated. | — | — |
 | 13 | **Playwright concurrency is unset** — the runner picks a default. | Flakiness and timeouts on small VMs. | B-021 |
 | 14 | **Legacy `/api/*` surface still live and used by the UI.** | Two contracts to maintain; doubles the security review surface. | B-033 |
 | 15 | **Generated tests inherit the generator's limits.** Assertions are grounded in the captured page content, so a defect that is invisible in a static snapshot cannot be found. | Fundamental to the approach. | by design |
@@ -1015,30 +1018,45 @@ cd backend && mvn verify        # 178 tests
 cd frontend && npm run build    # includes typecheck
 ```
 
-### 21.2 Playwright knobs in the generated workspace config
+### 21.2 The generated workspace config
 
-The Core writes a default `playwright.config.ts` when a workspace has none. Useful
-adjustments:
+When a workspace has no `playwright.config.ts`, the Core writes one. **If the file
+already exists it is never modified** — the config belongs to you.
+
+The generated defaults capture evidence for **failures only**:
 
 ```ts
 export default defineConfig({
   testDir: './tests',
   timeout: 30_000,
-  expect: { timeout: 5_000 },
-  workers: process.env.CI ? 2 : undefined,  // bound concurrency
-  retries: 0,                              // surface flakiness, do not hide it
   use: {
     headless: true,
-    screenshot: 'only-on-failure',         // default is currently 'on'
-    video: 'off',                          // default is currently 'on'
-    trace: 'retain-on-failure',            // default is currently 'on'
+    screenshot: 'only-on-failure',
+    video: 'off',
+    trace: 'retain-on-failure',
   },
 });
 ```
 
-Prefer `only-on-failure` for screenshots and `retain-on-failure` for traces: the
-defaults currently record video for passing tests too, which is a large cost in disk
-and wall-clock time.
+Earlier versions used `screenshot: 'on', video: 'on', trace: 'on'`, which produced 20
+videos and 20 traces for a 20-test run regardless of outcome — expensive in disk and
+wall-clock time, and it buried the failures among noise.
+
+Override the profile per deployment:
+
+| Variable | Default |
+|---|---|
+| `QALAB_PLAYWRIGHT_SCREENSHOT` | `only-on-failure` |
+| `QALAB_PLAYWRIGHT_VIDEO` | `off` |
+| `QALAB_PLAYWRIGHT_TRACE` | `retain-on-failure` |
+
+For anything beyond these, edit the workspace's own config. Two settings worth
+considering on a small VM:
+
+```ts
+workers: 2,        // bound concurrency; see §20.5
+retries: 0,        // surface flakiness rather than hiding it
+```
 
 ### 21.3 Adding a provider
 
@@ -1087,7 +1105,8 @@ docs/               architecture notes and known limitations
 
 | Date | Change |
 |---|---|
-| 2026-09-26 | Created. Documents behaviour after Sprint 0 (reliability + CLI reporting) and the start of Sprint 1 (deployability). All 18 known limitations recorded with tracking IDs. |
+| 2026-09-26 | Created. Documents behaviour after Sprint 0 (reliability + CLI reporting) and the start of Sprint 1 (deployability). All limitations recorded with tracking IDs. |
+| 2026-09-26 | Updated for B-018 (background Playwright warm-up), B-019 (runtime API base URL), B-020 (artifact profile now failures-only; limitation 12 closed). Added `intent` instruction-dropping to limitations. |
 
 **Maintenance:** update this file in the same commit as any change to CLI flags,
 environment variables, API contracts, output artifacts or known limitations.
