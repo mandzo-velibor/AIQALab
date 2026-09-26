@@ -43,6 +43,7 @@ public class AiGateway {
     private final TokenBudgetService budgetService;
     private final UsageService usageService;
     private final ProviderResilience resilience;
+    private final com.qalab.qalabai.observability.AiMetrics metrics;
     private final RateLimiter rateLimiter;
     private final ProviderPricingRegistry pricingRegistry;
     private final Map<AiProviderType, ProviderClient> clients;
@@ -56,7 +57,8 @@ public class AiGateway {
                      RateLimiter rateLimiter,
                      ProviderPricingRegistry pricingRegistry,
                      List<ProviderClient> providerClients,
-                     ProviderResilience resilience) {
+                     ProviderResilience resilience,
+                     com.qalab.qalabai.observability.AiMetrics metrics) {
         this.properties = properties;
         this.managedCredentials = managedCredentials;
         this.credentialStore = credentialStore;
@@ -64,6 +66,7 @@ public class AiGateway {
         this.budgetService = budgetService;
         this.usageService = usageService;
         this.resilience = resilience;
+        this.metrics = metrics;
         this.rateLimiter = rateLimiter;
         this.pricingRegistry = pricingRegistry;
         this.clients = providerClients.stream()
@@ -142,7 +145,7 @@ public class AiGateway {
         ProviderCallResult result = executeWithRetry(
                 new ProviderCallRequest(request.getSystemPrompt(), request.getUserPrompt(),
                         model, apiKey, baseUrl, maxOutputTokens, request.getValidator()),
-                client, mode, operationId);
+                client, mode, operationId, request.getOperation(), request.getModel());
 
         int input = result.getInputTokens();
         int output = result.getOutputTokens();
@@ -240,7 +243,9 @@ public class AiGateway {
     private ProviderCallResult executeWithRetry(ProviderCallRequest callRequest,
                                                 ProviderClient client,
                                                 AiCredentialMode mode,
-                                                String operationId) {
+                                                String operationId,
+                                                AiOperation operation,
+                                                String requestedModel) {
         int maxRetries = properties.getMaxRetries();
         // The breaker is keyed on the client type, not the model: that is the unit the
         // gateway can attribute a failure to. The managed client keeps its own
@@ -254,6 +259,7 @@ public class AiGateway {
                 // provider costs a full timeout before anyone learns it is dead.
                 throw ApiException.aiProviderUnavailable(refusal.guidance(), operationId);
             }
+            long startedNanos = System.nanoTime();
             ProviderResilience.Permit permit = resilience.acquireSlot(providerKey);
             if (permit == null) {
                 throw ApiException.aiProviderUnavailable(
@@ -265,11 +271,13 @@ public class AiGateway {
             try {
                 ProviderCallResult result = client.call(callRequest);
                 resilience.recordSuccess(providerKey);
+                recordMetrics(client, operation, requestedModel, "success", startedNanos, result, attempt + 1);
                 return result;
             } catch (OpenAiCompatProviderClient.ProviderHttpException e) {
                 if (CircuitBreaker.countsAsFailure(e.getStatusCode())) {
                     resilience.recordFailure(providerKey);
                 }
+                recordMetrics(client, operation, requestedModel, "http_" + e.getStatusCode(), startedNanos, null, attempt + 1);
                 classifyHttpError(e, mode, operationId);
                 if (attempt >= maxRetries) {
                     throw ApiException.aiProviderUnavailable(
@@ -277,6 +285,7 @@ public class AiGateway {
                 }
                 sleep(properties.getRetryBackoffMs() * (attempt + 1));
             } catch (ProviderCascadeExhaustedException e) {
+                recordMetrics(client, operation, requestedModel, "cascade_exhausted", startedNanos, null, attempt + 1);
                 // Every configured provider has already been tried inside its own
                 // budget. Retrying the identical cascade here would multiply the cost
                 // of a failing operation by the retry count, so fail fast and report
@@ -291,6 +300,7 @@ public class AiGateway {
                 // A transport error, a timeout or an unparseable response: the provider
                 // did not do its job, so the breaker should know.
                 resilience.recordFailure(providerKey);
+                recordMetrics(client, operation, requestedModel, "error", startedNanos, null, attempt + 1);
                 if (attempt >= maxRetries) {
                     throw ApiException.aiProviderUnavailable(
                             "AI provider " + client.type() + " failed: " + e.getMessage(), operationId, e);
@@ -330,6 +340,38 @@ public class AiGateway {
             Thread.sleep(millis);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Records one AI call attempt. Best-effort by construction: a metrics failure must
+     * never turn a working AI call into a failed one, so nothing here throws.
+     */
+    private void recordMetrics(ProviderClient client, AiOperation operation, String requestedModel,
+                               String outcome, long startedNanos, ProviderCallResult result,
+                               int attempts) {
+        try {
+            long latencyMs = (System.nanoTime() - startedNanos) / 1_000_000L;
+            int input = 0;
+            int output = 0;
+            double cost = 0;
+            String model = requestedModel != null ? requestedModel : "unknown";
+            if (result != null) {
+                input = result.getInputTokens();
+                output = result.getOutputTokens();
+                if (result.getModelUsed() != null) {
+                    model = result.getModelUsed();
+                }
+                java.math.BigDecimal estimated =
+                        pricingRegistry.estimateCost(client.type(), model, input, output);
+                cost = estimated != null ? estimated.doubleValue() : 0;
+            }
+            metrics.recordAiCall(client.type().name(), model,
+                    operation != null ? operation.name() : null,
+                    outcome, latencyMs, input, output, cost, attempts);
+            metrics.refreshCircuitBreakers();
+        } catch (Exception e) {
+            log.debug("Could not record AI metrics: {}", e.getMessage());
         }
     }
 

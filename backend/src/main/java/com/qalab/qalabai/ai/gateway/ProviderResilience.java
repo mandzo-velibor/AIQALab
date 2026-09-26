@@ -113,6 +113,20 @@ public class ProviderResilience {
         return counter == null ? 0 : counter.get();
     }
 
+    /**
+     * Every provider this layer has touched — a breaker <em>or</em> a bulkhead.
+     *
+     * <p>Breakers alone are not enough for observability: a provider that was only ever
+     * rate-limited has a bulkhead but no breaker, and its rejections would be invisible.
+     * That is the case where the bulkhead is doing the work, so it is the case worth
+     * seeing.</p>
+     */
+    public java.util.Set<String> knownProviders() {
+        java.util.Set<String> all = new java.util.LinkedHashSet<>(breakers.keySet());
+        all.addAll(bulkheads.keySet());
+        return all;
+    }
+
     /** Every breaker's state, for logs and the metrics work in B-026. */
     public java.util.List<CircuitBreaker.Stats> stats() {
         return breakers.values().stream()

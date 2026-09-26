@@ -1,5 +1,6 @@
 package com.qalab.qalabai.service;
 
+import com.qalab.qalabai.observability.AiMetrics;
 import com.qalab.qalabai.agent.ProjectContext;
 import com.qalab.qalabai.api.OperationStatus;
 import com.qalab.qalabai.api.v1.dto.V1FullWorkflowRequest;
@@ -112,15 +113,20 @@ public class QaWorkflowService {
         }
 
         OperationStatus finalStatus = OperationStatus.COMPLETED;
+        long workflowStart = System.nanoTime();
         progressStore.update(operationId, OperationStatus.RUNNING.name(), "STARTED", "starting full test workflow...");
 
         try {
             // 1. EXPLORE + ANALYZE (page capture and analysis are performed together)
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "EXPLORING", "exploring app...");
+            long exploreStart = System.nanoTime();
             AnalysisResponse analysis = explorerService.analyze(
                     url, true, dbId, request.username(), request.password(), request.instruction());
-            steps.put("explore", step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType())));
-            steps.put("analyze", step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType())));
+            long exploreMs = (System.nanoTime() - exploreStart) / 1_000_000L;
+            steps.put("explore", timedStep("EXPLORE", exploreStart,
+                    step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType()))));
+            steps.put("analyze", timedStep("ANALYZE", exploreStart,
+                    step("COMPLETED", Map.of("url", url, "pageType", analysis.pageType()))));
 
             // 2. + 3. LOCATORS and TEST PLAN (independent LLM steps, run in parallel)
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_LOCATORS", "generating locators and test plan...");
@@ -130,13 +136,16 @@ public class QaWorkflowService {
                     () -> locatorService.generateLocators(url, dbId), aiExecutor);
             CompletableFuture<TestPlanResponse> planFuture = CompletableFuture.supplyAsync(
                     () -> planningService.generateTestPlan(url, dbId, instruction), aiExecutor);
+            long genStart = System.nanoTime();
             LocatorResponse locators = locatorsFuture.join();
+            long locatorsMs = (System.nanoTime() - genStart) / 1_000_000L;
             TestPlanResponse plan = planFuture.join();
-            steps.put("locators", step("COMPLETED", Map.of("generated", locators.generated())));
-            steps.put("testPlan", step("COMPLETED", Map.of(
+            steps.put("locators", timedStep("GENERATE_LOCATORS", genStart,
+                    step("COMPLETED", Map.of("generated", locators.generated()))));
+            steps.put("testPlan", timedStep("TEST_PLAN", genStart, step("COMPLETED", Map.of(
                     "scenarioCount", plan.scenarioCount(),
                     "scenarios", plan.scenarios()
-            )));
+            ))));
 
             // 4. GENERATE TESTS. Generated exactly once: the same entities feed both the
             // response payload and the workspace write, so the specs the client receives
@@ -147,8 +156,10 @@ public class QaWorkflowService {
             // The credentials travel with the request instead of being read back out of
             // a URL-keyed cache, which used to hand one user's password to another
             // user's run (B-027).
+            long generateStart = System.nanoTime();
             List<GeneratedTest> tests = codeGenerationService.generateTestsEntities(
                     url, dbId, instruction, testType, request.username(), request.password());
+            long generateMs = (System.nanoTime() - generateStart) / 1_000_000L;
             steps.put("generatedTests", step("COMPLETED", Map.of(
                     "count", tests.size(),
                     "files", toGeneratedFiles(tests))));
@@ -168,7 +179,7 @@ public class QaWorkflowService {
                 progressStore.update(operationId, OperationStatus.RUNNING.name(), "RUNNING_TESTS", "running tests...");
                 RunWithFiles executed = runInWorkspace(project, url, dbId, tests);
                 Map<String, Object> run = executed.run();
-                steps.put("execution", step("COMPLETED", run));
+                steps.put("execution", timedStep("RUN_TESTS", generateStart, step("COMPLETED", run)));
 
                 // Replace the provisional payload with what was actually written,
                 // including the page objects each spec imports. The client must
@@ -207,6 +218,18 @@ public class QaWorkflowService {
             Map<String, Object> errorData = new LinkedHashMap<>();
             errorData.put("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
             steps.put("workflow", step("FAILED", errorData));
+        } finally {
+            // The total, tagged by outcome. Without it "why was it slow?" can only be
+            // answered by adding up the per-step numbers by hand.
+            AiMetrics metrics = AiMetrics.current();
+            if (metrics != null) {
+                try {
+                    metrics.recordWorkflowStep("FULL_WORKFLOW", finalStatus.name(),
+                            (System.nanoTime() - workflowStart) / 1_000_000L);
+                } catch (RuntimeException e) {
+                    log.debug("Could not record workflow metrics: {}", e.getMessage());
+                }
+            }
         }
 
         progressStore.update(operationId, finalStatus.name(), "DONE",
@@ -443,6 +466,27 @@ public class QaWorkflowService {
             result.put("bugReport", step("FAILED", Map.of("error", String.valueOf(e.getMessage()))));
         }
         return result;
+    }
+
+    /**
+     * Wraps a step's result with its duration, and records it.
+     *
+     * <p>Timing in one place rather than around each step, because a per-step stopwatch
+     * in eight places is eight chances to forget one — and a step that is not measured
+     * is exactly the one someone will ask about.</p>
+     */
+    private Map<String, Object> timedStep(String name, long startedNanos,
+                                          Map<String, Object> result) {
+        long ms = (System.nanoTime() - startedNanos) / 1_000_000L;
+        Object status = result.get("status");
+        Map<String, Object> withDuration = new LinkedHashMap<>(result);
+        withDuration.put("durationMs", ms);
+        try {
+            AiMetrics.current().recordWorkflowStep(name, String.valueOf(status), ms);
+        } catch (RuntimeException e) {
+            log.debug("Could not record step metrics for {}: {}", name, e.getMessage());
+        }
+        return withDuration;
     }
 
     private Map<String, Object> step(String status, Map<String, Object> data) {

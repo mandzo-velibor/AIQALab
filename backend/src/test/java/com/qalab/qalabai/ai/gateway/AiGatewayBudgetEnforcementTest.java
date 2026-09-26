@@ -70,7 +70,7 @@ class AiGatewayBudgetEnforcementTest {
         gateway = new AiGateway(properties, managedCredentials, credentialStore,
                 accountService, budgetService, usageService, rateLimiter,
                 new ProviderPricingRegistry(), java.util.List.of(client),
-                new ProviderResilience(5, 30, 8, 100));
+                new ProviderResilience(5, 30, 8, 100), metrics());
     }
 
     private AiRequest request() {
@@ -140,7 +140,7 @@ class AiGatewayBudgetEnforcementTest {
         AiGateway limited = new AiGateway(properties, managedCredentials, credentialStore,
                 accountService, budgetService, usageService, denying,
                 new ProviderPricingRegistry(), java.util.List.of(client),
-                new ProviderResilience(5, 30, 8, 100));
+                new ProviderResilience(5, 30, 8, 100), metrics());
 
         ApiException e = org.junit.jupiter.api.Assertions.assertThrows(ApiException.class,
                 () -> limited.complete(request(), null));
@@ -151,5 +151,12 @@ class AiGatewayBudgetEnforcementTest {
                 "should name the knob to turn: " + e.getMessage());
         org.mockito.Mockito.verify(client, org.mockito.Mockito.never())
                 .call(org.mockito.ArgumentMatchers.any());
+    }
+
+    /** Metrics are exercised directly in AiMetricsTest; the gateway just needs one. */
+    private com.qalab.qalabai.observability.AiMetrics metrics() {
+        return new com.qalab.qalabai.observability.AiMetrics(
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                new ProviderResilience(5, 30, 8, 10));
     }
 }

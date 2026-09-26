@@ -72,7 +72,7 @@ class AiGatewayCascadeBoundTest {
         gateway = new AiGateway(properties, managedCredentials, credentialStore,
                 accountService, budgetService, usageService, rateLimiter,
                 new ProviderPricingRegistry(), java.util.List.of(client),
-                new ProviderResilience(5, 30, 8, 100));
+                new ProviderResilience(5, 30, 8, 100), metrics());
     }
 
     private AiRequest request() {
@@ -125,5 +125,12 @@ class AiGatewayCascadeBoundTest {
         assertThrows(ApiException.class, () -> gateway.complete(request(), ctx));
         // A raised retry count must not resurrect the multiplied cost.
         verify(client, times(1)).call(any());
+    }
+
+    /** Metrics are exercised directly in AiMetricsTest; the gateway just needs one. */
+    private com.qalab.qalabai.observability.AiMetrics metrics() {
+        return new com.qalab.qalabai.observability.AiMetrics(
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                new ProviderResilience(5, 30, 8, 10));
     }
 }

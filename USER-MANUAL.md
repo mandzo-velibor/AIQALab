@@ -1212,7 +1212,71 @@ not with something we accept.
 
 Breaker state is logged on every transition and readable through the gateway.
 
-### 16.8 Token accounting
+### 16.8 Observability: logs and metrics
+
+#### Finding a run in the logs
+
+Every response carries an `X-Operation-Id` header, and every log line for that request
+carries the same id. To see everything one run did:
+
+```bash
+curl -sD- -o/dev/null localhost:8080/api/v1/projects | grep -i x-operation-id
+grep '<that-id>' app.log
+```
+
+The prod profile writes **JSON** logs (a human terminal would be unreadable otherwise), so
+a log aggregator can parse them without guessing where a record ends. Include
+`operationId` when reporting a problem and the trace can be reconstructed without anyone
+reproducing it.
+
+Send your own `X-Operation-Id` and it is honoured, which is what lets a trace survive a
+proxy hop or a retry. A value that is over 64 characters or contains anything other than
+letters, digits, `-`, `_` and `.` is replaced rather than echoed — it lands in a response
+header and a log field, so an unbounded value is both a log-flooding vector and a
+header-injection risk.
+
+#### Metrics
+
+`/actuator/metrics` (prod profile) exposes:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `qalab.ai.calls` | counter | provider, model, operation, outcome |
+| `qalab.ai.latency` | timer | provider, model, operation, outcome |
+| `qalab.ai.tokens` | counter | provider, model, direction (input/output) |
+| `qalab.ai.cost` | counter | provider, model |
+| `qalab.ai.cascade.extra.attempts` | counter | provider |
+| `qalab.playwright.duration` | timer | status |
+| `qalab.playwright.tests` | counter | status |
+| `qalab.workflow.duration` | timer | step, status |
+| `qalab.ai.circuit.state` | gauge | provider — 0 closed, 1 half-open, 2 open |
+| `qalab.ai.circuit.rejections` | gauge | provider |
+
+Two things worth knowing:
+
+- **`outcome` is not optional on the latency timer.** A timer without it averages a fast
+  failure in with a slow success and tells you nothing.
+- **`qalab.ai.cascade.extra.attempts` is the early warning.** It counts how often the
+  cascade had to try more than one provider — the leading indicator of a provider
+  degrading, which shows up there long before defect recall drops.
+
+Metrics are registered lazily, so a fresh instance shows only the circuit gauges until
+there has been traffic. That is intentional: an empty time series is noise.
+
+**No metric carries an account or project label, deliberately.** Both are unbounded, and
+a label with unbounded values is the standard way to take down a metrics backend. Per-account
+cost is queryable from the `ai_usage_record` table, which is a better fit for it anyway.
+
+#### Access
+
+`/actuator/health` is public so a container probe works — a liveness probe that gets a
+401 would have the platform kill a healthy pod. `/actuator/metrics` and `/info` require
+the same API key as the rest of the API, because they reveal model names, latencies and
+costs. Only those three endpoints are exposed at all; `/env`, `/config`, `/heapdump` and
+`/threaddump` are not, and `anyRequest().denyAll()` means a newly added endpoint is
+unreachable until someone decides its access.
+
+### 16.9 Token accounting
 
 When a provider does not report usage, tokens are estimated at roughly four characters
 per token and the record is flagged `estimated`. Cost is estimated from a pricing

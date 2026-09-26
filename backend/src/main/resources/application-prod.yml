@@ -12,8 +12,32 @@ spring:
 server:
   port: ${PORT:8080}
 
+# B-026: structured logs and queryable metrics. Prod only — a JSON log stream is
+# unreadable in a terminal, and the default profile stays human-friendly.
 logging:
   level:
     com.qalab.qalabai: INFO
     org.springframework.web: WARN
     org.hibernate.SQL: WARN
+  config: classpath:logback-prod.xml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only the metrics endpoint. Exposing /env, /config, /heapdump or /threaddump
+        # on a network-reachable service is a disclosure risk, and none of them are
+        # needed to answer "is it slow?".
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: qalab-ai
+      environment: prod
+  observations:
+    key-values:
+      application: qalab-ai

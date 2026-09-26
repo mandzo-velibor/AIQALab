@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JSON logs for the prod profile (B-026).
+
+  The MDC entries set by RequestCorrelationFilter — operationId, httpMethod, httpPath —
+  are emitted on every record, so a single request can be reconstructed from the log
+  alone: grep the operationId and you have the request, the AI calls it made, the
+  Playwright run and the outcome. That is what "why was it slow?" needs, and it used to
+  mean counting log lines by hand.
+-->
+<configuration>
+    <springProperty scope="context" name="applicationName" source="spring.application.name"
+                    defaultValue="qalab-ai"/>
+
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp>
+                    <fieldName>@timestamp</fieldName>
+                </timestamp>
+                <pattern>
+                    <pattern>
+                        {"level":"%level","logger":"%logger{40}","thread":"%thread",
+                         "message":"%message","application":"${applicationName}"}
+                    </pattern>
+                </pattern>
+                <mdc/>
+                <stackTrace/>
+                <arguments/>
+            </providers>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="JSON"/>
+    </root>
+</configuration>

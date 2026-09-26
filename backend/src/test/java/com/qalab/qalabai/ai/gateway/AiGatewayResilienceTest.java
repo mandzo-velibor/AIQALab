@@ -73,7 +73,7 @@ class AiGatewayResilienceTest {
         resilience = new ProviderResilience(2, 30, 8, 10);
         gateway = new AiGateway(properties, managed, credentials, accounts, budget,
                 mock(UsageService.class), limiter, new ProviderPricingRegistry(),
-                List.of(client), resilience);
+                List.of(client), resilience, metrics());
     }
 
     private AiRequest request() {
@@ -163,7 +163,7 @@ class AiGatewayResilienceTest {
         ProviderResilience recovered = new ProviderResilience(2, 0, 8, 10);
         gateway = new AiGateway(properties, mock(ManagedCredentials.class), mock(CredentialStore.class),
                 accounts, budget, mock(UsageService.class), limiter, new ProviderPricingRegistry(),
-                List.of(client), recovered);
+                List.of(client), recovered, metrics());
         // doReturn, not when(): re-stubbing a mock whose current answer throws makes
         // when() invoke it, and the throw escapes from the test setup.
         org.mockito.Mockito.doReturn(new ProviderCallResult("ok", 10, 5, false, "gpt-4o-mini"))
@@ -177,7 +177,7 @@ class AiGatewayResilienceTest {
         ProviderResilience tiny = new ProviderResilience(5, 30, 1, 20);
         gateway = new AiGateway(properties, mock(ManagedCredentials.class), mock(CredentialStore.class),
                 accounts, budget, mock(UsageService.class), limiter,
-                new ProviderPricingRegistry(), List.of(client), tiny);
+                new ProviderPricingRegistry(), List.of(client), tiny, metrics());
 
         ProviderResilience.Permit held = tiny.acquireSlot("OPENAI");
         try {
@@ -203,5 +203,12 @@ class AiGatewayResilienceTest {
         assertEquals(1, state.size());
         assertEquals("OPENAI", state.get(0).provider());
         assertEquals(CircuitBreaker.State.OPEN, state.get(0).state());
+    }
+
+    /** Metrics are exercised directly in AiMetricsTest; the gateway just needs one. */
+    private com.qalab.qalabai.observability.AiMetrics metrics() {
+        return new com.qalab.qalabai.observability.AiMetrics(
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                new ProviderResilience(5, 30, 8, 10));
     }
 }

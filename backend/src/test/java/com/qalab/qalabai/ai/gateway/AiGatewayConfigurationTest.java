@@ -129,7 +129,7 @@ class AiGatewayConfigurationTest {
 
         AiGateway gateway = new AiGateway(props, null, null, accounts, budgets, usage, limiter,
                 new ProviderPricingRegistry(), List.of(stub),
-                new ProviderResilience(5, 30, 8, 100));
+                new ProviderResilience(5, 30, 8, 100), metrics());
         return new Harness(gateway, modelsSeen);
     }
 
@@ -177,5 +177,12 @@ class AiGatewayConfigurationTest {
                 "the error should name the provider, was: " + e.getMessage());
         assertTrue(harness.modelsSeen().isEmpty(),
                 "no provider call may be attempted with an unconfigured model");
+    }
+
+    /** Metrics are exercised directly in AiMetricsTest; the gateway just needs one. */
+    private com.qalab.qalabai.observability.AiMetrics metrics() {
+        return new com.qalab.qalabai.observability.AiMetrics(
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                new ProviderResilience(5, 30, 8, 10));
     }
 }

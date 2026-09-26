@@ -1,5 +1,6 @@
 package com.qalab.qalabai.tool.playwright;
 
+import com.qalab.qalabai.observability.AiMetrics;
 import com.qalab.qalabai.tool.Tool;
 import com.qalab.qalabai.tool.ToolContext;
 import org.slf4j.Logger;
@@ -146,6 +147,7 @@ public class PlaywrightTool implements Tool {
                             + "skipped={}, flaky={}",
                     status, duration, summary.passed(), summary.failed(),
                     summary.skipped(), summary.flaky());
+            recordMetrics(status, duration, summary);
             try {
                 Files.deleteIfExists(jsonReport);
                 if (reportingConfig != null) {
@@ -256,6 +258,25 @@ public class PlaywrightTool implements Tool {
 
     private String jsonLiteral(Path path) {
         return "'" + path.toAbsolutePath().toString().replace("\\", "\\\\").replace("'", "\\'") + "'";
+    }
+
+    /**
+     * Records the run for dashboards.
+     *
+     * <p>Static rather than injected: the tool is constructed directly in tests and in
+     * {@link com.qalab.qalabai.service.workspace.WorkspaceManager}, and making metrics a
+     * constructor dependency would mean every one of those call sites changes for no
+     * benefit. The no-op fallback keeps this safe when no registry is present.</p>
+     */
+    private void recordMetrics(String status, long durationMs, PlaywrightResultParser.RunSummary summary) {
+        AiMetrics metrics = AiMetrics.current();
+        if (metrics != null) {
+            try {
+                metrics.recordPlaywrightRun(status, durationMs, summary.total(), summary.failed());
+            } catch (RuntimeException e) {
+                log.debug("Could not record Playwright metrics: {}", e.getMessage());
+            }
+        }
     }
 
     /** Outcome of a bounded subprocess run. */

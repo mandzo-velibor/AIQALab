@@ -56,6 +56,14 @@ public class SecurityConfig {
                         // bearer token. Tracked as a follow-up in ADR 0001.
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/api/**").permitAll()   // enforced by the filter above
+                        // Actuator: health must be reachable so a container probe works
+                        // at all, and metrics/info are the only other endpoints the prod
+                        // profile exposes. `anyRequest().denyAll()` below is deliberate —
+                        // it makes a newly added endpoint unreachable until someone decides
+                        // its access, which is the right default and a good reason to name
+                        // these explicitly rather than widening the rule.
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/actuator/metrics", "/actuator/info").permitAll()
                         .anyRequest().denyAll())
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
