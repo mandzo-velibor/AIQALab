@@ -80,6 +80,30 @@ public class BugReport {
     @Column(columnDefinition = "TEXT")
     private String instruction;
 
+    /**
+     * Stable fingerprint of the underlying failure: normalised spec file plus
+     * normalised assertion (see {@code FailureSignature}).
+     *
+     * <p>Without it, a known bug is re-reported as new on every run, which is how a bug
+     * list becomes a list nobody reads. Deliberately <em>not</em> keyed on the test title:
+     * renaming a test must not turn a tracked bug into a new one.</p>
+     */
+    @Column(name = "dedup_key")
+    private String dedupKey;
+
+    /**
+     * How many runs have hit this failure. A known bug that keeps recurring is more
+     * urgent than a fresh one, and the count is the only evidence of that.
+     */
+    @Column(name = "occurrences")
+    private Integer occurrences;
+
+    @Column(name = "screenshot_path")
+    private String screenshotPath;
+
+    @Column(name = "first_seen_run")
+    private String firstSeenRun;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -94,6 +118,38 @@ public class BugReport {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getDedupKey() {
+        return dedupKey;
+    }
+
+    public void setDedupKey(String dedupKey) {
+        this.dedupKey = dedupKey;
+    }
+
+    public Integer getOccurrences() {
+        return occurrences;
+    }
+
+    public void setOccurrences(Integer occurrences) {
+        this.occurrences = occurrences;
+    }
+
+    public String getScreenshotPath() {
+        return screenshotPath;
+    }
+
+    public void setScreenshotPath(String screenshotPath) {
+        this.screenshotPath = screenshotPath;
+    }
+
+    public String getFirstSeenRun() {
+        return firstSeenRun;
+    }
+
+    public void setFirstSeenRun(String firstSeenRun) {
+        this.firstSeenRun = firstSeenRun;
     }
 
     public String getReportId() {

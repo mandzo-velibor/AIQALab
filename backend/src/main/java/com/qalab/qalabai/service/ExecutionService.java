@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.List;
 import java.util.UUID;
 
@@ -478,6 +479,26 @@ public class ExecutionService {
                 execution.getId(), execution.getStatus(), execution.getDuration(),
                 execution.getReportPath(), execution.getHtmlReportPath(),
                 tests.size(), passed, failed, skipped, tests);
+    }
+
+    /** The execution, or null. Used by the workflow to re-render its report. */
+    public TestExecution getExecution(Long executionId) {
+        return executionRepository.findById(executionId).orElse(null);
+    }
+
+    /**
+     * Rewrites the execution's HTML report with extra sections. Best-effort: the report
+     * is an output, and a failed re-render must not fail a run whose results are
+     * already recorded.
+     */
+    public String reRenderReport(TestExecution execution, Map<String, Object> extras) {
+        if (execution == null) {
+            return null;
+        }
+        return reportService.reRender(execution,
+                toTestCaseViews(testCaseResultRepository
+                        .findByExecutionIdOrderByOrdinalPositionAsc(execution.getId())),
+                extras);
     }
 
     public List<TestExecution> getExecutionHistory(Long projectId) {

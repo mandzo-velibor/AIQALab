@@ -48,6 +48,8 @@ class QaWorkflowServiceTest {
     private final FailureAnalysisService failureAnalysisService = mock(FailureAnalysisService.class);
     private final HealingAnalysisService healingAnalysisService = mock(HealingAnalysisService.class);
     private final BugReportService bugReportService = mock(BugReportService.class);
+    private final com.qalab.qalabai.service.report.ReportService reportService =
+            mock(com.qalab.qalabai.service.report.ReportService.class);
     private final OperationProgressStore progressStore = mock(OperationProgressStore.class);
     private final WorkspaceProvider workspaceProvider = mock(WorkspaceProvider.class);
 
@@ -61,7 +63,7 @@ class QaWorkflowServiceTest {
         workflow = new QaWorkflowService(contextResolver, explorerService, locatorService,
                 planningService, codeGenerationService, executionService,
                 failureAnalysisService, healingAnalysisService, bugReportService,
-                progressStore, workspaceProvider);
+                reportService, progressStore, workspaceProvider);
 
         info = ProjectInfo.of("internet-tests", "https://the-internet.herokuapp.com/login", "PLAYWRIGHT", "TYPESCRIPT");
         project = new ProjectContext();
@@ -278,7 +280,7 @@ class QaWorkflowServiceTest {
         assertStepStatus(response, "bugReport", "COMPLETED");
         verify(failureAnalysisService).analyzeExecution(eq(10L), eq(3L));
         verify(healingAnalysisService).analyzeExecution(eq(10L), eq(3L));
-        verify(bugReportService).generate(eq(10L), eq(3L), any());
+        verify(bugReportService).generateAll(eq(10L), eq(3L), any());
     }
 
     @Test
@@ -329,7 +331,8 @@ class QaWorkflowServiceTest {
         report.setTitle("Title " + executionId);
         report.setSeverity("HIGH");
         report.setSummary("Summary " + executionId);
-        when(bugReportService.generate(eq(executionId), eq(3L), any())).thenReturn(report);
+        // The workflow now asks for every distinct failure, not one report (B-032).
+        when(bugReportService.generateAll(eq(executionId), eq(3L), any())).thenReturn(List.of(report));
     }
 
     // ---- B-022: the stdout tail ----
@@ -363,5 +366,29 @@ class QaWorkflowServiceTest {
         String tail = QaWorkflowService.tail("a\r\nb\r\nc\r\n", 2);
         assertTrue(tail.contains("showing last 2 lines"), tail);
         assertTrue(tail.endsWith("b\nc\n"), "CRLF must be split as line boundaries: " + tail);
+    }
+
+    @Test
+    void aRunWithNoDistinctFailureReportsThatRatherThanFailingTheStep() {
+        // The workflow used reports.get(0) unguarded, so an empty result was an
+        // IndexOutOfBounds that failed the whole report step. A run where nothing could
+        // be attributed is a legitimate outcome, and saying so beats a red step.
+        project.setWorkspacePath("/home/dev/internet-tests");
+        when(contextResolver.databaseId(info)).thenReturn(3L);
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
+                Map.of("status", "FAILED", "duration", 500L, "output", "boom", "error", "failed"));
+        TestExecution record = new TestExecution();
+        record.setId(10L);
+        when(executionService.recordExecution(any(), any(), any(), any(), any(), any()))
+                .thenReturn(record);
+        when(bugReportService.generateAll(eq(10L), eq(3L), any())).thenReturn(List.of());
+
+        V1WorkflowResponse response = workflow.runFullTest(
+                new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login",
+                        null, null, null, null, null));
+
+        assertStepStatus(response, "bugReport", "COMPLETED");
     }
 }

@@ -69,6 +69,7 @@ public class QaWorkflowService {
     private final FailureAnalysisService failureAnalysisService;
     private final com.qalab.qalabai.healing.service.HealingAnalysisService healingAnalysisService;
     private final BugReportService bugReportService;
+    private final com.qalab.qalabai.service.report.ReportService reportService;
     private final OperationProgressStore progressStore;
     private final WorkspaceProvider workspaceProvider;
 
@@ -81,6 +82,7 @@ public class QaWorkflowService {
                              FailureAnalysisService failureAnalysisService,
                              com.qalab.qalabai.healing.service.HealingAnalysisService healingAnalysisService,
                              BugReportService bugReportService,
+                             com.qalab.qalabai.service.report.ReportService reportService,
                              OperationProgressStore progressStore,
                              WorkspaceProvider workspaceProvider) {
         this.contextResolver = contextResolver;
@@ -92,6 +94,7 @@ public class QaWorkflowService {
         this.failureAnalysisService = failureAnalysisService;
         this.healingAnalysisService = healingAnalysisService;
         this.bugReportService = bugReportService;
+        this.reportService = reportService;
         this.progressStore = progressStore;
         this.workspaceProvider = workspaceProvider;
     }
@@ -381,15 +384,60 @@ public class QaWorkflowService {
         try {
             Long executionId = (Long) run.get("executionId");
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_BUG_REPORT", "generating bug report...");
-            com.qalab.qalabai.model.BugReport report = bugReportService.generate(executionId, dbId, instruction);
+            // One report per distinct failure, not one per run. A run with three
+            // different failures is three bugs, and returning only the first would hide
+            // the other two from the user (B-032).
+            List<com.qalab.qalabai.model.BugReport> reports =
+                    bugReportService.generateAll(executionId, dbId, instruction);
             Map<String, Object> data = new LinkedHashMap<>();
-            data.put("reportId", report.getReportId());
-            data.put("reportStatus", report.getStatus());
-            data.put("title", report.getTitle());
-            data.put("severity", report.getSeverity());
-            data.put("summary", report.getSummary());
+            data.put("reportCount", reports.size());
+            if (reports == null || reports.isEmpty()) {
+                // Nothing failed, or nothing could be attributed. Saying so is useful;
+                // an IndexOutOfBounds here would fail the whole workflow's report step.
+                result.put("bugReport", step("COMPLETED", data));
+                log.info("No bug report generated for execution {}: no distinct failure to report", executionId);
+                return result;
+            }
+            List<Map<String, Object>> entries = new ArrayList<>();
+            for (com.qalab.qalabai.model.BugReport report : reports) {
+                Map<String, Object> one = new LinkedHashMap<>();
+                one.put("reportId", report.getReportId());
+                one.put("title", report.getTitle());
+                one.put("severity", report.getSeverity());
+                one.put("failureType", report.getFailureType());
+                one.put("summary", report.getSummary());
+                one.put("occurrences", report.getOccurrences());
+                if (report.getScreenshotPath() != null) {
+                    one.put("screenshot", report.getScreenshotPath());
+                }
+                entries.add(one);
+            }
+            data.put("reports", entries);
+            // The first report stays at the top level so existing consumers keep working.
+            com.qalab.qalabai.model.BugReport first = reports.get(0);
+            data.put("reportId", first.getReportId());
+            data.put("reportStatus", first.getStatus());
+            data.put("title", first.getTitle());
+            data.put("severity", first.getSeverity());
+            data.put("summary", first.getSummary());
             result.put("bugReport", step("COMPLETED", data));
-            log.info("Bug report {} generated for execution {}", report.getReportId(), executionId);
+
+            // The HTML report was written during the execution step, before these bug
+            // reports existed. Rewrite it so the file a user opens contains the most
+            // actionable section, rather than leaving it permanently without one.
+            try {
+                com.qalab.qalabai.model.TestExecution execution =
+                        executionService.getExecution(executionId);
+                if (execution != null) {
+                    Map<String, Object> extras = new LinkedHashMap<>();
+                    extras.put("bugReports", entries);
+                    executionService.reRenderReport(execution, extras);
+                }
+            } catch (Exception e) {
+                log.debug("Could not re-render the report with bug reports: {}", e.getMessage());
+            }
+
+            log.info("{} bug report(s) generated for execution {}", reports.size(), executionId);
         } catch (Exception e) {
             log.warn("Bug report step failed: {}", e.getMessage());
             result.put("bugReport", step("FAILED", Map.of("error", String.valueOf(e.getMessage()))));

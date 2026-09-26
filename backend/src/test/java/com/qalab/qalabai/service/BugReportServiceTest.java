@@ -13,8 +13,11 @@ import com.qalab.qalabai.model.BugReport;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.repository.BugReportRepository;
 import com.qalab.qalabai.repository.ProjectRepository;
+import com.qalab.qalabai.repository.TestCaseResultRepository;
 import com.qalab.qalabai.repository.TestExecutionRepository;
 import org.junit.jupiter.api.BeforeEach;
+
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -40,17 +43,24 @@ class BugReportServiceTest {
     private ProjectRepository projectRepository;
     private FailureContextFactory contextFactory;
     private AiGateway aiGateway;
+    private TestCaseResultRepository testCaseResultRepository;
     private BugReportService service;
 
     @BeforeEach
     void setUp() {
         bugReportRepository = mock(BugReportRepository.class);
         executionRepository = mock(TestExecutionRepository.class);
+        testCaseResultRepository = mock(TestCaseResultRepository.class);
         projectRepository = mock(ProjectRepository.class);
         contextFactory = mock(FailureContextFactory.class);
         aiGateway = mock(AiGateway.class);
+        // Default: a run with no per-test results, so the existing whole-execution
+        // behaviour is what these tests exercise.
+        when(testCaseResultRepository.findByExecutionIdOrderByOrdinalPositionAsc(any()))
+                .thenReturn(List.of());
         service = new BugReportService(bugReportRepository, executionRepository,
-                projectRepository, contextFactory, aiGateway, new ObjectMapper());
+                testCaseResultRepository, projectRepository, contextFactory, aiGateway,
+                new ObjectMapper());
     }
 
     private TestExecution failedExecution(Long id) {
@@ -142,7 +152,8 @@ class BugReportServiceTest {
         BugReport report = service.generate(9L, null);
 
         assertNotNull(report.getReportId());
-        assertEquals("Test failed: Login with valid credentials", report.getTitle());
+        assertTrue(report.getTitle().contains("Sign In"),
+                "the fallback title must name the assertion, was: " + report.getTitle());
         assertEquals("MEDIUM", report.getSeverity());
         assertEquals("APPLICATION_ERROR", report.getFailureType());
         assertEquals("{}", report.getReportJson());
@@ -158,7 +169,11 @@ class BugReportServiceTest {
 
         BugReport report = service.generate(10L, null);
 
-        assertEquals("Test failed: Login with valid credentials", report.getTitle());
+        // The fallback must name the failure, not the test. "Test failed:
+        // <test name>" was the generic report the user complained about (B-032); the
+        // captured assertion is the one thing we actually know.
+        assertTrue(report.getTitle().contains("Sign In"),
+                "the title must name the assertion, was: " + report.getTitle());
         assertEquals("{}", report.getReportJson());
     }
 

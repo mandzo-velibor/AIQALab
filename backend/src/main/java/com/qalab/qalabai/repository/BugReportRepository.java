@@ -15,4 +15,14 @@ public interface BugReportRepository extends JpaRepository<BugReport, Long> {
     List<BugReport> findByExecutionIdOrderByCreatedAtDesc(Long executionId);
 
     List<BugReport> findAllByOrderByCreatedAtDesc();
+
+    /**
+     * Has this project already filed this failure? Always project-scoped: a shared
+     * signature across accounts would leak one account's bugs into another's list.
+     * A null project falls back to an unfiled report, so a run with no project is never
+     * silently deduped against someone else's.
+     */
+    Optional<BugReport> findByProjectIdAndDedupKey(Long projectId, String dedupKey);
+
+    List<BugReport> findByProjectIdAndDedupKeyIsNotNullOrderByOccurrencesDesc(Long projectId);
 }

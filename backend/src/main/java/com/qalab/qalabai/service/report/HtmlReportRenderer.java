@@ -196,6 +196,31 @@ public final class HtmlReportRenderer {
             if (value instanceof String text && !text.isBlank()) {
                 out.append("<section>\n<h2>").append(esc(heading(entry.getKey()))).append("</h2>\n")
                         .append("<pre class=\"block\">").append(esc(text)).append("</pre>\n</section>\n");
+            } else if (value instanceof List<?> list && !list.isEmpty()) {
+                out.append("<section>\n<h2>").append(esc(heading(entry.getKey()))).append("</h2>\n<ul class=\"bugs\">\n");
+                for (Object item : list) {
+                    out.append("<li>");
+                    if (item instanceof Map<?, ?> bug) {
+                        for (Map.Entry<?, ?> field : bug.entrySet()) {
+                            if (field.getValue() == null) {
+                                continue;
+                            }
+                            String label = String.valueOf(field.getKey());
+                            if ("summary".equals(label)) {
+                                out.append("<div class=\"bug-summary\">")
+                                        .append(esc(String.valueOf(field.getValue())))
+                                        .append("</div>");
+                            } else {
+                                out.append("<div><b>").append(esc(label)).append(":</b> ")
+                                        .append(esc(String.valueOf(field.getValue()))).append("</div>");
+                            }
+                        }
+                    } else {
+                        out.append(esc(String.valueOf(item)));
+                    }
+                    out.append("</li>\n");
+                }
+                out.append("</ul>\n</section>\n");
             } else if (value instanceof Map<?, ?> map && !map.isEmpty()) {
                 out.append("<section>\n<h2>").append(esc(heading(entry.getKey()))).append("</h2>\n<dl>\n");
                 for (Map.Entry<?, ?> field : map.entrySet()) {

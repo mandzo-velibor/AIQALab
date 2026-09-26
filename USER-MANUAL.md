@@ -736,8 +736,40 @@ A bug report is a structured record, not free text:
 | `errorMessage`, `consoleLogsExcerpt` | Raw evidence |
 | `instruction` | The user instruction in force, when supplied |
 
+| `dedupKey` | Fingerprint of the failure. Internal; used to avoid re-reporting. |
+| `occurrences` | How many runs have hit this failure. |
+| `screenshotPath` | Screenshot of the failing test, when one was captured. |
+| `firstSeenRun` | The execution that first exposed it. |
+
+### 13.1 One report per bug, not per run
+
+A report used to be generated once per execution from the whole-run console output. That
+is why the report came back titled after the test file with `LOCATOR_FAILURE` and
+`Unknown error` — it could not name any specific failure.
+
+Now:
+
+- **One report per distinct failure.** Three genuinely different failures produce three
+  reports; twenty tests that tripped the same assertion produce one.
+- **Each report cites the specific assertion that failed**, taken from that test's own
+  result rather than the run's console blob. The title, expected and actual behaviour all
+  name it.
+- **A known bug is counted, not re-filed.** Each failure has a stable fingerprint
+  (normalised spec file plus normalised assertion). A bug that recurs has its
+  `occurrences` incremented and points at the run that hit it, so a known bug does not
+  reappear as a new one every run.
+
+The fingerprint deliberately ignores the test *name* and everything volatile in the
+message — line numbers, durations, Playwright timestamps, absolute paths. Renaming a test
+or moving a checkout does not turn a tracked bug into a new one. It does not ignore the
+assertion itself, so two different failures in one spec stay separate bugs.
+
+> The fingerprint is scoped per project. A run belonging to no account is never deduped,
+> because a shared key would leak one account's bugs into another's list.
+
 If AI generation of the report fails, a **deterministic fallback** is produced from the
-execution record so you still get a usable report rather than nothing.
+execution record so you still get a usable report rather than nothing — and it names the
+captured assertion rather than falling back to the test name.
 
 ---
 

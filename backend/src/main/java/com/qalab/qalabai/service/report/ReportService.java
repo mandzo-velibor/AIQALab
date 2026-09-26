@@ -108,6 +108,70 @@ public class ReportService {
      * the execution's own status is a single verdict and says nothing about how many
      * tests ran.
      */
+    /**
+     * Re-renders {@code report.html} in place with extra sections.
+     *
+     * <p>Needed because the bug report is generated <em>after</em> the execution report is
+     * written — it needs the execution id that the run only has once the tests are done.
+     * Rather than leave the HTML permanently missing the most actionable section, it is
+     * rewritten once the bug reports exist.</p>
+     *
+     * <p>Failure is swallowed: the report is an output, and losing a section must never
+     * fail a run whose tests have already been reported.</p>
+     *
+     * @return the path written, or null when there is no report to update
+     */
+    public String reRender(TestExecution execution, List<HtmlReportRenderer.TestCaseView> testCases,
+                           Map<String, Object> extras) {
+        String artifactDir = artifactDirOf(execution);
+        if (artifactDir == null) {
+            log.debug("No artifact directory recorded for execution {}; nothing to re-render",
+                    execution.getId());
+            return null;
+        }
+        try {
+            Path dir = Paths.get(artifactDir);
+            if (!Files.isDirectory(dir)) {
+                return null;
+            }
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("executionId", execution.getId());
+            body.put("projectId", execution.getProjectId());
+            body.put("testFile", execution.getTestFile());
+            body.put("status", execution.getStatus());
+            body.put("duration", execution.getDuration());
+            body.put("createdAt", execution.getCreatedAt());
+            if (execution.getErrorMessage() != null) {
+                body.put("errorMessage", execution.getErrorMessage());
+            }
+            Path html = dir.resolve("report.html");
+            Files.writeString(html, renderHtml(body, null, null, testCases, extras, dir));
+            log.info("Re-rendered HTML report for execution {} with {} extra section(s)",
+                    execution.getId(), extras == null ? 0 : extras.size());
+            return html.toAbsolutePath().toString();
+        } catch (Exception e) {
+            log.warn("Could not re-render HTML report for execution {}: {}",
+                    execution.getId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * The artifact directory is not stored on the execution, but the report paths are
+     * siblings of it, so it can be recovered without a new column.
+     */
+    private String artifactDirOf(TestExecution execution) {
+        String reportPath = execution.getReportPath();
+        if (reportPath == null || reportPath.isBlank()) {
+            return null;
+        }
+        try {
+            return Paths.get(reportPath).getParent().toString();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     private Map<String, Object> summaryFor(Map<String, Object> body,
                                            List<HtmlReportRenderer.TestCaseView> testCases) {
         Map<String, Object> summary = new LinkedHashMap<>();
