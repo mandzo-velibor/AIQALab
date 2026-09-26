@@ -29,6 +29,10 @@ qalab:
   auto-start-frontend: true
   auto-open-browser: true
   auto-install-playwright: true
+  # Wall-clock budget for one Playwright run. Always finite so a hung run cannot
+  # pin a request thread forever; raise it for very large suites.
+  playwright:
+    timeout-seconds: 600
 
 openai:
   api-key: ${OPENAI_API_KEY:}
