@@ -145,6 +145,40 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 
 ---
 
+---
+
+# Sprint 1 — Deployable
+
+*Goal: safe to expose beyond a single trusted user, and able to start from an empty database.*
+
+**Started:** 2026-09-26 13:49 CEST
+**Baseline commit:** `b1f03eb` (end of Sprint 0)
+
+## Task log
+
+| # | Task | Priority | Size | Status | Commit |
+|---|---|---|---|---|---|
+| B-018 | Playwright install off the startup path | P1 | M | IN PROGRESS | — |
+| B-019 | Frontend API base URL at runtime | P1 | S | TODO | — |
+| B-020 | Sensible default artifact profile | P1 | S | TODO | — |
+| B-021 | Bounded Playwright concurrency | P1 | S | TODO | — |
+| B-015 | Real `qalab.ai` config block | P0 | M | TODO | — |
+| B-012 | Spike: auth & tenancy ADR | P0 | S | TODO | — |
+| B-013 | Auth filter on the API | P0 | L | TODO | — |
+| B-016 | Real rate limiter | P1 | M | TODO | — |
+| B-014 | Database migrations with Flyway | P0 | L | TODO | — |
+| B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
+
+**Totals:** 0/10 done · 0 commits
+
+### Ordering note
+The backlog lists B-012..B-021 in priority order, but B-012/B-013 (auth) and B-014
+(migrations) are the two large architectural items and both benefit from landing on a
+cleaned-up base. This sprint therefore runs the four small, independent reliability
+items first (B-018..B-021), then the config correctness fix (B-015), then the
+architectural work (B-012 → B-013 → B-016, B-014, B-017). All are Sprint 1 scope; only
+the sequence differs.
+
 ## Notes / deviations
 
 - **Dependency correction (resolved).** `backlog.md` listed B-006 as depending on B-007 and B-007 as depending on B-006 — circular. Resolution: B-006 shipped first as the summary shell; B-007 was then added *into* that summary. B-007's only real dependency is that B-006 exists. **`backlog.md` still needs this corrected.**
