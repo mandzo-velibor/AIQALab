@@ -633,9 +633,22 @@ Four `ConcurrentHashMap`s: in-memory only, no TTL, no size bound, no invalidatio
 - If persistence is wanted, use `PageAnalysisHistory` with a short TTL.
 
 **Acceptance criteria**
-- [ ] No credential material retained in any cache
-- [ ] Entries expire; eviction is tested
-- [ ] Cache hit rate is observable
+- [x] No credential material retained in any cache
+- [x] Entries expire; eviction is tested
+- [x] Cache hit rate is observable
+
+**Shipped in** `0051410` — with one correction. The backlog calls credential caching
+"a liability with no benefit"; it was worse than that. Because the cache key was the URL
+and not the request, and because `ExplorerService` only wrote credentials after a
+*successful* login, a later **anonymous** run against the same URL read the previous
+user's password back out and attached it to its own generated tests. Two users of the
+same login page shared credentials. Removed rather than bounded, and the regression
+guard is structural: a test reflects over the cache and fails if any field or method
+mentions credentials, so re-adding it breaks the build.
+
+Persistence is deliberately not included — a 30-minute bounded in-memory cache covers
+the stated problem, and durable caching belongs with the Sprint 3 caching work rather
+than as a side effect of a security fix.
 
 **Files:** `cache/AnalysisCache.java`, `service/ExplorerService.java`
 **Depends on:** B-026 (metrics), B-014 (if persisting)

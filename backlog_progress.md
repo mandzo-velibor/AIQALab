@@ -541,12 +541,12 @@ The recurring lesson is the same each time: **a failed assertion or an unexplain
 | B-022 | Playwright JSON reporter → per-test results | P0 | M | **DONE** | `c225c5c` |
 | B-024 | Cap the provider cascade | P1 | S | **DONE** | `e55a1b1` |
 | B-025 | One shared, tolerant LLM JSON extractor | P1 | M | **DONE** | `56f62d9` |
-| B-027 | Fix `AnalysisCache` semantics | P1 | M | TODO | — |
+| B-027 | Fix `AnalysisCache` semantics | P1 | M | **DONE** | `0051410` |
 | B-028 | Reuse the browser instead of relaunching per call | P1 | M | TODO | — |
 | B-023 | Consolidate the provider clients | P2 | M | TODO | — |
 | B-026 | Structured logging + LLM metrics | P2 | M | TODO | — |
 
-**Totals:** 3/7 done · 3 commits · elapsed 251m
+**Totals:** 4/7 done · 4 commits · elapsed 335m
 
 
 ### B-022 · Playwright JSON reporter → structured per-test results
@@ -784,6 +784,82 @@ recoverable case, one asserting the truncated value is refused.
   zero and `LlmJson.extract` is the single entry point — verified by grep, not assumed).
 - Corpus tests pass, including the captured real failure.
 - Validator and parser share the extractor, with a test for the drift that caused.
+
+
+### B-027 · Fix `AnalysisCache` semantics
+| | |
+|---|---|
+| **Status** | **DONE** (+1 cross-request credential leak, +1 bug I introduced) |
+| **Date** | 2026-09-26 |
+| **Duration** | 84m |
+| **Commit** | `0051410` (4 of 7) |
+
+**What changed**
+- **Credential caching removed entirely**, not bounded. Credentials are threaded through
+  the call chain instead: the workflow already holds them in the request, so
+  `generateTestsEntities` takes them as parameters.
+- The three analysis caches are bounded and expiring: TTL (30 min), size bound (200),
+  eldest-entry eviction, and expired entries removed on read.
+- `CacheStats` exposes hits, misses, evictions, expirations, size and the configured
+  policy, so "should this cache stay?" has a number attached.
+
+**The backlog understated this by a long way.** It says credential caching is "a
+liability with no benefit". Reading the code, it was an active **cross-request
+credential leak**:
+
+- `ExplorerService` wrote credentials to the cache only **after a successful login**.
+- A later **anonymous** run against the same URL therefore never overwrote the entry.
+- `CodeGenerationService` read the previous user's password straight back out — keyed by
+  URL, not by request — and attached it to the new run's generated tests.
+
+So two users of the same login page shared credentials, and the second user had no way
+to know. Characterised with tests **before** touching anything, so the record of what was
+wrong outlives the fix.
+
+**Removed rather than bounded, and the guard is structural.** A TTL would shrink the
+window without closing it, and the caller is already holding the secret. The regression
+guard reflects over the cache and fails if any field or method name mentions
+`credential` or `password`, so re-adding credential state **breaks the build** instead
+of quietly reaching production.
+
+**A concurrency test caught a bug I had introduced in the same task.** I replaced four
+`ConcurrentHashMap`s with insertion-ordered `LinkedHashMap`s to get eldest-entry
+eviction, and the javadoc said *"Synchronised because a LinkedHashMap is not
+concurrent"* — but I had not synchronised anything. `removeEldestEntry` reads `size()`
+during insertion, so concurrent writers each observed a smaller map and all decided
+nothing needed evicting: **525 entries in a cache bounded to 500**. Every method touching
+the maps is now genuinely `synchronized`, and the comment says why that is load-bearing.
+A comment describing an intent I had not implemented was worse than no comment, and the
+only reason it surfaced is that the test asserted the *bound* rather than a happy path.
+Run five times consecutively to confirm it is stable, not lucky.
+
+**Two smaller judgement calls, both recorded in code**
+- A `null` analysis is no longer stored. A bounded map either throws on a null value or
+  poisons the entry, and neither is useful.
+- Only the **analysis** lookup counts as a hit or miss — it is the one `forceRefresh`
+  gates and the one worth judging the cache on. Page-content lookups share the TTL and
+  the eviction bound but not the hit rate, so the number stays unambiguous. My first
+  version of that test asserted 2× the lookups and was simply wrong about my own design.
+
+**How it was tested**
+- 19 tests. TTL expiry runs against a real one-second TTL and a real wait, not a mocked
+  clock: the point is that expiry is driven by elapsed time rather than by someone
+  remembering to clear.
+- Eviction is tested for the bound *and* for keeping the newest entries.
+- A concurrency test (8 threads × 200 URLs) asserts the bound holds and every lookup is
+  counted exactly once. This is the test that found the bug above.
+- A new workflow test asserts credentials reach generation, replacing the old stubs that
+  only checked the 4-argument signature.
+- Misconfiguration is clamped, not thrown on: a zero/negative TTL and a zero size bound
+  both still behave.
+- App boots clean and logs the policy; overrides verified to bind
+  (`ttl=42s, maxEntries=7`).
+- Full suite **371 green** (was 347).
+
+**Deliberately not done here:** persistence. The backlog mentions `PageAnalysisHistory`
+with a short TTL as an option; a 30-minute in-memory cache with a size bound covers the
+stated problem, and durable caching is a decision that belongs with the caching work in
+Sprint 3 rather than as a side effect of a security fix.
 
 ### Why B-022 comes first
 It is the blocker for everything in Sprint 3. The workflow currently only sees a
