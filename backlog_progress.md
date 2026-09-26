@@ -1280,3 +1280,43 @@ inlined. The mocked suite covers concurrency the real test cannot force.
 **Now unblocked:** page-analysis caching was deferred pending latency numbers, and
 `qalab.ai.latency` plus `qalab.ai.calls` from B-026 can now supply them. Still a
 correctness-for-speed trade, so it stays a decision rather than a default.
+
+
+### B-023 · One HTTP method, and the regression hiding in the hoist
+
+`30bb215` · P1 · M
+
+**What shipped**
+
+Go, Zen, Gemini and Ollama shared one `callChatApi`. What differs per provider is now
+data — an `AuthStrategy` and a `ResponseExtractor` — rather than 180 lines of copied
+request building. `restTemplate.exchange` in that class went from 4 to 1.
+
+**The interesting part was a bug I created**
+
+The usage-limit check was Go-specific: a spent Go quota set `goExhausted`, which skips
+Go's remaining candidates. Hoisting the check into the shared method let *every* provider
+throw it, so a Zen limit would have been logged as "Go is out for this request" and
+skipped a Go model that still had quota. Caught by reading the catch block rather than
+by a failing test. The typed error now carries the provider family, and only a Go limit
+short-circuits Go.
+
+**On deleting the legacy stack**
+
+The backlog gated deletion on "BYOK is proven". It did not need proving or rescuing:
+`AiGateway` already resolves a `ProviderClient` per provider type, so BYOK and managed
+share one cascade, one breaker, one budget and one set of metrics. What was left was
+`OpenAiProvider` — a `@Component` Spring instantiated on every boot that nothing called —
+and an `AiProvider` interface with no injectors. Both deleted.
+
+**Verification**
+
+569 tests green, 7 new. They assert the shared request shape rather than each provider's
+copy, and pin the two differences that matter: an Anthropic-style endpoint must not also
+send a bearer token, and a 500 must not be reported as an exhausted quota — that mistake
+would permanently skip a provider instead of letting the breaker observe a transient
+fault.
+
+**Sprint 2 is now complete.** All four exit criteria are met: structured per-test results
+(B-022), a bounded and measured worst case (B-024), "why was it slow?" answerable from
+metrics (B-026), and no plaintext credentials in memory (B-027).

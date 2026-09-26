@@ -516,6 +516,7 @@ The workflow only ever sees a 2000-char truncated stdout blob (`QaWorkflowServic
 
 ### B-023 · Consolidate the provider clients
 **P1 · M · area: backend/ai**
+**Status: DONE** — `30bb215`
 
 Two provider stacks coexist: the legacy `AiProvider` (`OpenCodeAiProvider`) and the new `ProviderClient` (`OpenAiCompatProviderClient`, `AnthropicCompatProviderClient`). `OpenCodeAiProvider` contains four copy-pasted ~60-line HTTP methods (`callGoApi`/`callZenApi`/`callOllamaApi`/`callGeminiApi`) differing only in URL, auth header and response extraction.
 
@@ -525,9 +526,15 @@ Two provider stacks coexist: the legacy `AiProvider` (`OpenCodeAiProvider`) and 
 - Delete the legacy `AiProvider` stack once BYOK is proven (folds into B-015).
 
 **Acceptance criteria**
-- [ ] One HTTP method, not five
-- [ ] Cascade works for BYOK providers, not just managed
-- [ ] `grep -c "new ObjectNode()" ai/` reflects a single request builder
+- [x] One HTTP method, not five — `restTemplate.exchange` in this class went 4 → 1
+- [x] Cascade works for BYOK providers, not just managed
+- [x] One request builder: the body is constructed in exactly one place
+
+**The second stack needed no migration work.** BYOK was already covered — `AiGateway`
+resolves a `ProviderClient` per provider type, so BYOK and managed share the same
+cascade, breaker, budget and metrics. What remained was dead weight: `OpenAiProvider`
+was a `@Component` Spring built on every boot that nothing called, and the `AiProvider`
+interface it implemented had no injectors. Both deleted.
 
 **Files:** `ai/gateway/*`, `ai/opencode/OpenCodeAiProvider.java`
 **Depends on:** —
