@@ -28,11 +28,40 @@
 
 ---
 
+### B-001 · Enforce a real timeout on the Playwright runner
+| | |
+|---|---|
+| **Status** | **DONE** |
+| **Date** | 2026-09-26 |
+| **Duration** | 4m |
+| **Commit** | `667f634` (1 of 11) |
+
+**What changed**
+- `PlaywrightTool`: subprocess stdout/stderr now redirected to a temp file instead of being drained on the calling thread. This is the actual bug — the inline drain blocked until process exit, so `waitFor(60s)` was unreachable and `destroyForcibly()` was dead code.
+- Extracted `runProcess(List<String>, Path)` returning a `ProcessOutcome(boolean completed, int exitCode, long durationMs, String output)` record, which makes the timeout path deterministically testable without invoking npx.
+- Budget configurable: `@Value("${qalab.playwright.timeout-seconds:600}")`, added to `application.yml` as `qalab.playwright.timeout-seconds`.
+- Timeout path: kill tree → `waitFor(5s)` → return `status=TIMEOUT`, `timeoutSeconds`, and an actionable error naming the exhausted budget and how to resolve it (narrow the run, or raise the property).
+- Replaced the unbounded `StringBuilder` with `readTail()`: retains at most the last 200 000 chars and announces truncation. Rationale: Playwright prints its per-test summary *last*, so the tail is the informative part — this also replaces the arbitrary 2000-char head-truncation that made output unreadable.
+- Temp output file deleted in a `finally` block.
+
+**How it was tested**
+- New `PlaywrightToolTest` — 8 cases:
+  - `sleep 60` under a 2 s budget is killed (asserts `completed == false` and elapsed < 30 s) — the regression guard for the original defect.
+  - exit codes propagate for `exit 0` / `exit 3`.
+  - stdout **and** stderr both captured (stderr merged via `redirectErrorStream`).
+  - `execute()` with no target returns the "No test file specified" error.
+  - `execute()` always returns a structured status and never hangs.
+  - `readTail`: keeps the tail marker, announces truncation, is smaller than the original; returns whole small files; tolerates a missing file.
+- Full suite: **135 tests, 0 failures** (127 pre-existing + 8 new). No regressions.
+- Log inspection confirmed the 2 s budget firing (process started, no matching "execution completed" line).
+
+---
+
 ## Sprint summary
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
-| B-001 | Playwright runner real timeout | P0 | S | IN PROGRESS | — |
+| B-001 | Playwright runner real timeout | P0 | S | **DONE** | `667f634` |
 | B-002 | AI provider HTTP timeouts | P0 | S | TODO | — |
 | B-003 | Generate test suite once per run | P0 | M | TODO | — |
 | B-004 | Ship page objects to client workspace | P0 | M | TODO | — |
@@ -44,7 +73,7 @@
 | B-010 | WebSocket URL from config | P0 | S | TODO | — |
 | B-011 | Persist artifacts directory | P0 | S | TODO | — |
 
-**Totals:** 0/11 done · 0 commits · elapsed 0m
+**Totals:** 1/11 done · 1 commit · elapsed 4m
 
 ---
 

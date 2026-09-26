@@ -29,10 +29,13 @@ public class OpenAiProvider implements AiProvider {
     private RestTemplate restTemplate;
     private ObjectMapper objectMapper;
 
+    public OpenAiProvider(RestTemplate aiRestTemplate) {
+        this.restTemplate = aiRestTemplate;
+        this.objectMapper = new ObjectMapper();
+    }
+
     @PostConstruct
     public void init() {
-        restTemplate = new RestTemplate();
-        objectMapper = new ObjectMapper();
         if (apiKey != null && !apiKey.isBlank()) {
             log.info("OpenAI provider initialized with model: {}", model);
         } else {

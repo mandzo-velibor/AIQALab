@@ -4,7 +4,6 @@ spring:
 
   application:
     name: qalab-ai
-
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/qalab}
     username: ${DATABASE_USERNAME:qalab}
@@ -33,6 +32,14 @@ qalab:
   # pin a request thread forever; raise it for very large suites.
   playwright:
     timeout-seconds: 600
+  ai:
+    # Outbound AI HTTP timeouts. Both must be finite: the default RestTemplate
+    # uses infinite timeouts, so a provider that accepts the connection and then
+    # stalls would never raise and the gateway could neither retry nor fail over.
+    # The read timeout is generous because long generations legitimately take
+    # minutes, but it is not unbounded.
+    connect-timeout-ms: 10000
+    read-timeout-ms: 180000
 
 openai:
   api-key: ${OPENAI_API_KEY:}

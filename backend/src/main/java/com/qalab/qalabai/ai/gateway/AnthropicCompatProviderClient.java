@@ -20,7 +20,11 @@ public class AnthropicCompatProviderClient implements ProviderClient {
     private static final String DEFAULT_URL = "https://api.anthropic.com/v1/messages";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public AnthropicCompatProviderClient(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     @Override
     public AiProviderType type() {

@@ -22,10 +22,11 @@ public class OpenAiCompatProviderClient implements ProviderClient {
 
     private final AiProviderType type;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
 
-    public OpenAiCompatProviderClient(AiProviderType type) {
+    public OpenAiCompatProviderClient(AiProviderType type, RestTemplate restTemplate) {
         this.type = type;
+        this.restTemplate = restTemplate;
     }
 
     @Override

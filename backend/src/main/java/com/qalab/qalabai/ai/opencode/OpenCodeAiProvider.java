@@ -71,11 +71,13 @@ public class OpenCodeAiProvider implements AiProvider {
     private RestTemplate restTemplate;
     private ObjectMapper objectMapper;
 
+    public OpenCodeAiProvider(RestTemplate aiRestTemplate) {
+        this.restTemplate = aiRestTemplate;
+        this.objectMapper = new ObjectMapper();
+    }
+
     @PostConstruct
     public void init() {
-        restTemplate = new RestTemplate();
-        objectMapper = new ObjectMapper();
-
         if (goApiKey != null && !goApiKey.isBlank()) {
             log.info("OpenCode Go configured as PRIMARY with model: {}", goModel);
         } else {
