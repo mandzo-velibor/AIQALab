@@ -180,10 +180,32 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 
 ---
 
+### B-019 · Serve the frontend API base URL at runtime
+| | |
+|---|---|
+| **Status** | **DONE** |
+| **Date** | 2026-09-26 |
+| **Duration** | 12m |
+| **Commit** | `7e2c5ec` (2 of 10) |
+
+**What changed**
+- New route handler `src/app/config.js/route.ts` emits `window.__QALAB_CONFIG__` from `QALAB_API_BASE_URL` / `API_BASE_URL` **at request time**, with `Cache-Control: no-store` so a redeploy cannot keep serving the old URL. A route handler rather than a file written into `public/`, because the route is unambiguously dynamic and does not depend on how the server treats post-build additions to `public/`.
+- `layout.tsx` loads it as a plain (non-deferred) script, so it runs before Next's deferred bundles and before any client module evaluates — the ordering that makes reading it at module scope in `lib/config.ts` safe. **The ordering requirement is documented at the definition site** so a future refactor to `defer` does not silently break it.
+- Resolution order is now runtime config → build-time env → localhost, so dev and any path that skips the script still works.
+- Dockerfile documents that the value is deliberately not baked in; compose sets `QALAB_API_BASE_URL` on the frontend and additionally wires `QALAB_CORS_ALLOWED_ORIGINS` on the backend, since **the two must agree or requests are blocked**.
+- Both documented in `.env.example` as a required pair.
+
+**How it was tested**
+- Consulted the bundled Next 16 docs first, per the repo's `AGENTS.md` agent rules: route handlers are uncached by default, so the explicit `force-dynamic` is correct rather than redundant.
+- Against a running `next start`: with the env set, `/config.js` returns it with `no-store` and `application/javascript`, and the served HTML contains `<script src="/config.js">`. Restarted with no env → `{"apiBaseUrl":null}`, degrading rather than breaking. Build output lists `ƒ /config.js` as dynamic.
+- `npx tsc --noEmit` clean; `docker compose config` valid.
+
+---
+
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
 | B-018 | Playwright install off the startup path | P1 | M | **DONE** | `218450d` |
-| B-019 | Frontend API base URL at runtime | P1 | S | TODO | — |
+| B-019 | Frontend API base URL at runtime | P1 | S | **DONE** | `7e2c5ec` |
 | B-020 | Sensible default artifact profile | P1 | S | TODO | — |
 | B-021 | Bounded Playwright concurrency | P1 | S | TODO | — |
 | B-015 | Real `qalab.ai` config block | P0 | M | TODO | — |
@@ -193,7 +215,25 @@ Nine of eleven tasks turned out to be hiding a real defect, not just the stated 
 | B-014 | Database migrations with Flyway | P0 | L | TODO | — |
 | B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
 
-**Totals:** 1/10 done · 1 commit · elapsed 8m
+**Totals:** 2/10 done · 2 commits · elapsed 20m
+
+### Parallel work: user manual
+Started 2026-09-26 alongside the sprint, at the user's request: a comprehensive
+`USER-MANUAL.md` with technical implementation detail, to be kept current.
+
+- Created `USER-MANUAL.md` (22 sections) and cross-linked it from `README.md`.
+- Grounding rule applied: only verified behaviour is documented. The test count
+  (178), the CLI summary shape and every v1 API path were each checked against the
+  code before being written down.
+- 16 known limitations are tabulated with tracking IDs rather than glossed over.
+- Writing it surfaced a **new confirmed defect**: `docs/known-limitations/intent-drops-instruction.md`
+  — `POST /api/v1/intent/run` uses the prompt only for intent *detection* and never
+  forwards it to the operation it triggers (every branch of
+  `V1IntentController.dispatch` passes `null`, and `V1IntentRequest` has no
+  instruction field). Same class of bug as B-003, which fixed it for `full-test`.
+  Recorded rather than silently patched, as it is outside Sprint 1 scope.
+- Maintenance rule adopted: the manual is updated **in the same commit** as any
+  change to CLI flags, env vars, API contracts, artifacts or known limitations.
 
 ### Ordering note
 The backlog lists B-012..B-021 in priority order, but B-012/B-013 (auth) and B-014
