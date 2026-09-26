@@ -128,7 +128,8 @@ class AiGatewayConfigurationTest {
         UsageService usage = org.mockito.Mockito.mock(UsageService.class);
 
         AiGateway gateway = new AiGateway(props, null, null, accounts, budgets, usage, limiter,
-                new ProviderPricingRegistry(), List.of(stub));
+                new ProviderPricingRegistry(), List.of(stub),
+                new ProviderResilience(5, 30, 8, 100));
         return new Harness(gateway, modelsSeen);
     }
 

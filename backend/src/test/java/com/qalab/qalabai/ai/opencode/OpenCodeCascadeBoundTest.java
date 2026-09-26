@@ -298,4 +298,52 @@ class OpenCodeCascadeBoundTest {
                 "Space Bunny Free must be tried before Big Pickle");
         assertEquals("Zen(big-pickle)", attempts.get(1).provider());
     }
+
+    @Test
+    void anOpenBreakerMakesTheCascadeSkipThatModelWithoutCallingIt() {
+        // The gateway-level breaker only sees the aggregate outcome of the managed
+        // cascade, so a dead model in the middle of the chain would keep costing a
+        // timeout on every call. The per-model breaker is what stops that.
+        com.qalab.qalabai.ai.gateway.ProviderResilience resilience =
+                new com.qalab.qalabai.ai.gateway.ProviderResilience(1, 30, 8, 10);
+        provider.setResilience(resilience);
+        // Go and both Zen models are dead; the breaker should be open for all three.
+        for (String label : List.of("Go(go-model)", "Zen(zen-model)", "Zen(zen-fallback-model)")) {
+            resilience.recordFailure(label);
+        }
+
+        // Gemini speaks the OpenAI chat-completions shape, not the Anthropic one Go uses.
+        expectJsonSuccess(openAiResponse("{\\\"ok\\\":true}"));
+
+        List<OpenCodeAiProvider.Attempt> attempts = new ArrayList<>();
+        provider.chat("sys", "user", null, null, attempts::add);
+
+        // Gemini answered, and the three dead models were skipped rather than called.
+        assertEquals(1, attempts.size(), "only the healthy model should have been called: " + attempts);
+        assertTrue(attempts.get(0).provider().startsWith("Gemini"),
+                "the cascade must fall through to the provider that still works, got "
+                        + attempts.get(0).provider());
+    }
+
+    @Test
+    void aRejectedResponseDoesNotOpenTheModelsBreaker() {
+        // A rejected response means the provider is alive and answering, just not with
+        // something we accept. Counting it as a failure would take a working provider out
+        // of service for a validation problem.
+        com.qalab.qalabai.ai.gateway.ProviderResilience resilience =
+                new com.qalab.qalabai.ai.gateway.ProviderResilience(1, 30, 8, 10);
+        provider.setResilience(resilience);
+
+        expectJsonSuccess(goResponse("garbage the validator rejects"));
+        expectJsonSuccess(openAiResponse("{\\\"ok\\\":true}"));
+
+        provider.chat("sys", "user",
+                response -> "garbage the validator rejects".equals(response) ? "unusable" : null,
+                null, attempt -> {
+                });
+
+        assertEquals(com.qalab.qalabai.ai.gateway.CircuitBreaker.State.CLOSED,
+                resilience.breaker("Go(go-model)").state(),
+                "a working provider must not be tripped by a response we disliked");
+    }
 }

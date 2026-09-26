@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qalab.qalabai.ai.provider.AiProvider;
+import com.qalab.qalabai.ai.gateway.CircuitBreaker;
 import com.qalab.qalabai.ai.gateway.ProviderCascadeExhaustedException;
+import com.qalab.qalabai.ai.gateway.ProviderResilience;
 import com.qalab.qalabai.ai.gateway.TokenEstimator;
 import com.qalab.qalabai.ai.provider.ResponseValidator;
 import org.slf4j.Logger;
@@ -103,9 +105,20 @@ public class OpenCodeAiProvider implements AiProvider {
     private RestTemplate restTemplate;
     private ObjectMapper objectMapper;
 
+    /**
+     * Per-model breaker. Optional so a direct construction (tests, tooling) still works;
+     * when absent the cascade simply has no breaker and behaves as before.
+     */
+    private ProviderResilience resilience;
+
     public OpenCodeAiProvider(RestTemplate aiRestTemplate) {
         this.restTemplate = aiRestTemplate;
         this.objectMapper = new ObjectMapper();
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setResilience(ProviderResilience resilience) {
+        this.resilience = resilience;
     }
 
     @PostConstruct
@@ -209,6 +222,18 @@ public class OpenCodeAiProvider implements AiProvider {
                 if (candidate.requiresGo() && goExhausted) {
                     continue;
                 }
+                // A model whose breaker is open is skipped without any network I/O. This
+                // is the case the gateway-level breaker cannot see: it only observes the
+                // aggregate outcome of the whole cascade, so a dead model in the middle
+                // would keep costing a timeout on every call.
+                if (resilience != null) {
+                    CircuitBreaker.Refusal refusal = resilience.checkCircuit(candidate.label());
+                    if (refusal != null) {
+                        log.warn("Skipping {}: {}", candidate.label(), refusal.guidance());
+                        failures.add(candidate.label() + ": circuit open, skipped");
+                        continue;
+                    }
+                }
                 if (failuresPerProvider.getOrDefault(candidate.label(), 0) >= perProvider) {
                     log.debug("Skipping {}: already failed {} time(s)", candidate.label(), perProvider);
                     continue;
@@ -229,8 +254,17 @@ public class OpenCodeAiProvider implements AiProvider {
                                 rejectReason == null, rejectReason));
                     }
                     if (rejectReason == null) {
+                        if (resilience != null) {
+                            resilience.recordSuccess(candidate.label());
+                        }
                         log.info("Cascade succeeded on {} after {} upstream call(s)", candidate.label(), calls);
                         return raw;
+                    }
+                    if (resilience != null) {
+                        // A rejected response is still a working provider, so it does not
+                        // open the breaker — but the count of consecutive failures must
+                        // reset, or one bad response would count towards the threshold.
+                        resilience.recordSuccess(candidate.label());
                     }
                     failures.add(candidate.label() + ": rejected, " + rejectReason);
                     failuresPerProvider.merge(candidate.label(), 1, Integer::sum);
@@ -251,6 +285,9 @@ public class OpenCodeAiProvider implements AiProvider {
                     if (observer != null) {
                         observer.onAttempt(new Attempt(candidate.label(), calls, 0, 0, false,
                                 e.getClass().getSimpleName() + ": " + e.getMessage()));
+                    }
+                    if (resilience != null) {
+                        resilience.recordFailure(candidate.label());
                     }
                     failures.add(candidate.label() + ": " + e.getMessage());
                     failuresPerProvider.merge(candidate.label(), 1, Integer::sum);

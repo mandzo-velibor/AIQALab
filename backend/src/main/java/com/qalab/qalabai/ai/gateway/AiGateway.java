@@ -42,6 +42,7 @@ public class AiGateway {
     private final AccountService accountService;
     private final TokenBudgetService budgetService;
     private final UsageService usageService;
+    private final ProviderResilience resilience;
     private final RateLimiter rateLimiter;
     private final ProviderPricingRegistry pricingRegistry;
     private final Map<AiProviderType, ProviderClient> clients;
@@ -54,13 +55,15 @@ public class AiGateway {
                      UsageService usageService,
                      RateLimiter rateLimiter,
                      ProviderPricingRegistry pricingRegistry,
-                     List<ProviderClient> providerClients) {
+                     List<ProviderClient> providerClients,
+                     ProviderResilience resilience) {
         this.properties = properties;
         this.managedCredentials = managedCredentials;
         this.credentialStore = credentialStore;
         this.accountService = accountService;
         this.budgetService = budgetService;
         this.usageService = usageService;
+        this.resilience = resilience;
         this.rateLimiter = rateLimiter;
         this.pricingRegistry = pricingRegistry;
         this.clients = providerClients.stream()
@@ -239,10 +242,34 @@ public class AiGateway {
                                                 AiCredentialMode mode,
                                                 String operationId) {
         int maxRetries = properties.getMaxRetries();
+        // The breaker is keyed on the client type, not the model: that is the unit the
+        // gateway can attribute a failure to. The managed client keeps its own
+        // per-model breakers inside the cascade.
+        String providerKey = client.type().name();
+
         for (int attempt = 0; ; attempt++) {
+            CircuitBreaker.Refusal refusal = resilience.checkCircuit(providerKey);
+            if (refusal != null) {
+                // Failing fast is the entire point: without this, every call to a dead
+                // provider costs a full timeout before anyone learns it is dead.
+                throw ApiException.aiProviderUnavailable(refusal.guidance(), operationId);
+            }
+            ProviderResilience.Permit permit = resilience.acquireSlot(providerKey);
+            if (permit == null) {
+                throw ApiException.aiProviderUnavailable(
+                        "AI provider " + client.type() + " is at its concurrency limit ("
+                                + resilience.stats().size() + " provider(s) guarded); the call was "
+                                + "refused rather than queued behind a slow provider. Retry shortly.",
+                        operationId);
+            }
             try {
-                return client.call(callRequest);
+                ProviderCallResult result = client.call(callRequest);
+                resilience.recordSuccess(providerKey);
+                return result;
             } catch (OpenAiCompatProviderClient.ProviderHttpException e) {
+                if (CircuitBreaker.countsAsFailure(e.getStatusCode())) {
+                    resilience.recordFailure(providerKey);
+                }
                 classifyHttpError(e, mode, operationId);
                 if (attempt >= maxRetries) {
                     throw ApiException.aiProviderUnavailable(
@@ -261,12 +288,19 @@ public class AiGateway {
                                 + e.upstreamCalls() + " upstream call(s): " + e.getMessage(),
                         operationId, e);
             } catch (Exception e) {
+                // A transport error, a timeout or an unparseable response: the provider
+                // did not do its job, so the breaker should know.
+                resilience.recordFailure(providerKey);
                 if (attempt >= maxRetries) {
                     throw ApiException.aiProviderUnavailable(
                             "AI provider " + client.type() + " failed: " + e.getMessage(), operationId, e);
                 }
                 log.warn("AI provider {} attempt {}/{} failed: {}", client.type(), attempt + 1, maxRetries + 1, e.getMessage());
                 sleep(properties.getRetryBackoffMs() * (attempt + 1));
+            } finally {
+                if (permit != null) {
+                    permit.close();
+                }
             }
         }
     }
@@ -297,6 +331,15 @@ public class AiGateway {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Breaker state for every provider the gateway has called. Surfaced here rather than
+     * only logged so "is the provider down, or is it us?" is answerable from the API;
+     * B-026 will turn this into real metrics.
+     */
+    public List<CircuitBreaker.Stats> circuitState() {
+        return resilience.stats();
     }
 
     /** Exposed for the pre-flight usage endpoints. */

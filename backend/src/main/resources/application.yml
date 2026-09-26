@@ -128,6 +128,20 @@ qalab:
     # stalls would never raise and the gateway could neither retry nor fail over.
     # The read timeout is generous because long generations legitimately take
     # minutes, but it is not unbounded.
+    # Circuit breaker, per provider. Opens after N consecutive failures and stops
+    # calling a provider that is down, so a dead provider costs nothing instead of a
+    # full timeout on every call. Half-opens after the cooldown and admits a single
+    # probe, rather than closing outright and stampeding a provider the instant it
+    # recovers.
+    breaker:
+      failure-threshold: ${QALAB_AI_BREAKER_FAILURE_THRESHOLD:5}
+      cooldown-seconds: ${QALAB_AI_BREAKER_COOLDOWN_SECONDS:30}
+    # Bulkhead: how many AI calls may be in flight per provider. Unlike the rate
+    # limiter this is on by default, because the failure it prevents is thread
+    # starvation and unbounded memory, not an unexpected bill.
+    bulkhead:
+      max-concurrent: ${QALAB_AI_BULKHEAD_MAX_CONCURRENT:8}
+      acquire-timeout-ms: ${QALAB_AI_BULKHEAD_ACQUIRE_TIMEOUT_MS:2000}
     connect-timeout-ms: 10000
     read-timeout-ms: 180000
   cache:

@@ -1120,7 +1120,8 @@ A request may still override its own ceiling. Previously every operation asked f
 | Retries | 2 | With linear backoff. **Not** applied to an exhausted cascade (§16.2). |
 | Cascade cap | 4 calls | Upstream calls per operation on the managed path (§16.2). |
 | Rate limit | off | Token bucket per provider **and** per account. Bursts allowed, sustained rate bounded. In-memory, per process. |
-| Circuit breaker | — | **Not implemented.** Tracked as **B-037** |
+| Circuit breaker | 5 failures | Opens after N consecutive failures, half-opens after the cooldown |
+| Bulkhead | 8 in flight | Per provider. Refuses rather than queueing behind a slow provider |
 
 ### 16.5 Analysis cache
 
@@ -1154,7 +1155,48 @@ would not bound cost. Set `QALAB_AI_RATE_LIMIT_ENABLED=true` to switch it on.
 State is in memory and per process, which is correct for the single-node deployment this
 is. A multi-node deployment would need a shared store.
 
-### 16.7 Token accounting
+### 16.7 Circuit breaker and bulkhead
+
+Two different protections, and the difference matters when you are reading a log.
+
+The **breaker** asks *is this provider healthy?* After N consecutive failures it opens
+and refuses calls **without any network request at all** until the cooldown elapses. It
+then half-opens and admits a single probe: one success closes it, one failure re-opens it.
+It does not close outright, because that would release every waiting caller at the same
+instant and stampede a provider the moment it recovered.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `QALAB_AI_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive failures before opening. |
+| `QALAB_AI_BREAKER_COOLDOWN_SECONDS` | `30` | How long calls are refused before probing. |
+
+Not every failure counts. A `400` or `404` is our request being wrong, and tripping on it
+would take a working provider out of service for something that fixing the request would
+resolve. A `5xx`, a `429`, a timeout, a connection error and a rejected credential all do
+count — in each case the provider is the problem.
+
+The **bulkhead** asks *how much of this process may it use?* It caps how many AI calls can
+be in flight per provider. Past the cap, the call is **refused**, not queued: holding a
+request thread open behind a provider that is not coming back is the failure this
+prevents.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `QALAB_AI_BULKHEAD_MAX_CONCURRENT` | `8` | In-flight calls allowed per provider. |
+| `QALAB_AI_BULKHEAD_ACQUIRE_TIMEOUT_MS` | `2000` | How long to wait for a slot before refusing. |
+
+The bulkhead is **on by default**, unlike the rate limiter. The rate limiter is a cost
+policy you choose; the bulkhead is a safety limit, and what it prevents is thread
+starvation rather than an unexpected bill.
+
+The managed cascade keeps a breaker **per model**, not just for the managed provider as a
+whole, so a single dead model inside the chain is skipped while its siblings still work.
+A rejected response does not open a breaker — the provider is alive and answering, just
+not with something we accept.
+
+Breaker state is logged on every transition and readable through the gateway.
+
+### 16.8 Token accounting
 
 When a provider does not report usage, tokens are estimated at roughly four characters
 per token and the record is flagged `estimated`. Cost is estimated from a pricing

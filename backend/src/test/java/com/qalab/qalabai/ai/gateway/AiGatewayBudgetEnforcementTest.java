@@ -69,7 +69,8 @@ class AiGatewayBudgetEnforcementTest {
 
         gateway = new AiGateway(properties, managedCredentials, credentialStore,
                 accountService, budgetService, usageService, rateLimiter,
-                new ProviderPricingRegistry(), java.util.List.of(client));
+                new ProviderPricingRegistry(), java.util.List.of(client),
+                new ProviderResilience(5, 30, 8, 100));
     }
 
     private AiRequest request() {
@@ -138,7 +139,8 @@ class AiGatewayBudgetEnforcementTest {
         };
         AiGateway limited = new AiGateway(properties, managedCredentials, credentialStore,
                 accountService, budgetService, usageService, denying,
-                new ProviderPricingRegistry(), java.util.List.of(client));
+                new ProviderPricingRegistry(), java.util.List.of(client),
+                new ProviderResilience(5, 30, 8, 100));
 
         ApiException e = org.junit.jupiter.api.Assertions.assertThrows(ApiException.class,
                 () -> limited.complete(request(), null));

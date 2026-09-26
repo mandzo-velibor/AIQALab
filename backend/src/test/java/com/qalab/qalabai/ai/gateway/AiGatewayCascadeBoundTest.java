@@ -71,7 +71,8 @@ class AiGatewayCascadeBoundTest {
 
         gateway = new AiGateway(properties, managedCredentials, credentialStore,
                 accountService, budgetService, usageService, rateLimiter,
-                new ProviderPricingRegistry(), java.util.List.of(client));
+                new ProviderPricingRegistry(), java.util.List.of(client),
+                new ProviderResilience(5, 30, 8, 100));
     }
 
     private AiRequest request() {
