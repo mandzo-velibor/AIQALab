@@ -1,5 +1,7 @@
 package com.qalab.qalabai.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import com.qalab.qalabai.agent.ProjectContext;
 import com.qalab.qalabai.agent.Task;
 import com.qalab.qalabai.agent.executor.ExecutorAgent;
@@ -7,14 +9,17 @@ import com.qalab.qalabai.dto.executor.ExecutionResponse;
 import com.qalab.qalabai.healing.service.HealingAnalysisService;
 import com.qalab.qalabai.healing.service.HealingOutcome;
 import com.qalab.qalabai.model.GeneratedTest;
+import com.qalab.qalabai.model.TestCaseResult;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.repository.GeneratedTestRepository;
+import com.qalab.qalabai.repository.TestCaseResultRepository;
 import com.qalab.qalabai.repository.TestExecutionRepository;
 import com.qalab.qalabai.service.report.ReportService;
 import com.qalab.qalabai.service.workspace.ArtifactResult;
 import com.qalab.qalabai.service.workspace.ArtifactStore;
 import com.qalab.qalabai.service.workspace.TestWorkspaceService;
 import com.qalab.qalabai.service.workspace.WorkspaceManager;
+import com.qalab.qalabai.tool.playwright.PlaywrightResultParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -36,6 +41,8 @@ public class ExecutionService {
     private final ArtifactStore artifactStore;
     private final ReportService reportService;
     private final HealingAnalysisService healingAnalysisService;
+    private final TestCaseResultRepository testCaseResultRepository;
+    private final ObjectMapper objectMapper;
 
     public ExecutionService(ExecutorAgent executorAgent,
                             GeneratedTestRepository testRepository,
@@ -44,7 +51,9 @@ public class ExecutionService {
                             WorkspaceManager workspaceManager,
                             ArtifactStore artifactStore,
                             ReportService reportService,
-                            HealingAnalysisService healingAnalysisService) {
+                            HealingAnalysisService healingAnalysisService,
+                            TestCaseResultRepository testCaseResultRepository,
+                            ObjectMapper objectMapper) {
         this.executorAgent = executorAgent;
         this.testRepository = testRepository;
         this.executionRepository = executionRepository;
@@ -53,6 +62,58 @@ public class ExecutionService {
         this.artifactStore = artifactStore;
         this.reportService = reportService;
         this.healingAnalysisService = healingAnalysisService;
+        this.testCaseResultRepository = testCaseResultRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * Writes the run's per-test results against the saved execution.
+     *
+     * <p>Returns the number of rows written, or 0 when the runner produced no
+     * structured summary (an older runner, or a workspace whose config could not be
+     * extended). Never throws: the per-test detail is valuable but not worth losing a
+     * completed run over, and the execution row is already committed by this point.</p>
+     */
+    private int persistTestCaseResults(TestExecution execution, java.util.Map<String, Object> resultData) {
+        try {
+            Object summary = resultData.get("summary");
+            if (!(summary instanceof PlaywrightResultParser.RunSummary run) || run.tests().isEmpty()) {
+                return 0;
+            }
+            List<TestCaseResult> rows = new ArrayList<>();
+            int ordinal = 0;
+            for (PlaywrightResultParser.TestCaseResult t : run.tests()) {
+                TestCaseResult row = new TestCaseResult();
+                row.setExecution(execution);
+                row.setOrdinalPosition(ordinal++);
+                row.setSpecFile(t.file());
+                row.setTestTitle(t.title());
+                row.setFullTitle(t.fullTitle());
+                row.setStatus(t.status());
+                row.setDurationMs(t.durationMs());
+                row.setRetries(t.retries());
+                row.setErrorMessage(t.errorMessage());
+                row.setErrorSnippet(t.errorSnippet());
+                row.setScreenshots(toJson(t.screenshots()));
+                row.setVideos(toJson(t.videos()));
+                row.setTraces(toJson(t.traces()));
+                rows.add(row);
+            }
+            testCaseResultRepository.saveAll(rows);
+            return rows.size();
+        } catch (RuntimeException e) {
+            log.warn("Could not persist per-test results for execution {}: {}",
+                    execution.getId(), e.getMessage());
+            return 0;
+        }
+    }
+
+    private String toJson(List<String> values) {
+        try {
+            return objectMapper.writeValueAsString(values);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** Result of an execution: the executor response plus the healing outcome computed during the run (may be null). */
@@ -165,6 +226,14 @@ public class ExecutionService {
 
         TestExecution saved = executionRepository.save(execution);
         log.info("Execution saved with id: {}, status: {}", saved.getId(), status);
+
+        // Persist the structured per-test results (B-022). Best-effort: losing the
+        // detail must never lose the execution itself, so a failure here is logged
+        // and the run still counts as saved.
+        int persistedResults = persistTestCaseResults(saved, result.getData());
+        if (persistedResults > 0) {
+            log.info("Persisted {} per-test result(s) for execution {}", persistedResults, saved.getId());
+        }
 
         ProjectContext projectContext = (ProjectContext) task.getContextValue("projectContext");
         HealingOutcome healingOutcome = null;

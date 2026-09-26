@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -304,5 +306,38 @@ class QaWorkflowServiceTest {
         report.setSeverity("HIGH");
         report.setSummary("Summary " + executionId);
         when(bugReportService.generate(eq(executionId), eq(3L), any())).thenReturn(report);
+    }
+
+    // ---- B-022: the stdout tail ----
+    //
+    // The response used to carry the FIRST 2000 characters, which is where the
+    // generated test source lives, so the failures were cut off exactly when they
+    // mattered. The tail keeps the diagnostics and drops the noise.
+
+    @Test
+    void tailKeepsTheEndOfTheOutputWhereTheFailuresAre() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 1; i <= 500; i++) {
+            sb.append("line ").append(i).append('\n');
+        }
+        String tail = QaWorkflowService.tail(sb.toString(), 50);
+
+        assertTrue(tail.contains("showing last 50 lines"), tail);
+        assertTrue(tail.contains("line 500"), "the last line must survive: " + tail);
+        assertFalse(tail.contains("line 1\n"), "the head must be dropped: " + tail);
+        assertEquals(50, tail.split("\\R").length - 1, "exactly the last 50 lines");
+    }
+
+    @Test
+    void tailLeavesShortOutputUntouched() {
+        assertEquals("only\ntwo\n", QaWorkflowService.tail("only\ntwo\n", 50));
+        assertNull(QaWorkflowService.tail(null, 50));
+    }
+
+    @Test
+    void tailHandlesWindowsLineEndings() {
+        String tail = QaWorkflowService.tail("a\r\nb\r\nc\r\n", 2);
+        assertTrue(tail.contains("showing last 2 lines"), tail);
+        assertTrue(tail.endsWith("b\nc\n"), "CRLF must be split as line boundaries: " + tail);
     }
 }

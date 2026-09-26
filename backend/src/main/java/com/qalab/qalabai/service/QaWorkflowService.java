@@ -12,6 +12,7 @@ import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.GeneratedTest;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.service.workspace.TestWorkspaceService;
+import com.qalab.qalabai.tool.playwright.PlaywrightResultParser;
 import com.qalab.qalabai.service.workspace.WorkspaceProvider;
 import com.qalab.qalabai.util.UserInstructions;
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -205,6 +207,83 @@ public class QaWorkflowService {
         return new V1WorkflowResponse(operationId, finalStatus, project.getProjectId(), url, steps, LocalDateTime.now());
     }
 
+    /**
+     * How many trailing lines of raw Playwright output to keep for diagnostics.
+     * The head used to be sent instead, which is where the generated test source
+     * lives — so the interesting part (the failures) was cut off.
+     */
+    private static final int OUTPUT_TAIL_LINES = 50;
+
+    static String tail(String value, int maxLines) {
+        if (value == null) {
+            return null;
+        }
+        String[] lines = value.split("\\R");
+        if (lines.length <= maxLines) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder("(output truncated, showing last " + maxLines + " lines)\n");
+        for (int i = lines.length - maxLines; i < lines.length; i++) {
+            sb.append(lines[i]).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Extracts the structured run summary from the runner's result map.
+     *
+     * <p>Passes through the parser's own record so counts, per-test detail, screenshots,
+     * videos and traces are available to the CLI and to every downstream report. When
+     * the runner produced none — an older runner, or a workspace whose config could
+     * not be extended — the key is simply absent rather than a misleading empty
+     * summary claiming zero tests.</p>
+     */
+    private static Map<String, Object> structuredResults(Map<String, Object> result) {
+        Object summary = result.get("summary");
+        if (!(summary instanceof PlaywrightResultParser.RunSummary run)) {
+            return null;
+        }
+        // Built explicitly rather than reflected, so the wire shape is a deliberate
+        // contract and cannot shift with a field rename in the parser.
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("totalCount", run.total());
+        out.put("passedCount", run.passed());
+        out.put("failedCount", run.failed());
+        out.put("skippedCount", run.skipped());
+        out.put("flakyCount", run.flaky());
+        out.put("durationMs", run.durationMs());
+        out.put("globalErrors", run.globalErrors());
+
+        List<Map<String, Object>> tests = new ArrayList<>();
+        for (PlaywrightResultParser.TestCaseResult t : run.tests()) {
+            Map<String, Object> one = new LinkedHashMap<>();
+            one.put("file", t.file());
+            one.put("title", t.title());
+            one.put("fullTitle", t.fullTitle());
+            one.put("status", t.status());
+            one.put("durationMs", t.durationMs());
+            one.put("retries", t.retries());
+            if (t.errorMessage() != null) {
+                one.put("error", t.errorMessage());
+            }
+            if (t.errorSnippet() != null) {
+                one.put("snippet", t.errorSnippet());
+            }
+            if (!t.screenshots().isEmpty()) {
+                one.put("screenshots", t.screenshots());
+            }
+            if (!t.videos().isEmpty()) {
+                one.put("videos", t.videos());
+            }
+            if (!t.traces().isEmpty()) {
+                one.put("traces", t.traces());
+            }
+            tests.add(one);
+        }
+        out.put("tests", tests);
+        return out;
+    }
+
     /** Execution outcome plus the exact set of files the write produced. */
     private record RunWithFiles(Map<String, Object> run, WorkspaceProvider.WriteResult written) {
     }
@@ -233,7 +312,11 @@ public class QaWorkflowService {
         run.put("executionStatus", status);
         run.put("duration", duration);
         run.put("workspace", written.workspace());
-        run.put("output", output != null && output.length() > 2000 ? output.substring(0, 2000) : output);
+        // Keep a bounded tail of the raw output for diagnostics, but the *structured*
+        // per-test results are what callers should read. The 2000-character head that
+        // used to be sent instead buried the failures in generated test source.
+        run.put("output", tail(output, OUTPUT_TAIL_LINES));
+        run.put("results", structuredResults(result));
         return new RunWithFiles(run, written);
     }
 

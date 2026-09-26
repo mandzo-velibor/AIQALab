@@ -299,9 +299,12 @@ QA RUN COMPLETED
     healing                ok
     bugReport              ok
 
-  TESTS  FAILED (94s)
-      ✘  login-with-empty-password.spec.ts:4:6 › Login with empty password (31.2s)
-      ... and 3 more failing test(s)
+  TESTS  FAILED - 7 passed, 4 failed, 0 skipped (94s)
+    ✘ login-with-empty-password.spec.ts: Login with empty password (31s)
+    ✘ login.spec.ts: Login shows an error for a wrong password (12s)
+    ... and 2 more failing test(s)
+      Error: expect(locator).toBeVisible() failed
+      Timeout 30000ms exceeded.
   FAILURE ANALYSIS  ASSERTION_FAILURE
     Expected the error banner to be visible after submitting an empty password.
   HEALING  Proposed a new locator for Login Button
@@ -335,6 +338,10 @@ failure analysis → healing → bug report.
 | `--username` / `--password` | Credentials, used to explore and capture the post-login page. |
 | `--json` | Print the raw workflow response instead of the summary. |
 | `--quiet` | Print only the report directory. For scripts. |
+
+The summary prints a per-test breakdown — how many passed, failed and skipped, then
+each failing test with its file, title, duration and first assertion message — taken
+from the structured results rather than scraped from the console text (§10.2).
 
 **Exit code:** `0` only when the workflow completed *and* the tests passed. A completed
 workflow whose tests failed exits `1`, so the command is usable directly as a CI gate.
@@ -485,7 +492,7 @@ keeps a complete class available for anything that still imports the shared path
 
 | File | Contents |
 |---|---|
-| `report.json` | The complete workflow response: every step, every status, the full generated sources, the execution output, failure analysis, healing and bug-report references. |
+| `report.json` | The complete workflow response: every step, every status, the full generated sources, the structured per-test results (§10.2), the tail of the execution output, failure analysis, healing and bug-report references. |
 | `test-plan.md` | The test plan as a readable table plus per-scenario steps and required elements. |
 | `test-plan.json` | The same plan, machine-readable, for diffing between runs. |
 | `bug-report.json` | The full bug report, when one was generated. |
@@ -520,8 +527,52 @@ snapshot was too thin.
 
 ### 10.2 Then the failures
 
-The summary lists failing tests, capped at 8 with a count of the remainder. The full
-output is in `report.json` under `steps.execution.output`.
+The summary lists failing tests, capped at 8 with a count of the remainder, and
+prints the first assertion message of each. Everything it shows comes from the
+structured results in `report.json` under `steps.execution.results`, not from
+scraping Playwright's console text, so the list stays correct no matter how noisy
+the run is.
+
+That object looks like this:
+
+```json
+{
+  "totalCount": 11, "passedCount": 7, "failedCount": 4, "skippedCount": 0,
+  "flakyCount": 0, "durationMs": 94120,
+  "globalErrors": [],
+  "tests": [
+    {
+      "file": "login-with-empty-password.spec.ts",
+      "title": "Login with empty password",
+      "fullTitle": "login.spec.ts › Login with empty password",
+      "status": "failed",
+      "durationMs": 31200,
+      "retries": 0,
+      "error": "Error: expect(locator).toBeVisible() failed\n...",
+      "snippet": "at Object.login (login.spec.ts:31:24)",
+      "screenshots": ["/…/test-results/login-empty/test-failed-1.png"],
+      "videos": ["/…/test-results/login-empty/video.webm"],
+      "traces": ["/…/test-results/login-empty/trace.zip"]
+    }
+  ]
+}
+```
+
+- `status` is one of `passed`, `failed`, `skipped` or `unknown`.
+- `retries` is how many attempts came before the final one. A test that failed and
+  then passed is reported as `passed` with `retries: 1` and counted in `flakyCount`.
+- Screenshot, video and trace paths belong to that specific test, so you can open
+  the evidence for a failure without guessing which run it came from.
+- `globalErrors` holds problems that stopped the whole run (for example a config that
+  would not load) and so produced no per-test results at all.
+
+The same per-test results are stored in the database, one row per test, linked to the
+execution. `report.json` under `steps.execution.output` keeps only the **last 50
+lines** of Playwright's console output for diagnostics.
+
+> If `steps.execution.results` is missing entirely, the run predates this feature or
+> the workspace's Playwright config could not be extended. The summary then falls
+> back to the run status alone.
 
 For each failure, look at:
 
@@ -1209,14 +1260,39 @@ The worker count is reported back in the execution result as `effectiveWorkers`,
 "how many workers was this actually running with?" is always answerable from
 `report.json` — the first question when a suite times out or flakes.
 
-### 21.3 Adding a provider
+### 21.3 The temporary reporting config
+
+To capture per-test results the Core runs Playwright with an extra config file,
+`playwright.qalab-report.config.ts`, written into the workspace root for the duration
+of the run and deleted afterwards. If you run tests while one is in flight, seeing
+that file is expected.
+
+It never edits your `playwright.config.ts`. It imports your config, spreads it and
+appends one reporter, so your `workers`, `retries`, `testDir` and evidence profile all
+still apply:
+
+```ts
+import base from './playwright.config.ts';
+import { defineConfig } from '@playwright/test';
+
+const existing = Array.isArray(base.reporter) ? base.reporter : [];
+export default defineConfig({
+  ...base,
+  reporter: [...existing, ['json', { outputFile: '…' }]],
+});
+```
+
+Your own reporters are preserved and keep printing, so the console output is
+unchanged.
+
+### 21.4 Adding a provider
 
 Implement `ProviderClient` (`type()` and `call(ProviderCallRequest)`), register it as a
 bean in `AiGatewayConfig`, and add it to the `providerClients` list. It will then be
 resolved by `AiProviderType` and participate in retries and usage accounting
 automatically.
 
-### 21.4 Project layout
+### 21.5 Project layout
 
 ```
 backend/src/main/java/com/qalab/qalabai/
@@ -1241,7 +1317,7 @@ frontend/src/       Next.js app router UI
 docs/               architecture notes and known limitations
 ```
 
-### 21.5 Planning documents
+### 21.6 Planning documents
 
 | File | Purpose |
 |---|---|

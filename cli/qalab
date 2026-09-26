@@ -328,17 +328,27 @@ print_summary() {
   exec_dur="$(printf '%s' "$json" | jq -r '.steps.execution.duration // 0')"
   if [ -n "$exec_status" ]; then
     echo ""
-    echo "  TESTS  $exec_status ($(( exec_dur / 1000 ))s)"
-    # Cap the list: a 40-test run must still fit on one screen. The full output is in
-    # report.json and, from B-022, per-test results will be available structurally.
-    local failed failed_shown
-    failed="$(printf '%s' "$json" | jq -r '.steps.execution.output // ""' \
-      | grep -cE '^\s+[✘×]' || true)"
-    if [ "${failed:-0}" -gt 0 ]; then
-      printf '%s' "$json" | jq -r '.steps.execution.output // ""' \
-        | grep -E '^\s+[✘×]' | head -8 | sed 's/^/    /'
-      failed_shown=$(( failed > 8 ? failed - 8 : 0 ))
-      [ "$failed_shown" -gt 0 ] && printf '    ... and %s more failing test(s)\n' "$failed_shown"
+    # Prefer the structured per-test results (B-022). The text fallback only applies to
+    # a runner that produced none, so the summary degrades instead of going blank.
+    if printf '%s' "$json" | jq -e '.steps.execution.results.tests' >/dev/null 2>&1; then
+      printf '  TESTS  %s - ' "$exec_status"
+      printf '%s' "$json" | jq -r '"\(.steps.execution.results.passed // 0) passed, \(.steps.execution.results.failed // 0) failed, \(.steps.execution.results.skipped // 0) skipped (\(exec_dur / 1000)s)"'
+      local failed_count
+      failed_count="$(printf '%s' "$json" | jq -r '.steps.execution.results.failed // 0')"
+      if [ "${failed_count:-0}" -gt 0 ]; then
+        printf '%s' "$json" | jq -r '
+          .steps.execution.results.tests[] | select(.status == "failed") |
+          "    ✘ \(.file): \(.title) (\( (.durationMs / 1000) | floor )s)"' | head -8 | sed 's/$/
+/'
+        local remaining=$(( failed_count > 8 ? failed_count - 8 : 0 ))
+        [ "$remaining" -gt 0 ] && printf '    ... and %s more failing test(s)\n' "$remaining"
+        # The first real assertion message is the most useful line in the whole report.
+        printf '%s' "$json" | jq -r '
+          .steps.execution.results.tests[] | select(.status == "failed" and .error != null) |
+          "      \(.error | split("\n")[0])"' | head -3 | sed 's/^/    /'
+      fi
+    else
+      echo "  TESTS  $exec_status ($(( exec_dur / 1000 ))s)"
     fi
   fi
 

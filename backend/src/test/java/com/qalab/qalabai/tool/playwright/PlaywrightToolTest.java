@@ -140,6 +140,99 @@ class PlaywrightToolTest {
         assertEquals("", ReflectionTestUtils.invokeMethod(tool, "readTail", Path.of("/nonexistent/qalab.log")));
     }
 
+    // ---- B-022: structured results need a reporter the run actually emits ----
+    //
+    // --reporter=json:<file> is unsupported on the targeted Playwright (1.48 treats
+    // the value as a module name), so the JSON reporter has to be configured. The
+    // workspace's own playwright.config.ts belongs to the user, so the runner writes
+    // a separate companion config and points the run at it via --config.
+
+    @Test
+    void reportingConfigExtendsTheUsersConfigWithoutModifyingIt() throws IOException {
+        PlaywrightTool tool = tool(30);
+        Path ws = tempDir();
+        Path userConfig = ws.resolve("playwright.config.ts");
+        String original = "export default { testDir: './e2e', retries: 2, workers: 1 };\n";
+        Files.writeString(userConfig, original);
+
+        Path json = ws.resolve("out.json");
+        Path companion = tool.writeReportingConfig(ws, json);
+
+        assertNotNull(companion, "a companion config must be written");
+        assertEquals(ws.resolve(PlaywrightTool.COMPANION_CONFIG_NAME), companion,
+                "the companion must sit at the workspace root so node module resolution "
+                        + "and Playwright's default testDir behave as they do for the "
+                        + "user's own config");
+
+        String generated = Files.readString(companion);
+        assertTrue(generated.contains("import base from './playwright.config.ts'"),
+                "must import the user config relatively: " + generated);
+        assertTrue(generated.contains("...base"), "must spread the user config: " + generated);
+        assertTrue(generated.contains("['json'"), "must add the json reporter: " + generated);
+        assertTrue(generated.contains("existing"), "must preserve the user's own reporters: " + generated);
+
+        // The critical contract: the user's file is untouched, so its workers, retries
+        // and artifact profile all keep applying to the run.
+        assertEquals(original, Files.readString(userConfig),
+                "the user's playwright.config.ts must not be modified");
+    }
+
+    @Test
+    void reportingConfigFallsBackToTestDirWhenTheWorkspaceHasNoConfig() throws IOException {
+        PlaywrightTool tool = tool(30);
+        Path ws = tempDir();
+
+        Path companion = tool.writeReportingConfig(ws, ws.resolve("out.json"));
+
+        assertNotNull(companion);
+        String generated = Files.readString(companion);
+        assertFalse(generated.contains("import base"), "nothing to import: " + generated);
+        assertTrue(generated.contains("testDir"), "must still be a usable config: " + generated);
+        assertTrue(generated.contains("'json'"), "must add the json reporter: " + generated);
+    }
+
+    @Test
+    void reportingConfigSupportsJavaScriptWorkspacesToo() throws IOException {
+        PlaywrightTool tool = tool(30);
+        Path ws = tempDir();
+        Files.writeString(ws.resolve("playwright.config.js"), "module.exports = {};");
+
+        String generated = Files.readString(tool.writeReportingConfig(ws, ws.resolve("o.json")));
+
+        // A bare "playwright.config.js" would be resolved from node_modules, not
+        // relative to the companion, so the ./ prefix is part of the contract.
+        assertTrue(generated.contains("import base from './playwright.config.js'"), generated);
+    }
+
+    @Test
+    void runProcessPassesTheCompanionConfigToTheRun() throws Exception {
+        PlaywrightTool tool = tool(30);
+        Path ws = tempDir();
+        // Echo the argv the runner would have used, so the flag can be asserted.
+        Path companion = ws.resolve("companion.ts");
+        Files.writeString(companion, "// config");
+
+        PlaywrightTool.ProcessOutcome outcome =
+                tool.runProcess(List.of("sh", "-c", "for a in \"$@\"; do echo \"arg=$a\"; done",
+                        "sh", "base", "--reporter=list"), ws, companion);
+
+        assertTrue(outcome.output().contains("arg=base"), outcome.output());
+        assertTrue(outcome.output().contains("arg=--reporter=list"), outcome.output());
+        assertTrue(outcome.output().contains("arg=--config=" + companion.toAbsolutePath()),
+                "the run must be pointed at the companion config: " + outcome.output());
+    }
+
+    @Test
+    void runProcessOmitsTheConfigFlagWhenThereIsNoOverride() throws Exception {
+        PlaywrightTool tool = tool(30);
+        PlaywrightTool.ProcessOutcome outcome = tool.runProcess(
+                List.of("sh", "-c", "for a in \"$@\"; do echo \"arg=$a\"; done", "sh", "base"),
+                tempDir());
+
+        assertFalse(outcome.output().contains("--config="),
+                "an existing caller path must not gain a config flag: " + outcome.output());
+    }
+
     private Path tempDir() {
         try {
             return Files.createTempDirectory("qalab-pw-test");
