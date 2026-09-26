@@ -1100,3 +1100,90 @@ reports — needs structured per-test results first.
 - **Dependency correction (resolved).** `backlog.md` listed B-006 as depending on B-007 and B-007 as depending on B-006 — circular. Resolution: B-006 shipped first as the summary shell; B-007 was then added *into* that summary. B-007's only real dependency is that B-006 exists. **`backlog.md` still needs this corrected.**
 - **B-003 and B-004 were implemented as separate commits** even though they touch the same call sites, so the "commit after each task" instruction was honoured literally. B-004 is meaningless without B-003, so the two are sequential by necessity.
 - **`.env.example` grew** with the B-001/B-002/B-009/B-011 knobs, all commented out with the reason each matters.
+
+---
+
+# Sprint 4 — Quality moat
+
+*Goal: protect the product's core claim — "it writes good tests" — which is currently unmeasured.*
+
+**Started:** 2026-09-26
+**Baseline commit:** `2e494e0` (end of Sprint 3)
+
+## Task log
+
+| # | Task | Priority | Size | Status | Commit |
+|---|---|---|---|---|---|
+| B-037 | Resilience: circuit breaker + bulkhead | P1 | M | **DONE** | `6a13220` |
+| B-034 | Evaluation harness for generated tests | P1 | L | TODO | — |
+| B-035 | Prompt versioning | P1 | M | TODO | — |
+| B-036 | Close the test-coverage holes | P2 | M | TODO | — |
+| B-038 | Frontend QA sweep | P2 | M | TODO | — |
+
+**Totals:** 1/5 done · 1 commit · elapsed 128m
+
+### B-037 · Resilience: circuit breaker + bulkhead
+| | |
+|---|---|
+| **Status** | **DONE** — the last open entry in known limitations |
+| **Date** | 2026-09-26 |
+| **Duration** | 128m |
+| **Commit** | `6a13220` (1 of 5) |
+
+**What changed**
+- `CircuitBreaker` per provider: CLOSED → OPEN after N consecutive failures → HALF_OPEN
+  after the cooldown, admitting **one** probe.
+- `ProviderResilience` holds breakers and a per-provider concurrency bulkhead.
+- `AiGateway` consults the breaker before every attempt, acquires a bulkhead slot, and
+  records the outcome. `AI_PROVIDER_UNAVAILABLE` now carries retry guidance.
+- The managed cascade keeps a **per-model** breaker, which the gateway-level one cannot
+  do.
+- 40 new tests.
+
+**Why half-open rather than closing on the cooldown.** Closing outright releases every
+waiting caller at the same instant, which is a stampede against a provider that has only
+just recovered. One probe decides; the rest wait. Tested directly: 100 concurrent
+acquisitions on a half-open breaker admit exactly one.
+
+**Not every failure counts, and that distinction is the design.** A `400` or `404` is our
+request being wrong — tripping on it would take a working provider out of service for
+something that fixing the request would resolve. A `5xx`, `429`, timeout, connection error
+or rejected credential all count: in each case the provider is the problem and hammering it
+changes nothing. A rejected response from a model inside the cascade likewise does **not**
+open its breaker — the provider is alive and answering, just not acceptably.
+
+**The bulkhead is on by default; the rate limiter is not.** The rate limiter is a cost
+policy an operator chooses. The bulkhead is a safety limit, and the failure it prevents is
+thread starvation, not an unexpected bill. Past the cap it **refuses** rather than
+queueing, because holding a request thread open behind a provider that is not coming back
+is the exact failure this prevents.
+
+**The gateway-level breaker cannot see inside the cascade.** It only observes the
+aggregate outcome, so a single dead model in the middle of the chain kept costing a
+timeout on every call — which is why per-model breakers exist as well as the per-client
+one. A test asserts the cascade reaches Gemini while Go and both Zen models are open,
+and that only one upstream request is made.
+
+**A test-design lesson worth keeping.** The first version of these tests used a
+zero-second cooldown, which made the OPEN state unobservable: it promoted to HALF_OPEN on
+the very next read, so an assertion about reopening passed or failed for the wrong reason.
+The breaker now takes an **injected monotonic clock**, so the cooldown is tested by
+advancing time. A time-based state machine tested with real sleeps is either slow or
+flaky, and usually ends up asserted loosely enough to pass either way.
+
+**How it was tested**
+- The criterion that matters is asserted **end to end by counting calls** to a stub
+  client: a dead provider costs *nothing* once open, not merely "is reported as open".
+- Recovery is automatic once the cooldown elapses — no operator action, nothing to clear.
+- 32 threads failing concurrently open the breaker exactly **once**, not 32 times.
+- 40 threads against a cap of 4 never exceed 4 in flight.
+- A double permit release does not inflate the bulkhead, which would hand out capacity
+  that does not exist.
+- Misconfiguration is clamped: threshold 0 must not mean "never open", cap 0 must not
+  deadlock.
+- App boots clean and logs the policy; overrides verified to bind (threshold 3, cap 4).
+- Full suite **493 green** from clean (was 459).
+
+**Left for B-026:** breaker state is exposed through `AiGateway.circuitState()` and logged
+on every transition, but there are no metrics yet. That is B-026's job and the data now
+exists to feed it.

@@ -906,9 +906,14 @@ One slow or rate-limited provider degrades the whole application: there is no ci
 - Emit breaker state as a metric; surface `AI_PROVIDER_UNAVAILABLE` with retry guidance.
 
 **Acceptance criteria**
-- [ ] A dead provider stops consuming calls after the threshold
-- [ ] Recovery is automatic and observable
-- [ ] Cascade (B-024) skips an open breaker
+- [x] A dead provider stops consuming calls after the threshold
+- [x] Recovery is automatic and observable
+- [x] Cascade (B-024) skips an open breaker
+
+**Shipped in** `6a13220`, with one addition the task did not ask for: the managed cascade
+needs a breaker **per model**, not just per client, because the gateway only sees the
+aggregate outcome of the cascade and a single dead model in the middle of the chain would
+otherwise keep costing a timeout on every call.
 
 **Files:** `ai/gateway/AiGateway.java`, new breaker component
 **Depends on:** B-023, B-026
