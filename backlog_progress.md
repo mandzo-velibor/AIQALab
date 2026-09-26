@@ -248,6 +248,32 @@ Enriching the result with `putIfAbsent` threw `UnsupportedOperationException`: `
 - Full suite: **196 tests, 0 failures** (186 + 10).
 
 ---
+### B-015 · Ship a real `qalab.ai` config block
+| | |
+|---|---|
+| **Status** | **DONE** (+1 doc correction) |
+| **Date** | 2026-09-26 |
+| **Duration** | 16m |
+| **Commit** | `ec70594`, docs `3915e57` (5 of 10) |
+
+**What changed**
+- There was **no `qalab.ai` block in any configuration file**, which broke two things:
+  1. `providers` was empty → `resolveModel()` returned `null` → every BYOK provider got `{"model": null}`, which OpenAI/Gemini/Ollama/Anthropic all reject with an opaque 400. The managed path masked it because `OpenCodeAiProvider` reads its own `@Value` models, so the bug was invisible until you tried BYOK.
+  2. `freeMonthlyTokenLimit` fell back to the code default of **4000 tokens/month** — below a single `qalab test` run (6–7 prompts containing full page HTML). Compose had been working around it with an explicit `0`.
+- New `qalab.ai` block: default provider + credential mode, token limit, retry/backoff, and per-provider base URL + model for all six provider types, each overridable by env var.
+- `resolveModel()` now **throws a configuration error naming the missing key** instead of returning null — a misconfiguration says what is wrong rather than surfacing as a provider 400.
+- Added `aiqalab` and `opencode` provider entries: AIQALAB is served by `OpenCodeManagedProviderClient`, which runs its own cascade and reads its own model settings; the entry exists so a model always resolves.
+
+**Typo caught before it shipped:** the enum `AIQALAB` lowercases to `aiqalab`; I wrote `aiqqlab`. The new "every provider type resolves a model" test failed on exactly that.
+
+**How it was tested**
+- New `AiGatewayConfigurationTest` — 8 cases: every provider type resolves a model; every OpenAI-style provider resolves a base URL; the free allowance is usable for one run; managed is the default; provider identifiers are distinct. Two tests drive the **public `complete()` path** with a stub client — a configured model reaches the provider, and a missing model raises a configuration error naming the provider **without attempting any provider call**.
+- One pre-existing suite had to be adjusted: `AiGatewayBudgetEnforcementTest` built a bare `new AiGatewayProperties()` and was **implicitly relying on `resolveModel` returning null**. It exercises budget enforcement, not model resolution, so it now configures a model, with a comment saying why.
+- Full suite: **204 tests, 0 failures** (196 + 8).
+
+**Process note — a failed doc edit nearly shipped as a lie.** The `USER-MANUAL.md` update for this task asserted its search string matched before writing; the pattern was missing a line the file actually contained, so the script exited without writing. The shell then continued and the commit went through with the documentation untouched — leaving the manual asserting, falsely, that the config block was absent and the allowance was 4000. Caught on the next inspection and fixed in `3915e57`. The assertion guard is right; the lesson is that its failure must not pass unnoticed just because the surrounding commit succeeded.
+
+---
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
@@ -255,14 +281,14 @@ Enriching the result with `putIfAbsent` threw `UnsupportedOperationException`: `
 | B-019 | Frontend API base URL at runtime | P1 | S | **DONE** | `7e2c5ec` |
 | B-020 | Sensible default artifact profile | P1 | S | **DONE** | `6767e45` |
 | B-021 | Bounded Playwright concurrency | P1 | S | **DONE** | `4a0e11a` |
-| B-015 | Real `qalab.ai` config block | P0 | M | TODO | — |
+| B-015 | Real `qalab.ai` config block | P0 | M | **DONE** | `ec70594` |
 | B-012 | Spike: auth & tenancy ADR | P0 | S | TODO | — |
 | B-013 | Auth filter on the API | P0 | L | TODO | — |
 | B-016 | Real rate limiter | P1 | M | TODO | — |
 | B-014 | Database migrations with Flyway | P0 | L | TODO | — |
 | B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
 
-**Totals:** 4/10 done · 4 commits · elapsed 45m
+**Totals:** 5/10 done · 5 commits · elapsed 61m
 
 ### Parallel work: user manual
 Started 2026-09-26 alongside the sprint, at the user's request: a comprehensive
