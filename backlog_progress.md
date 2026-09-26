@@ -391,6 +391,41 @@ Worth recording: the *symptom* (mysterious context failures) pointed nowhere nea
 Full suite: **252 tests, 0 failures**, and tests are now genuinely isolated from any real database.
 
 ---
+### B-017 · Async job model for the full-test workflow
+| | |
+|---|---|
+| **Status** | **DONE** (+2 bugs, +1 regression, +1 UX gap) |
+| **Date** | 2026-09-26 |
+| **Duration** | 52m |
+| **Commit** | `e7c4187` (10 of 10) |
+
+**What changed**
+- `POST /api/v1/workflows/full-test` returns **`202 Accepted`** with an operation id and `statusUrl`; the work runs on a bounded background pool instead of the request thread.
+- New `GET /api/v1/workflows/{operationId}`: `200` + full response when terminal, `202` + stage while in flight, `404` unknown, `500` if the workflow threw.
+- The pool is **deliberately bounded** — an unbounded queue accepts work the node can never finish, turning a slow instance into an OOM one. A saturated queue returns `429` with a retry hint. Sized by `qalab.workflow.workers`/`queue-capacity` (default 2/20; each worker holds a browser).
+- Results retained 2 h so a slow or retried client can still collect them; expired entries evicted on read.
+- CLI submits then polls, keeping live stage output on stderr, with a `QALAB_WAIT_SECONDS` cap (default 3600) that reports a timeout instead of hanging.
+
+**Bug 1 — a clean install could not start. Would have hit production.**
+The API-key bootstrap runner fired **before** the default-account runner, so `issue(null, ...)` found no account and threw, failing the whole context. B-013's test passed only because my local PostgreSQL already had an account from earlier runs; on a **genuinely fresh database with `QALAB_REQUIRE_API_KEY=true` the app would not boot**. Fixed three ways: `ApiKeyService` establishes its own owning account rather than depending on another bean having run; both runners carry explicit `@Order` so the dependency is documented rather than incidental; and a test now starts from an empty database.
+
+**Bug 2 — invalid `jq` in the CLI, introduced in B-004 and never executed.**
+`{files: (.a // []) + (.b // [])}` is a jq **syntax error** — an object value must be a single expression, so the `+` needs the whole value parenthesized. Every `qalab test` since B-004 silently wrote **no generated files** and printed a raw jq error. I had verified those expressions in isolation but never ran the actual command path. **Testing a string is not the same as exercising the code.** Fixed, and the path is now proven end to end.
+
+**A UX gap the end-to-end run exposed.** A workflow that aborts before any step completes leaves only a `workflow` step carrying the reason, and the summary printed `QA RUN FAILED` with nothing else — the least useful possible output. The summary now surfaces that error.
+
+**Verification beyond unit tests — the real server, a fresh database**
+- First key auto-issued at startup (proves the fresh-install fix).
+- CLI received `202` + `statusUrl`, polled to a terminal `FAILED`, printed the **actual reason**, wrote `report.json`, exited `1`.
+- `write_files_from_json` driven directly with a specs + page-objects payload produced the correct `tests/` and `pages/` tree.
+
+**A regression I introduced and caught in the same task:** rewriting `V1WorkflowController` dropped the `/{operationId}/progress` endpoint — the one the CLI polls for live progress. Restored, with a comment stating the async change is not a reason to break a contract a client may already depend on.
+
+**Tests:** 9 new HTTP-level cases + 1 added to `ApiKeyServiceTest`. The workflow service is stubbed so the asynchrony contract is deterministic and fast; the workflow's own behaviour stays covered by `QaWorkflowServiceTest`. Three initial failures were test-design problems (loop stopping at exactly workers+queue so 429 was unreachable; asserting real-workflow completion inside 60 s; a progress assertion that cannot hold with a stub) — fixed in the tests rather than by weakening the assertions.
+
+Full suite: **262 tests, 0 failures** (252 + 10).
+
+---
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
@@ -403,9 +438,9 @@ Full suite: **252 tests, 0 failures**, and tests are now genuinely isolated from
 | B-013 | Auth filter on the API | P0 | L | **DONE** | `862ef98` |
 | B-016 | Real rate limiter | P1 | M | **DONE** | `e27e127` |
 | B-014 | Database migrations with Flyway | P0 | L | **DONE** | `17a3c5f` |
-| B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
+| B-017 | Async job model for full-test workflow | P1 | L | **DONE** | `e7c4187` |
 
-**Totals:** 9/10 done · 9 commits · elapsed 167m
+**Totals:** 10/10 done · 10 commits · elapsed 219m
 
 ### Parallel work: user manual
 Started 2026-09-26 alongside the sprint, at the user's request: a comprehensive
@@ -432,6 +467,63 @@ cleaned-up base. This sprint therefore runs the four small, independent reliabil
 items first (B-018..B-021), then the config correctness fix (B-015), then the
 architectural work (B-012 → B-013 → B-016, B-014, B-017). All are Sprint 1 scope; only
 the sequence differs.
+
+## Sprint 1 outcome
+
+**All 10 tasks delivered in 10 commits.** Tests grew **204 → 262** (+58), all green.
+
+| Sprint | Tasks | Result |
+|---|---|---|
+| 0 — reliability + readable output | 11/11 | Playwright and AI timeouts bounded; one generation per run; page objects and test plan delivered; CLI summary with a CI exit code; artifacts persisted |
+| 1 — deployability | 10/10 | Warm-up off the boot path; runtime frontend config; failures-only artifacts; bounded concurrency; `qalab.ai` block; auth ADR + API-key auth; rate limiter; Flyway; async workflow |
+
+### The pattern worth naming
+**Eight of the ten tasks were hiding a real defect, not just an improvement.** In
+several cases the stated task was the smaller half of the work:
+
+| Hidden defect | Task |
+|---|---|
+| `--instruction` reached only page analysis — the planner and generator never saw it | B-003 |
+| Delivered specs imported a `pages/` file that was never written | B-004 |
+| `extractClassName(null)` NPE failed the entire write | B-005 |
+| Page-object splitter sheared classes in half on `getByTestId('a}b{c}')` | B-008 |
+| A filter injecting a repository **prevented the app from starting at all** | B-013 |
+| Rate limiting would have silently rejected every call in an existing test suite | B-016 |
+| `@Lob String` mapped a column to Postgres `oid` instead of `text` | B-014 |
+| A clean database could not start with `QALAB_REQUIRE_API_KEY=true` | B-017 |
+| Invalid `jq` meant **no generated files were written at all** since B-004 | B-017 |
+
+### Mistakes of mine, recorded rather than smoothed over
+- **B-005** NPE and **B-008** malformed fixture — both found by tests I had just written.
+- **B-013**: three real mistakes (startup-breaking circular bean, an allowlist the filter ignored, a pointless mapper bean) plus two test bugs.
+- **B-014**: a test profile that would have **dropped the developer's real database**, found only because eight context failures looked inexplicable.
+- **B-015**: a documentation edit failed its assertion, the shell continued, and the commit shipped a manual asserting something false. Caught on inspection.
+- **B-017**: dropped the `/progress` endpoint the CLI depends on — caught in the same task.
+- **B-020**: a test that took 151 s because it shelled out to `npm install`; now 1.7 s.
+
+The recurring lesson is the same each time: **a failed assertion or an unexplained failure is information.** Every one of these was found by reading the actual error rather than retrying or working around it.
+
+### Two process notes
+1. **Testing a string is not the same as exercising the code.** The B-004 `jq` bug survived because I validated expressions in isolation and never ran the command. B-017 caught it only because the end-to-end run happened to include a jq error. Where a path can be driven cheaply against a real process, it should be.
+2. **A test that reaches the network is a CI liability, not merely a slow test** (B-020, 151 s → 1.7 s).
+
+### Exit criteria
+- [x] Application serves traffic before any npm/browser install
+- [x] Neither a Playwright run nor an AI call can hang indefinitely
+- [x] One test generation per run; `--instruction` reaches planner and generator
+- [x] Frontend can target a non-localhost backend (CORS + WebSocket + runtime API URL)
+- [x] `/api/**` requires a bearer key; raw key returned once and never stored
+- [x] AI calls rate-limited per provider and per account
+- [x] Schema owned by Flyway, validated in every profile, drift caught in CI
+- [x] Long workflows do not occupy request threads; saturated queues reject cleanly
+- [x] `mvn verify` green — 262 tests, 0 failures
+
+### What Sprint 1 deliberately did **not** do
+- **No multi-tenancy.** `defaultAccount()` is still global, so usage is not per-tenant; `CredentialStore` is still global, so BYOK keys have no owner; `/ws/**` is unauthenticated. All recorded in ADR 0001's follow-ups and in the manual.
+- **No circuit breaker** (B-037), **no distributed rate-limit state** (single-node only), **no per-test structured results** (B-022, still the blocker for the HTML report).
+- **No analysis caching** between runs — still the largest available latency win, still an unchosen correctness/speed trade.
+
+---
 
 ## Notes / deviations
 
