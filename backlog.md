@@ -496,11 +496,20 @@ The workflow only ever sees a 2000-char truncated stdout blob (`QaWorkflowServic
 - Persist per-test results against the `TestExecution` (new table via B-014 migrations).
 
 **Acceptance criteria**
-- [ ] Execution step carries `passedCount`, `failedCount`, `skippedCount` and a per-test array
-- [ ] Screenshot/trace paths are surfaced per failing test
-- [ ] One `mvn verify` unit test parses a fixture JSON report
+- [x] Execution step carries `passedCount`, `failedCount`, `skippedCount` and a per-test array
+- [x] Screenshot/trace paths are surfaced per failing test
+- [x] One `mvn verify` unit test parses a fixture JSON report
 
-**Files:** `tool/playwright/PlaywrightTool.java`, `service/QaWorkflowService.java`, `model/`, migration
+**Shipped in** `c225c5c` — with two corrections to the plan above:
+- `--reporter=json:<file>` is **not supported** on Playwright 1.48 (it is parsed as a
+  module name). The JSON reporter is configured through a generated companion config
+  that imports the user's `playwright.config.ts`, spreads it and appends one reporter,
+  selected with `--config` and deleted after the run.
+- The companion must sit at the **workspace root**, not a subdirectory: Node resolves
+  `node_modules` by walking up from the importing file, and Playwright defaults
+  `testDir` to the config file's own directory.
+
+**Files:** `tool/playwright/PlaywrightTool.java`, `tool/playwright/PlaywrightResultParser.java`, `service/QaWorkflowService.java`, `model/TestCaseResult.java`, `repository/TestCaseResultRepository.java`, `migration/V2__test_case_results.sql`, `cli/qalab`
 **Depends on:** B-014 (needs a table), B-001
 
 ---

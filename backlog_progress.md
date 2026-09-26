@@ -525,6 +525,123 @@ The recurring lesson is the same each time: **a failed assertion or an unexplain
 
 ---
 
+---
+
+# Sprint 2 — Reliable and measurable
+
+*Goal: when the user says "it was slow" or "it was wrong", we can answer from data instead of log-scraping.*
+
+**Started:** 2026-09-26
+**Baseline commit:** `f8f308e` (end of Sprint 1)
+
+## Task log
+
+| # | Task | Priority | Size | Status | Commit |
+|---|---|---|---|---|---|
+| B-022 | Playwright JSON reporter → per-test results | P0 | M | **DONE** | `c225c5c` |
+| B-024 | Cap the provider cascade | P1 | S | TODO | — |
+| B-025 | One shared, tolerant LLM JSON extractor | P1 | M | TODO | — |
+| B-027 | Fix `AnalysisCache` semantics | P1 | M | TODO | — |
+| B-028 | Reuse the browser instead of relaunching per call | P1 | M | TODO | — |
+| B-023 | Consolidate the provider clients | P2 | M | TODO | — |
+| B-026 | Structured logging + LLM metrics | P2 | M | TODO | — |
+
+**Totals:** 1/7 done · 1 commit · elapsed 71m
+
+
+### B-022 · Playwright JSON reporter → structured per-test results
+| | |
+|---|---|
+| **Status** | **DONE** (+2 bugs found by running it for real) |
+| **Date** | 2026-09-26 |
+| **Duration** | 71m |
+| **Commit** | `c225c5c` (1 of 7) |
+
+**What changed**
+- `PlaywrightResultParser` turns Playwright's JSON reporter output into per-test
+  records: file, title, status, duration, retry count, error message + snippet and
+  attachment paths, plus aggregate counts.
+- `QaWorkflowService` returns those structurally as `passedCount` / `failedCount` /
+  `skippedCount` / `flakyCount` and a `tests` array on the execution step, and keeps
+  the **last 50 lines** of Playwright output for diagnostics. The 2000-char *head* it
+  used to send is where the generated test source lives, so the failures were cut off
+  exactly when they mattered.
+- Persisted per test in a new `test_case_result` table (`V2__test_case_results.sql`),
+  one row per test against its `TestExecution`, so the detail outlives the request.
+- CLI prints real failure titles and first assertion messages from the structured
+  results instead of grepping the console text, with a fallback when a run has none.
+
+**The backlog's suggested mechanism does not work, and the replacement has a trap.**
+`backlog.md` says to run with `--reporter=json:<file>`. On the targeted Playwright
+(1.48) that is a **syntax error** — the value is treated as a module name:
+`Cannot find module 'json:/tmp/pw.json'`. The reporter has to be *configured*. The
+obvious place is the user's `playwright.config.ts`, which B-020 established must never
+be modified. So the run gets a generated companion config that imports the user's,
+spreads it and appends one reporter, selected with `--config` and deleted afterwards.
+
+**Bug 1 — the companion config would have broken most workspaces.** I first wrote it
+to `<workspace>/.qalab/`. Only running Playwright for real showed why that is wrong:
+Node resolves `node_modules` by walking up from the importing file, and Playwright
+defaults `testDir` to **the config file's own directory**. A subdirectory therefore
+breaks module resolution and silently turns `testDir` into `.qalab/` — "no tests
+found" for any workspace that does not set `testDir` explicitly. It now sits at the
+workspace root, beside the user's config, where both behave as they already do.
+
+**Bug 2 — a relative import that was not relative.** `Path.relativize` returns
+`playwright.config.ts` for a sibling, without a `./` prefix. Node reads that as a
+**bare module specifier** and looks in `node_modules`, so the companion could not load
+the user's config at all. The unit test asserted only that an import existed, so it
+passed; the real run is what caught it. Asserted on the exact specifier now.
+
+**Two design decisions worth recording**
+- **Counts come from the parsed detail, not the reporter's `stats` header.** If the two
+  disagree, the per-test records win: a stale or partial header must not be able to
+  report a green run.
+- **The final attempt decides a test's outcome**, with earlier attempts counted as
+  retries. A test that failed then passed is `passed`, `retries: 1`, and counted in
+  `flakyCount` — not reported as a failure.
+- A missing or unparseable report yields an empty summary and a warning, never an
+  exception: the caller still has the exit code and the text output, so a reporting
+  problem must not turn into a lost run.
+
+**How it was tested**
+- 20 new unit tests. The parser is tested against a fixture whose shape was **captured
+  from a real `playwright --reporter=json` run**, not invented — including the ANSI
+  colour codes Playwright embeds in error messages, which have to be stripped.
+- Companion-config tests assert the user's `playwright.config.ts` is byte-identical
+  after the run, and that `--config` reaches the process argv.
+- **Real end-to-end run through the tool**, not a mock: 4 specs against a live browser
+  → `passedCount=2`, `failedCount=2`, and each failure's screenshot, video and trace
+  attributed to the correct test, with the companion config removed afterwards. This is
+  what found both bugs above.
+- **Migration against a real PostgreSQL**: started the app on an empty database, Flyway
+  applied `V1 - baseline` then `V2 - test case results`, and `ddl-auto=validate` passed
+  — the same check the `flyway-verify` CI job runs. The `test_case_result` table, its
+  index and its FK verified present.
+- V2's DDL is Hibernate's own generated output for the entity, not hand-transcribed —
+  same procedure as V1, so it cannot silently disagree with the model.
+- Full suite **282 green** (was 262). `bash -n cli/qalab` clean; every `jq` expression
+  in the new CLI summary exercised against a fixture, including the no-results
+  fallback and the all-skipped case.
+
+**Known limitations left in place**
+- Absolute artifact paths in `screenshots` / `videos` / `traces` match the existing
+  behaviour of `steps.execution.workspace`. Making them workspace-relative belongs with
+  the report that consumes them (B-029).
+- A test that never opened a page produces no screenshot even with `screenshot: 'on'`
+  — that is Playwright's behaviour, not a parsing gap.
+- `error-context` attachments (a text page snapshot) are not surfaced; only screenshot,
+  video and trace are classified. Revisit with B-029 if the HTML report wants them.
+
+---
+### Why B-022 comes first
+It is the blocker for everything in Sprint 3. The workflow currently only sees a
+truncated blob of Playwright's text output, so it cannot say *which* tests failed,
+cannot attach a screenshot to a specific failure, and the CLI has to grep for
+`✘`. Every reporting feature downstream — the HTML report, Allure, per-failure bug
+reports — needs structured per-test results first.
+
+---
 ## Notes / deviations
 
 - **Dependency correction (resolved).** `backlog.md` listed B-006 as depending on B-007 and B-007 as depending on B-006 — circular. Resolution: B-006 shipped first as the summary shell; B-007 was then added *into* that summary. B-007's only real dependency is that B-006 exists. **`backlog.md` still needs this corrected.**
