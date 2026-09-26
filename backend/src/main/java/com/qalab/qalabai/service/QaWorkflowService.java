@@ -11,7 +11,9 @@ import com.qalab.qalabai.dto.testgen.GeneratedFile;
 import com.qalab.qalabai.model.FailureAnalysis;
 import com.qalab.qalabai.model.GeneratedTest;
 import com.qalab.qalabai.model.TestExecution;
+import com.qalab.qalabai.service.workspace.TestWorkspaceService;
 import com.qalab.qalabai.service.workspace.WorkspaceProvider;
+import com.qalab.qalabai.util.UserInstructions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -117,10 +119,12 @@ public class QaWorkflowService {
 
             // 2. + 3. LOCATORS and TEST PLAN (independent LLM steps, run in parallel)
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_LOCATORS", "generating locators and test plan...");
+            String instruction = UserInstructions.normalize(request.instruction());
+            String testType = CodeGenerationService.normalizeTestType(request.testType());
             CompletableFuture<LocatorResponse> locatorsFuture = CompletableFuture.supplyAsync(
                     () -> locatorService.generateLocators(url, dbId), aiExecutor);
             CompletableFuture<TestPlanResponse> planFuture = CompletableFuture.supplyAsync(
-                    () -> planningService.generateTestPlan(url, dbId), aiExecutor);
+                    () -> planningService.generateTestPlan(url, dbId, instruction), aiExecutor);
             LocatorResponse locators = locatorsFuture.join();
             TestPlanResponse plan = planFuture.join();
             steps.put("locators", step("COMPLETED", Map.of("generated", locators.generated())));
@@ -129,9 +133,16 @@ public class QaWorkflowService {
                     "scenarios", plan.scenarios()
             )));
 
-            // 4. GENERATE TESTS (content returned, never auto-written into the Core)
+            // 4. GENERATE TESTS. Generated exactly once: the same entities feed both the
+            // response payload and the workspace write, so the specs the client receives
+            // are the specs that actually ran. Previously this called the generator twice
+            // (generateTestsContent here, generateTestsEntities inside runInWorkspace),
+            // doubling cost and letting the two invocations diverge.
             progressStore.update(operationId, OperationStatus.RUNNING.name(), "GENERATING_TESTS", "generating tests...");
-            List<GeneratedFile> files = codeGenerationService.generateTestsContent(url, dbId);
+            List<GeneratedTest> tests = codeGenerationService.generateTestsEntities(url, dbId, instruction, testType);
+            List<GeneratedFile> files = tests.stream()
+                    .map(t -> new GeneratedFile(TestWorkspaceService.resolveFileName(t), t.getTestCode()))
+                    .toList();
             steps.put("generatedTests", step("COMPLETED", Map.of("count", files.size(), "files", files)));
 
             // 5. RUN (requires explicit workspace)
@@ -142,7 +153,7 @@ public class QaWorkflowService {
                 steps.put("bugReport", step("SKIPPED", Map.of("reason", "NO_EXECUTION")));
             } else {
                 progressStore.update(operationId, OperationStatus.RUNNING.name(), "RUNNING_TESTS", "running tests...");
-                Map<String, Object> run = runInWorkspace(project, url, dbId, files);
+                Map<String, Object> run = runInWorkspace(project, url, dbId, tests);
                 steps.put("execution", step("COMPLETED", run));
                 String execStatus = (String) run.get("executionStatus");
 
@@ -175,10 +186,10 @@ public class QaWorkflowService {
         return new V1WorkflowResponse(operationId, finalStatus, project.getProjectId(), url, steps, LocalDateTime.now());
     }
 
-    private Map<String, Object> runInWorkspace(ProjectContext project, String url, Long dbId, List<GeneratedFile> files) {
-        List<GeneratedTest> entities = codeGenerationService.generateTestsEntities(url, dbId);
+    private Map<String, Object> runInWorkspace(ProjectContext project, String url, Long dbId,
+                                              List<GeneratedTest> tests) {
         workspaceProvider.prepareWorkspace(project);
-        workspaceProvider.writeTests(project, entities);
+        workspaceProvider.writeTests(project, tests);
         Map<String, Object> result = workspaceProvider.execute(project, null, true);
 
         String status = (String) result.get("status");

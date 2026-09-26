@@ -26,6 +26,7 @@
 #   locator history [<projectId>] [<fingerprint>]  show locator observation history
 #   test <url>            run the full workflow incl. healing + bug report; writes tests
 #                          and saves report/bug-report to .qalab/reports/<timestamp>/
+#   test <url> --test-type <api|ui|e2e>   restrict the run to one test type
 #
 # Configuration (environment or .qalab.json):
 #   QALAB_API_URL       default http://localhost:8080
@@ -421,11 +422,13 @@ EOF
     fi
     require_url
     instruction=""
+    test_type=""
     username="${QALAB_USERNAME:-}"
     password="${QALAB_PASSWORD:-}"
     while [ $# -gt 0 ]; do
       case "$1" in
         --instruction) instruction="${2:-}"; shift 2 ;;
+        --test-type) test_type="${2:-}"; shift 2 ;;
         --username) username="${2:-}"; shift 2 ;;
         --password) password="${2:-}"; shift 2 ;;
         *) shift ;;
@@ -436,6 +439,7 @@ EOF
     [ -n "$instruction" ] && extra_args="$extra_args,\"instruction\":\"$(printf '%s' "$instruction" | sed 's/"/\\"/g')\""
     [ -n "$username" ] && extra_args="$extra_args,\"username\":\"$(printf '%s' "$username" | sed 's/"/\\"/g')\""
     [ -n "$password" ] && extra_args="$extra_args,\"password\":\"$(printf '%s' "$password" | sed 's/"/\\"/g')\""
+    [ -n "$test_type" ] && extra_args="$extra_args,\"testType\":\"$test_type\""
     op_id="cli-$(date +%s)-$$"
     post_args=",\"operationId\":\"$op_id\""
     tmp_response="$(mktemp)"

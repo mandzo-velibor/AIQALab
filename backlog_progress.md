@@ -57,12 +57,39 @@
 
 ---
 
-## Sprint summary
+### B-002 · Put real HTTP timeouts on every AI provider client
+| | |
+|---|---|
+| **Status** | **DONE** |
+| **Date** | 2026-09-26 |
+| **Duration** | 6m |
+| **Commit** | `dc282a7` (2 of 11) |
+
+**What changed**
+- Added an `aiRestTemplate` bean in `AiGatewayConfig` using `SimpleClientHttpRequestFactory` with `connectTimeout=10s`, `readTimeout=180s`, both configurable via `qalab.ai.connect-timeout-ms` / `qalab.ai.read-timeout-ms` (added under the existing `qalab:` block in `application.yml`).
+- Injected that bean into all **four** clients that were building their own: `OpenAiCompatProviderClient` (used by OpenAI/Google/Ollama), `AnthropicCompatProviderClient`, `OpenCodeAiProvider`, `OpenAiProvider`.
+- `OpenCodeAiProvider` and `OpenAiProvider` now take the client via constructor instead of creating one in `@PostConstruct`.
+- `grep "new RestTemplate()"` over `src/main/java` → zero occurrences.
+
+Note: the read timeout is intentionally generous (180 s). Tightening it below real generation latency would convert slow-but-successful calls into failures; the point is that it is *finite*, so a stall becomes a retryable exception instead of a permanent hang.
+
+Also caught: `ai/openai/OpenAiProvider.java` was a fourth bare `RestTemplate` not listed in the backlog's "three clients" — fixed in the same pass.
+
+**How it was tested**
+- New `AiHttpTimeoutTest` — 3 cases:
+  - The bean's `connectTimeout`/`readTimeout` really are 10 000 / 180 000 (read reflectively off the request factory, so a silent revert to `0` fails the test).
+  - **Functional proof:** a `ServerSocket` that accepts the connection and never writes a response. With `read-timeout-ms=400` the call must throw, and must do so in < 4 s. This is the direct regression guard for "hung forever".
+  - Architectural guard: walks `src/main/java/com/qalab/qalabai/ai` and fails if any file reintroduces `new RestTemplate()`.
+- Full suite: **138 tests, 0 failures** (135 + 3 new).
+- Log confirms the bean logs `connectTimeout=1000ms readTimeout=400ms` for the test profile and the production values for the default.
+
+---
+
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
 | B-001 | Playwright runner real timeout | P0 | S | **DONE** | `667f634` |
-| B-002 | AI provider HTTP timeouts | P0 | S | TODO | — |
+| B-002 | AI provider HTTP timeouts | P0 | S | **DONE** | `dc282a7` |
 | B-003 | Generate test suite once per run | P0 | M | TODO | — |
 | B-004 | Ship page objects to client workspace | P0 | M | TODO | — |
 | B-005 | Unify CLI/backend workspace path | P0 | M | TODO | — |
@@ -73,7 +100,7 @@
 | B-010 | WebSocket URL from config | P0 | S | TODO | — |
 | B-011 | Persist artifacts directory | P0 | S | TODO | — |
 
-**Totals:** 1/11 done · 1 commit · elapsed 4m
+**Totals:** 2/11 done · 2 commits · elapsed 10m
 
 ---
 

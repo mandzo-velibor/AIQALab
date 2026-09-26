@@ -14,6 +14,7 @@ import com.qalab.qalabai.healing.model.HealingProposal;
 import com.qalab.qalabai.healing.service.HealingAnalysisService;
 import com.qalab.qalabai.healing.service.HealingOutcome;
 import com.qalab.qalabai.model.FailureAnalysis;
+import com.qalab.qalabai.model.GeneratedTest;
 import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.model.BugReport;
 import com.qalab.qalabai.service.workspace.WorkspaceProvider;
@@ -69,14 +70,19 @@ class QaWorkflowServiceTest {
         when(explorerService.analyze(any(), anyBoolean(), any(), any(), any(), any())).thenReturn(
                 new AnalysisResponse("LOGIN", "summary", 95, null, null, null, null, null, null, null, null));
         when(locatorService.generateLocators(any(), any())).thenReturn(new LocatorResponse(0, List.of(), null, List.of()));
-        when(planningService.generateTestPlan(any(), any())).thenReturn(new TestPlanResponse(0, List.of(), null));
-        when(codeGenerationService.generateTestsContent(any(), any())).thenReturn(
-                List.of(new GeneratedFile("login.spec.ts", "test('x', async () => {});")));
+        when(planningService.generateTestPlan(any(), any(), any())).thenReturn(new TestPlanResponse(0, List.of(), null));
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenAnswer(inv -> {
+            GeneratedTest t = new GeneratedTest();
+            t.setScenarioName("Successful login");
+            t.setTestCode("test('x', async () => {});");
+            t.setPageObjectCode("export class LoginPage {}");
+            return List.of(t);
+        });
     }
 
     @Test
     void skipsExecutionWhenNoWorkspacePath() {
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "explore", "COMPLETED");
@@ -93,16 +99,55 @@ class QaWorkflowServiceTest {
     }
 
     @Test
+    void generatesTheTestSuiteExactlyOnce() {
+        project.setWorkspacePath("/home/dev/internet-tests");
+        when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
+                Map.of("status", "PASSED", "duration", 10L, "output", "ok"));
+        TestExecution record = new TestExecution();
+        record.setId(7L);
+        when(executionService.recordExecution(any(), any(), any(), any(), any(), any())).thenReturn(record);
+
+        workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login",
+                null, null, null, null, null));
+
+        // Regression guard: the generator used to be invoked twice per run
+        // (generateTestsContent for the response, generateTestsEntities for the
+        // workspace), which doubled cost and let the two invocations diverge.
+        verify(codeGenerationService, org.mockito.Mockito.times(1))
+                .generateTestsEntities(any(), any(), any(), any());
+        verify(codeGenerationService, never()).generateTestsContent(any(), any());
+    }
+
+    @Test
+    void propagatesUserInstructionAndTestTypeToPlanningAndGeneration() {
+        project.setWorkspacePath("/home/dev/internet-tests");
+        when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
+                Map.of("status", "PASSED", "duration", 10L, "output", "ok"));
+        TestExecution record = new TestExecution();
+        record.setId(7L);
+        when(executionService.recordExecution(any(), any(), any(), any(), any(), any())).thenReturn(record);
+
+        workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login",
+                null, null, "focus on the username hint and red border", null, "ui"));
+
+        // Regression guard: the instruction used to reach only page analysis, so a
+        // user's --instruction was silently dropped from planning and generation.
+        verify(planningService).generateTestPlan(any(), any(), eq("focus on the username hint and red border"));
+        verify(codeGenerationService).generateTestsEntities(
+                any(), any(), eq("focus on the username hint and red border"), eq("ui"));
+    }
+
+    @Test
     void runsInWorkspaceAndSkipsFailureAnalysisWhenTestsPass() {
         project.setWorkspacePath("/home/dev/internet-tests");
-        when(codeGenerationService.generateTestsEntities(any(), any())).thenReturn(List.of());
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenReturn(List.of());
         when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
                 Map.of("status", "PASSED", "duration", 1200L, "output", "ok"));
         TestExecution record = new TestExecution();
         record.setId(7L);
         when(executionService.recordExecution(any(), any(), any(), any(), any(), any())).thenReturn(record);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "execution", "COMPLETED");
@@ -116,7 +161,7 @@ class QaWorkflowServiceTest {
     void analyzesFailureAndGeneratesHealingCandidate() {
         project.setWorkspacePath("/home/dev/internet-tests");
         when(contextResolver.databaseId(info)).thenReturn(3L);
-        when(codeGenerationService.generateTestsEntities(any(), any())).thenReturn(List.of());
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenReturn(List.of());
         when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
                 Map.of("status", "FAILED", "duration", 500L, "output", "timeout", "error", "locator not found"));
         TestExecution record = new TestExecution();
@@ -149,7 +194,7 @@ class QaWorkflowServiceTest {
                 "locator repaired");
         when(healingAnalysisService.analyzeExecution(eq(10L), eq(3L))).thenReturn(outcome);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null, null));
 
         assertEquals(OperationStatus.COMPLETED, response.status());
         assertStepStatus(response, "failureAnalysis", "COMPLETED");
@@ -164,7 +209,7 @@ class QaWorkflowServiceTest {
     void skipsHealingWhenNotACandidate() {
         project.setWorkspacePath("/home/dev/internet-tests");
         when(contextResolver.databaseId(info)).thenReturn(3L);
-        when(codeGenerationService.generateTestsEntities(any(), any())).thenReturn(List.of());
+        when(codeGenerationService.generateTestsEntities(any(), any(), any(), any())).thenReturn(List.of());
         when(workspaceProvider.execute(any(), any(), eq(true))).thenReturn(
                 Map.of("status", "FAILED", "duration", 500L, "output", "500", "error", "http 500"));
         TestExecution record = new TestExecution();
@@ -177,7 +222,7 @@ class QaWorkflowServiceTest {
         analysis.setHealingCandidate(false);
         when(failureAnalysisService.analyzeExecution(eq(11L), eq(3L))).thenReturn(analysis);
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null, null));
 
         assertStepStatus(response, "failureAnalysis", "COMPLETED");
         assertStepStatus(response, "healing", "SKIPPED");
@@ -189,7 +234,7 @@ class QaWorkflowServiceTest {
         when(explorerService.analyze(any(), anyBoolean(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("AI provider unavailable"));
 
-        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null));
+        V1WorkflowResponse response = workflow.runFullTest(new V1FullWorkflowRequest(info, "https://the-internet.herokuapp.com/login", null, null, null, null, null));
 
         assertEquals(OperationStatus.FAILED, response.status());
         assertStepStatus(response, "workflow", "FAILED");
