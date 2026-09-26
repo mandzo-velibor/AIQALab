@@ -274,6 +274,62 @@ Enriching the result with `putIfAbsent` threw `UnsupportedOperationException`: `
 **Process note — a failed doc edit nearly shipped as a lie.** The `USER-MANUAL.md` update for this task asserted its search string matched before writing; the pattern was missing a line the file actually contained, so the script exited without writing. The shell then continued and the commit went through with the documentation untouched — leaving the manual asserting, falsely, that the config block was absent and the allowance was 4000. Caught on the next inspection and fixed in `3915e57`. The assertion guard is right; the lesson is that its failure must not pass unnoticed just because the surrounding commit succeeded.
 
 ---
+### B-012 · Spike: authentication & tenancy ADR
+| | |
+|---|---|
+| **Status** | **DONE** |
+| **Date** | 2026-09-26 |
+| **Duration** | 10m |
+| **Commit** | `510ac28` (6 of 10) |
+
+**What changed**
+`docs/adr/0001-authentication-and-tenancy.md` — recorded before implementing, as the backlog instructs.
+
+Context is the verified absence of any auth, made worse by three structural facts: `AccountService.defaultAccount()` returns a single implicit global account (so usage attribution and budget enforcement are meaningless with >1 user); `CredentialStore` is global (so BYOK keys have no owner); and the rate limiter is a no-op (so anonymous callers can drive unbounded paid traffic). The service is already deployed.
+
+**Decision:** layered static API keys now, pluggable identity later. Per-account keys stored as salted hashes, raw value returned once and never again — mirroring the existing write-only `CredentialStore` convention. Account-scoped authorization that no longer trusts a client-supplied `databaseId`, because authentication alone still leaves horizontal privilege escalation by guessing an id.
+
+**Rejected, with reasons:** JWT — unacceptable friction for a self-hosted local tool with no identity provider. Full multi-tenant identity — not achievable in a one-engineer-week sprint, and dangerous to half-build.
+
+**The "negative consequences" section is explicit** that this is a breaking change, and explains the mitigation: a key is enforced only when `require-api-key=true` or one exists, so a local `spring-boot:run` keeps working while the cloud hole closes. The accepted residual risk — an operator who never creates a key stays unprotected — is stated, with a loud startup warning as mitigation.
+
+Also lists five follow-ups (per-user credential ownership, audit log for privileged mutations, key expiry, removing `defaultAccount()`, optional OIDC) and implementation notes for B-013, including that a 401 must keep the `{"error":{...}}` shape or the CLI's error handling degrades.
+
+**How it was tested** — a decision document; verified by review against the code (the three structural claims were each confirmed by reading the relevant classes) and by B-013 landing as described.
+
+---
+
+### B-013 · Auth filter on the API
+| | |
+|---|---|
+| **Status** | **DONE** (+3 bugs found, incl. one that prevented startup) |
+| **Date** | 2026-09-26 |
+| **Duration** | 34m |
+| **Commit** | `862ef98` (7 of 10) |
+
+**What changed**
+- Per-account API keys stored as **salted SHA-256**; raw value returned once at creation and unrecoverable; constant-time comparison.
+- `ApiKeyAuthenticationFilter` resolves the key to an account and attaches an `AuthPrincipal`. Rejections use the existing `{"error":{...}}` envelope because both clients parse it.
+- `SecurityConfig` deny-by-default: no form login, no generated password, no sessions, no CSRF token.
+- Conditional enforcement: a key is required as soon as one exists; `QALAB_REQUIRE_API_KEY=true` forces it, and `ApiKeyBootstrapConfig` then prints the first key once — otherwise a fresh install with enforcement on would be unusable.
+- Public `/api/v1/account/bootstrap` probe so a client can discover a key is required.
+- CLI sends the key on every call via a contained `api_curl` wrapper, and fails fast with instructions when the Core demands one it lacks.
+
+**Three bugs found while implementing — all by the new tests**
+1. **The application would not start at all.** Tomcat builds the filter chain *before* the JPA `EntityManagerFactory` exists, so a filter injecting a repository failed the entire context. A class-level `@Lazy` did **not** reliably defer instantiation; holding dependencies as `ObjectProvider` does, because nothing resolves at construction. Documented at the field, since the reason is invisible otherwise.
+2. **The filter ignored its own public allowlist**, so `/account/bootstrap` answered 401 — defeating its only purpose. `shouldNotFilter` now bypasses it, and `SecurityConfig` derives its `permitAll` list from the same constant so the chain and the filter — separate mechanisms that **had already drifted** — cannot diverge again.
+3. A pointless `securityObjectMapper` bean I added created a circular reference and broke startup. Removed.
+
+**How it was tested** — **32 new tests.**
+- `ApiKeyAuthenticationFilterTest` (10): valid key resolves; missing/unknown/malformed/whitespace headers rejected; rejection uses the standard envelope *and says how to authenticate*; a fresh install with no keys stays usable; requiring a key blocks even a fresh install; a key whose account has vanished is rejected rather than trusted; the list view exposes neither hash nor salt.
+- `ApiKeyServiceTest` (14): key is prefixed and 256-bit; raw key never persisted; correct keys resolve, wrong ones do not; **salts differ per key so equal keys do not hash equally**; revocation works and is **scoped to the owning account**; revoking twice is a no-op; constant-time comparison handles nulls and differing lengths.
+- `ApiKeyHttpIntegrationTest` (8): **boots the real application with enforcement on and exercises actual HTTP.** A security control verified only at unit level can pass while the deployed app serves everyone. Covers the public probe, 401 without a key, 401 with a bogus key, 200 with a valid key, issuing a key over HTTP then using it, the list never returning the secret, and a revoked key ceasing to authenticate.
+
+**Two failures were my own test bugs**, fixed rather than worked around: `/api/v1/projects` does not exist (projects are on the legacy `/api/projects`), and the key list returns a JSON array, not an object.
+
+Full suite: **236 tests, 0 failures** (204 + 32).
+
+---
 
 | # | Task | Priority | Size | Status | Commit |
 |---|---|---|---|---|---|
@@ -282,13 +338,13 @@ Enriching the result with `putIfAbsent` threw `UnsupportedOperationException`: `
 | B-020 | Sensible default artifact profile | P1 | S | **DONE** | `6767e45` |
 | B-021 | Bounded Playwright concurrency | P1 | S | **DONE** | `4a0e11a` |
 | B-015 | Real `qalab.ai` config block | P0 | M | **DONE** | `ec70594` |
-| B-012 | Spike: auth & tenancy ADR | P0 | S | TODO | — |
-| B-013 | Auth filter on the API | P0 | L | TODO | — |
+| B-012 | Spike: auth & tenancy ADR | P0 | S | **DONE** | `510ac28` |
+| B-013 | Auth filter on the API | P0 | L | **DONE** | `862ef98` |
 | B-016 | Real rate limiter | P1 | M | TODO | — |
 | B-014 | Database migrations with Flyway | P0 | L | TODO | — |
 | B-017 | Async job model for full-test workflow | P1 | L | TODO | — |
 
-**Totals:** 5/10 done · 5 commits · elapsed 61m
+**Totals:** 7/10 done · 7 commits · elapsed 105m
 
 ### Parallel work: user manual
 Started 2026-09-26 alongside the sprint, at the user's request: a comprehensive
