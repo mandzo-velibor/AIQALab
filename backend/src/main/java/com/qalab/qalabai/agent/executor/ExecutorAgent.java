@@ -62,6 +62,14 @@ public class ExecutorAgent implements QaAgent {
             agentResult.putData("status", status);
             agentResult.putData("duration", duration);
             agentResult.putData("output", output);
+            // The structured per-test results (B-022) MUST be carried through here.
+            // They used to be dropped on the floor by this copy-list, which meant the
+            // workflow response had no `results` key and nothing was ever persisted to
+            // test_case_result — the feature worked in unit tests and not in the product.
+            Object summary = result.get("summary");
+            if (summary != null) {
+                agentResult.putData("summary", summary);
+            }
             if (testType != null && !testType.isBlank()) {
                 agentResult.putData("testTypeApplied", testType);
             }

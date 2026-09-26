@@ -311,6 +311,7 @@ QA RUN COMPLETED
   BUG REPORT  [MEDIUM] Test failed: Login with empty password
 
   ARTIFACTS
+    /…/artifacts/execution-88/report.html   <- open this
     .qalab/reports/20260926-135000/report.json
     .qalab/reports/20260926-135000/test-plan.md
     .qalab/reports/20260926-135000/bug-report.json
@@ -506,14 +507,35 @@ Under `QALAB_ARTIFACTS_DIR`:
 
 ```
 artifacts/execution-<id>/
-├── report.json          execution-level report
-├── report.md            the same, human-readable
+├── report.html          the self-contained HTML report — open this
+├── report.json          execution-level report (machine contract)
+├── report.md            the same, human-readable and diffable
 ├── console.log          full Playwright output
-├── screenshot.png       first failure screenshot
-├── screenshot-2.png     …
-├── video.webm
-└── trace.zip
+└── tests/
+    ├── 0-login-with-empty-password/
+    │   ├── test-failed-1.png
+    │   └── trace.zip
+    └── 1-wrong-password/
+        ├── test-failed-1.png
+        └── trace.zip
 ```
+
+**`report.html` is the deliverable.** Open it in any browser: it needs no network, no
+server and no sibling files to render. Screenshots are embedded in the page, so the
+single file can be emailed or attached to a ticket as-is. Videos and traces are *linked*
+rather than embedded — they are routinely tens of megabytes, and base64 would inflate
+them by a third and produce a file no mail client will open — so keep the `tests/`
+directory alongside it if you want the videos.
+
+Evidence is filed **per test**, in a directory named for the test. It used to be
+flattened: every screenshot became `screenshot.png` / `screenshot-2.png` and every trace
+became the same `trace.zip`, copied with overwrite. A run with two failing tests
+therefore kept one trace and silently destroyed the other, and nothing recorded which
+screenshot belonged to which failure — so a report could say three tests failed and show
+you one screenshot.
+
+The HTML path is also stored on the execution and returned in the workflow response as
+`steps.execution.htmlReport`, so a client never has to guess where the file is.
 
 In Docker these live on the `qalab-artifacts` volume and survive `docker compose restart`.
 

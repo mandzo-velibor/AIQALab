@@ -38,6 +38,14 @@ public class TestExecution {
     @Column
     private String reportPath;
 
+    /**
+     * The self-contained HTML report. Stored rather than derived because the report is
+     * written into the artifact directory, which the workflow response and the CLI
+     * cannot otherwise locate — and a report nobody can find is not a deliverable.
+     */
+    @Column
+    private String htmlReportPath;
+
     @Column(columnDefinition = "TEXT")
     private String consoleLogs;
 
@@ -119,6 +127,14 @@ public class TestExecution {
 
     public void setTracePath(String tracePath) {
         this.tracePath = tracePath;
+    }
+
+    public String getHtmlReportPath() {
+        return htmlReportPath;
+    }
+
+    public void setHtmlReportPath(String htmlReportPath) {
+        this.htmlReportPath = htmlReportPath;
     }
 
     public String getReportPath() {

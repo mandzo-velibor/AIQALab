@@ -32,10 +32,21 @@ public class ReportService {
     }
 
     public TestReport generate(TestExecution execution, Map<String, Object> artifacts) {
-        return generate(execution, artifacts, null);
+        return generate(execution, artifacts, null, null, null);
     }
 
     public TestReport generate(TestExecution execution, Map<String, Object> artifacts, HealingOutcome healing) {
+        return generate(execution, artifacts, healing, null, null);
+    }
+
+    /**
+     * @param testCases per-test results in run order, used for the HTML report's results
+     *                  table. Null or empty is fine: the report then says so rather than
+     *                  implying a clean run.
+     */
+    public TestReport generate(TestExecution execution, Map<String, Object> artifacts, HealingOutcome healing,
+                               List<HtmlReportRenderer.TestCaseView> testCases,
+                               Map<String, Object> extras) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionId", execution.getId());
         body.put("projectId", execution.getProjectId());
@@ -54,6 +65,7 @@ public class ReportService {
         body.put("createdAt", execution.getCreatedAt());
 
         String reportPath = null;
+        String htmlPath = null;
         String artifactDir = artifacts != null ? (String) artifacts.get("artifactDir") : null;
         if (artifactDir != null) {
             try {
@@ -63,8 +75,22 @@ public class ReportService {
                 Files.writeString(json, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(body));
                 Path md = dir.resolve("report.md");
                 Files.writeString(md, toMarkdown(body));
+
+                // Self-contained HTML next to the JSON. Written after report.json on
+                // purpose: the JSON is the machine contract and must not be at the mercy
+                // of a rendering problem.
+                try {
+                    Path html = dir.resolve("report.html");
+                    Files.writeString(html, renderHtml(body, artifacts, healing, testCases, extras, dir));
+                    htmlPath = html.toAbsolutePath().toString();
+                } catch (Exception e) {
+                    // A failed render must not lose report.json or report.md.
+                    log.warn("HTML report failed for execution {}: {}", execution.getId(), e.getMessage());
+                }
+
                 reportPath = json.toAbsolutePath().toString();
-                log.info("Report written for execution {} at {}", execution.getId(), reportPath);
+                log.info("Report written for execution {} at {} (html: {})",
+                        execution.getId(), reportPath, htmlPath != null ? "yes" : "unavailable");
             } catch (Exception e) {
                 log.warn("Failed to write report for execution {}: {}", execution.getId(), e.getMessage());
             }
@@ -73,7 +99,55 @@ public class ReportService {
         return new TestReport(
                 execution.getId(), execution.getProjectId(), execution.getTestFile(),
                 execution.getStatus(), execution.getDuration(), execution.getErrorMessage(),
-                artifacts, reportPath, execution.getCreatedAt());
+                artifacts, reportPath, htmlPath, execution.getCreatedAt());
+    }
+
+    /**
+     * Builds the run summary the HTML header is drawn from, including the per-test
+     * counters. Counts are derived from the per-test results when there are any, because
+     * the execution's own status is a single verdict and says nothing about how many
+     * tests ran.
+     */
+    private Map<String, Object> summaryFor(Map<String, Object> body,
+                                           List<HtmlReportRenderer.TestCaseView> testCases) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("executionId", body.get("executionId"));
+        summary.put("testFile", body.get("testFile"));
+        summary.put("status", body.get("status"));
+        summary.put("createdAt", body.get("createdAt"));
+        summary.put("durationMs", body.get("duration"));
+
+        int passed = 0;
+        int failed = 0;
+        int skipped = 0;
+        for (HtmlReportRenderer.TestCaseView test : testCases == null ? List.<HtmlReportRenderer.TestCaseView>of() : testCases) {
+            String status = test.status() == null ? "" : test.status();
+            if ("passed".equals(status)) {
+                passed++;
+            } else if ("failed".equals(status)) {
+                failed++;
+            } else if ("skipped".equals(status)) {
+                skipped++;
+            }
+        }
+        summary.put("passed", passed);
+        summary.put("failed", failed);
+        summary.put("skipped", skipped);
+        return summary;
+    }
+
+    private String renderHtml(Map<String, Object> body, Map<String, Object> artifacts,
+                              HealingOutcome healing, List<HtmlReportRenderer.TestCaseView> testCases,
+                              Map<String, Object> extras, Path dir) {
+        Map<String, Object> sections = new LinkedHashMap<>();
+        if (extras != null) {
+            sections.putAll(extras);
+        }
+        if (healing != null) {
+            sections.put("healing", healingSection(healing));
+        }
+        Map<String, Object> summary = summaryFor(body, testCases);
+        return HtmlReportRenderer.render(summary, testCases, sections, dir);
     }
 
     private Map<String, Object> healingSection(HealingOutcome healing) {

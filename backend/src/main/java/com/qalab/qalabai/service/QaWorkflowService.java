@@ -321,6 +321,15 @@ public class QaWorkflowService {
         // used to be sent instead buried the failures in generated test source.
         run.put("output", tail(output, OUTPUT_TAIL_LINES));
         run.put("results", structuredResults(result));
+        // The report files are written into the artifact directory, which is neither the
+        // page URL nor a function of the execution id, so the paths have to be carried in
+        // the response. Without them the report exists on disk and nothing points at it.
+        if (record.getHtmlReportPath() != null && !record.getHtmlReportPath().isBlank()) {
+            run.put("htmlReport", record.getHtmlReportPath());
+        }
+        if (record.getReportPath() != null && !record.getReportPath().isBlank()) {
+            run.put("reportPath", record.getReportPath());
+        }
         return new RunWithFiles(run, written);
     }
 

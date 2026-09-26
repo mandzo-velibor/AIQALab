@@ -246,7 +246,7 @@ public class ExecutionService {
                 log.warn("Healing analysis failed for execution {}: {}", saved.getId(), e.getMessage());
             }
         }
-        attachArtifactsAndReport(saved, projectContext, output, healingOutcome);
+        String htmlReportPath = attachArtifactsAndReport(saved, projectContext, output, healingOutcome);
 
         String note = buildNote(testType, instruction, status);
 
@@ -259,7 +259,9 @@ public class ExecutionService {
                         output,
                         testType,
                         instruction,
-                        note
+                        note,
+                        saved.getReportPath(),
+                        htmlReportPath
                 ),
                 healingOutcome
         );
@@ -301,8 +303,14 @@ public class ExecutionService {
         return null;
     }
 
-    private void attachArtifactsAndReport(TestExecution execution, ProjectContext projectContext,
-                                          String output, HealingOutcome healingOutcome) {
+    /**
+     * @return the path of the self-contained HTML report, or null when no artifact
+     *         directory was available. Returned rather than only logged, because the
+     *         report lives in the artifact directory and the CLI cannot guess it.
+     */
+    private String attachArtifactsAndReport(TestExecution execution, ProjectContext projectContext,
+                                            String output, HealingOutcome healingOutcome) {
+        String htmlReportPath = null;
         try {
             String workspace = null;
             if (projectContext != null) {
@@ -312,7 +320,13 @@ public class ExecutionService {
                     log.debug("No workspace for artifact collection of execution {}: {}", execution.getId(), e.getMessage());
                 }
             }
-            ArtifactResult artifacts = artifactStore.collect(workspace, execution.getId(), output);
+            // The persisted per-test results (B-022) are the only reliable link between
+            // a failure and its evidence, so the artifacts are collected per test rather
+            // than flattened. Anything not collected per test is logged once.
+            List<TestCaseResult> caseResults =
+                    testCaseResultRepository.findByExecutionIdOrderByOrdinalPositionAsc(execution.getId());
+            ArtifactResult artifacts = artifactStore.collect(workspace, execution.getId(), output,
+                    toTestArtifacts(caseResults));
             if (artifacts.getScreenshot() != null) {
                 execution.setScreenshotPath(artifacts.getScreenshot());
             }
@@ -322,15 +336,95 @@ public class ExecutionService {
             if (artifacts.getTrace() != null) {
                 execution.setTracePath(artifacts.getTrace());
             }
-            com.qalab.qalabai.service.report.TestReport report = reportService.generate(execution, artifacts.asMap(), healingOutcome);
+            com.qalab.qalabai.service.report.TestReport report = reportService.generate(
+                    execution, artifacts.asMap(), healingOutcome,
+                    toTestCaseViews(caseResults), null);
+            htmlReportPath = report.htmlReportPath();
             if (report.reportPath() != null) {
                 execution.setReportPath(report.reportPath());
+            }
+            if (htmlReportPath != null) {
+                execution.setHtmlReportPath(htmlReportPath);
             }
             if (report.status() != null) {
                 executionRepository.save(execution);
             }
         } catch (Exception e) {
             log.warn("Artifact collection/report failed for execution {}: {}", execution.getId(), e.getMessage());
+        }
+        return htmlReportPath;
+    }
+
+    /**
+     * Turns persisted per-test rows into the artifact collector's input.
+     *
+     * <p>Paths are stored as JSON arrays of the absolute paths Playwright reported, so
+     * they are unpacked here rather than by the collector. A test with no attachments is
+     * still passed through: the report lists every test, and "no evidence" is worth
+     * showing rather than hiding the test entirely.</p>
+     */
+    private List<com.qalab.qalabai.service.workspace.TestArtifacts> toTestArtifacts(
+            List<TestCaseResult> caseResults) {
+        List<com.qalab.qalabai.service.workspace.TestArtifacts> out = new ArrayList<>();
+        for (TestCaseResult row : caseResults) {
+            out.add(new com.qalab.qalabai.service.workspace.TestArtifacts(
+                    row.getOrdinalPosition() != null ? row.getOrdinalPosition() : out.size(),
+                    slug(row.getTestTitle()),
+                    row.getSpecFile(),
+                    row.getTestTitle(),
+                    row.getStatus(),
+                    readPaths(row.getScreenshots()),
+                    readPaths(row.getVideos()),
+                    readPaths(row.getTraces()),
+                    null));
+        }
+        return out;
+    }
+
+    private List<com.qalab.qalabai.service.report.HtmlReportRenderer.TestCaseView> toTestCaseViews(
+            List<TestCaseResult> caseResults) {
+        List<com.qalab.qalabai.service.report.HtmlReportRenderer.TestCaseView> out = new ArrayList<>();
+        for (TestCaseResult row : caseResults) {
+            out.add(new com.qalab.qalabai.service.report.HtmlReportRenderer.TestCaseView(
+                    row.getOrdinalPosition() != null ? row.getOrdinalPosition() : out.size(),
+                    row.getSpecFile(),
+                    row.getTestTitle(),
+                    row.getStatus(),
+                    row.getDurationMs(),
+                    row.getRetries() != null ? row.getRetries() : 0,
+                    row.getErrorMessage(),
+                    row.getErrorSnippet(),
+                    readPaths(row.getScreenshots()),
+                    readPaths(row.getVideos()),
+                    readPaths(row.getTraces())));
+        }
+        return out;
+    }
+
+    /** A short, filesystem-safe form of a test title, used for the artifact directory. */
+    static String slug(String title) {
+        if (title == null || title.isBlank()) {
+            return "test";
+        }
+        String slug = title.toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (slug.isEmpty()) {
+            return "test";
+        }
+        return slug.length() > 40 ? slug.substring(0, 40) : slug;
+    }
+
+    /** A stored attachment list. A malformed cell is treated as absent, not fatal. */
+    private List<String> readPaths(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return List.of(objectMapper.readValue(json, String[].class));
+        } catch (Exception e) {
+            log.debug("Ignoring unreadable attachment list: {}", json);
+            return List.of();
         }
     }
 
