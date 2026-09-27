@@ -335,7 +335,7 @@ Or run the backend directly: `cd backend && mvn spring-boot:run`.
 
 ```bash
 # Register a project (optional — the Core can operate on a projectId alone)
-curl -X POST http://localhost:8080/api/projects \
+curl -X POST http://localhost:8080/api/v1/projects \
   -H 'Content-Type: application/json' \
   -d '{"name":"The Internet Tests","baseUrl":"https://the-internet.herokuapp.com","framework":"PLAYWRIGHT_TYPESCRIPT"}'
 
@@ -485,7 +485,7 @@ Fields:
 
 ```bash
 # Using CLI (requires databaseId to be set in .qalab.json after this)
-curl -X POST http://localhost:8080/api/projects \
+curl -X POST http://localhost:8080/api/v1/projects \
   -H 'Content-Type: application/json' \
   -d '{"name":"Quiz App Tests","baseUrl":"http://localhost:3000","framework":"PLAYWRIGHT_TYPESCRIPT"}'
 

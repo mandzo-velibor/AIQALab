@@ -10,12 +10,15 @@ import com.qalab.qalabai.service.ProjectContextResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -51,5 +54,15 @@ public class V1TestPlanController extends AbstractV1Controller {
                 LocalDateTime.now()
         );
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * The previously generated test plans for a URL, so the dashboard can show what already exists before asking
+     * for a fresh generation. Promoted from the legacy surface by B-033.
+     */
+    @GetMapping("/test-plans")
+    public ResponseEntity<List<TestPlanResponse>> byUrl(@RequestParam String url) {
+        log.info("GET /api/v1/test-plans?url={}", url);
+        return ResponseEntity.ok(planningService.getTestPlansForUrl(url));
     }
 }

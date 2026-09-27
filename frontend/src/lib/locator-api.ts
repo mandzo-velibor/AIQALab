@@ -1,3 +1,4 @@
+import { v1Project } from "@/lib/v1-project";
 import { API_BASE_URL } from "@/lib/config";
 import { httpRequest } from "@/lib/http";
 export interface LocatorDto {
@@ -19,17 +20,17 @@ export interface LocatorResponse {
 }
 
 export async function generateLocators(url: string, projectId?: number, instruction?: string): Promise<LocatorResponse> {
-  const res = await httpRequest(`${API_BASE_URL}/api/locators/generate`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/locators`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, projectId: projectId ?? null, instruction: instruction ?? null }),
+    body: JSON.stringify({ project: v1Project(projectId), url, instruction: instruction ?? null }),
   });
 
   return res.json();
 }
 
 export async function getLocators(url: string): Promise<LocatorDto[]> {
-  const res = await httpRequest(`${API_BASE_URL}/api/locators?url=${encodeURIComponent(url)}`);
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/locators?url=${encodeURIComponent(url)}`);
 
   return res.json();
 }

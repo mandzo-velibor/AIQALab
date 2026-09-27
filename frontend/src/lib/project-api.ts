@@ -21,17 +21,17 @@ export interface CreateProjectRequest {
 }
 
 export async function getProjects(): Promise<ProjectResponse[]> {
-  const res = await httpRequest(`${API_BASE_URL}/api/projects`);
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/projects`);
   return res.json();
 }
 
 export async function getProject(id: number): Promise<ProjectResponse> {
-  const res = await httpRequest(`${API_BASE_URL}/api/projects/${id}`);
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/projects/${id}`);
   return res.json();
 }
 
 export async function createProject(request: CreateProjectRequest): Promise<ProjectResponse> {
-  const res = await httpRequest(`${API_BASE_URL}/api/projects`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/projects`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
@@ -96,12 +96,12 @@ export interface HealingSuggestionEntry {
 }
 
 export async function getProjectHistory(id: number): Promise<ProjectHistoryResponse> {
-  const res = await httpRequest(`${API_BASE_URL}/api/projects/${id}/history`);
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/projects/${id}/history`);
   return res.json();
 }
 
 export async function deleteProject(id: number): Promise<void> {
-  await httpRequest(`${API_BASE_URL}/api/projects/${id}`, {
+  await httpRequest(`${API_BASE_URL}/api/v1/projects/${id}`, {
     method: "DELETE",
   });
 }

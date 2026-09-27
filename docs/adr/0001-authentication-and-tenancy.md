@@ -19,9 +19,9 @@ What that exposes to anyone who can reach the port:
 | `POST /api/v1/tests`, `/api/v1/test-plan`, `/api/v1/locators` | Same, individually |
 | `GET /api/v1/account/usage` | Token spend and cost attributable to nobody |
 | `GET /api/v1/bug-reports`, `/reports/*` | Reads generated reports and console logs |
-| `POST /api/v1/healing/{id}/accept` then `/apply` | **Mutates stored test source** |
+| `POST /api/v1/healing/suggestions/{id}/approve` then `/apply` | **Mutates stored test source** |
 | `PATCH /api/v1/account/budget-policy` | Changes the global budget policy |
-| `GET/POST /api/projects` | Enumerates and mutates registered projects |
+| `GET/POST /api/v1/projects` | Enumerates and mutates registered projects |
 
 Three structural facts make this worse than a missing feature:
 

@@ -5,6 +5,7 @@ import com.qalab.qalabai.api.OperationStatus;
 import com.qalab.qalabai.api.v1.dto.V1LocatorAnalyzeRequest;
 import com.qalab.qalabai.api.v1.dto.V1LocatorAnalyzeResponse;
 import com.qalab.qalabai.api.v1.dto.V1LocatorsRequest;
+import com.qalab.qalabai.dto.locator.LocatorDto;
 import com.qalab.qalabai.api.v1.dto.V1LocatorsResponse;
 import com.qalab.qalabai.dto.locator.LocatorResponse;
 import com.qalab.qalabai.locator.intelligence.LocatorIntelligenceService;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -53,7 +55,11 @@ public class V1LocatorController extends AbstractV1Controller {
         String operationId = operationId();
         log.info("POST /api/v1/locators operationId={} url={}", operationId, request.url());
 
-        LocatorResponse result = locatorService.generateLocators(request.url(), databaseId(request.project()));
+        // The instruction is forwarded because the service already accepted it on the
+        // legacy surface. B-033's v1 request record simply omitted the field, which meant
+        // migrating the frontend would have silently stopped sending the user's guidance.
+        LocatorResponse result = locatorService.generateLocators(
+                request.url(), databaseId(request.project()), request.instruction());
 
         V1LocatorsResponse response = new V1LocatorsResponse(
                 operationId,
@@ -102,5 +108,15 @@ public class V1LocatorController extends AbstractV1Controller {
                                                                             @PathVariable String fingerprint) {
         log.info("GET /api/v1/projects/{}/locators/{}/history", projectId, fingerprint);
         return ResponseEntity.ok(observationService.historyByFingerprint(projectId, fingerprint));
+    }
+
+    /**
+     * The previously generated locators for a URL, so the dashboard can show what already exists before asking
+     * for a fresh generation. Promoted from the legacy surface by B-033.
+     */
+    @GetMapping("/locators")
+    public ResponseEntity<List<LocatorDto>> byUrl(@RequestParam String url) {
+        log.info("GET /api/v1/locators?url={}", url);
+        return ResponseEntity.ok(locatorService.getLocatorsForUrl(url));
     }
 }

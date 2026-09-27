@@ -1,3 +1,4 @@
+import { v1Project, type V1Project } from "@/lib/v1-project";
 import { API_BASE_URL } from "@/lib/config";
 import { httpRequest } from "@/lib/http";
 export interface DetectedForm {
@@ -45,11 +46,13 @@ export interface AnalysisResponse {
 }
 
 export interface AnalyzeRequest {
+  // v1 identifies the project by object, not by a flat numeric id, so cost and usage can
+  // be attributed per project.
+  project: V1Project;
   url: string;
   forceRefresh?: boolean;
-  projectId?: number;
-  username?: string;
-  password?: string;
+  username?: string | null;
+  password?: string | null;
 }
 
 export async function analyzeUrl(
@@ -59,10 +62,16 @@ export async function analyzeUrl(
   username?: string,
   password?: string,
 ): Promise<AnalysisResponse> {
-  const res = await httpRequest(`${API_BASE_URL}/api/analyze`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, forceRefresh, projectId, username, password } satisfies AnalyzeRequest),
+    body: JSON.stringify({
+      project: v1Project(projectId),
+      url,
+      forceRefresh,
+      username,
+      password,
+    } satisfies AnalyzeRequest),
   });
 
   return res.json();

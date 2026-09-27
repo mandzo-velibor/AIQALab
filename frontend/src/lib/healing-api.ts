@@ -1,3 +1,4 @@
+import { v1Project } from "@/lib/v1-project";
 import { API_BASE_URL } from "@/lib/config";
 import { httpRequest } from "@/lib/http";
 export interface FailureAnalysis {
@@ -30,16 +31,19 @@ export interface HealingSuggestion {
 }
 
 export async function analyzeExecution(executionId: number, projectId: number): Promise<FailureAnalysis> {
-  const res = await httpRequest(
-    `${API_BASE_URL}/api/executions/${executionId}/analyze?projectId=${projectId}`,
-    { method: "POST" }
-  );
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/failures/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // v1 takes project identity and the execution in the body; the legacy call smuggled
+    // both through a query string.
+    body: JSON.stringify({ project: v1Project(projectId), executionId }),
+  });
 
   return res.json();
 }
 
 export async function generateHealing(executionId: number): Promise<HealingSuggestion> {
-  const res = await httpRequest(`${API_BASE_URL}/api/healing/analyze/${executionId}`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/healing/suggestions/analyze/${executionId}`, {
     method: "POST",
   });
 
@@ -47,7 +51,7 @@ export async function generateHealing(executionId: number): Promise<HealingSugge
 }
 
 export async function approveSuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await httpRequest(`${API_BASE_URL}/api/healing/${id}/approve`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/healing/suggestions/${id}/approve`, {
     method: "POST",
   });
 
@@ -55,7 +59,7 @@ export async function approveSuggestion(id: number): Promise<HealingSuggestion> 
 }
 
 export async function rejectSuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await httpRequest(`${API_BASE_URL}/api/healing/${id}/reject`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/healing/suggestions/${id}/reject`, {
     method: "POST",
   });
 
@@ -63,7 +67,7 @@ export async function rejectSuggestion(id: number): Promise<HealingSuggestion> {
 }
 
 export async function applySuggestion(id: number): Promise<HealingSuggestion> {
-  const res = await httpRequest(`${API_BASE_URL}/api/healing/${id}/apply`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/healing/suggestions/${id}/apply`, {
     method: "POST",
   });
 
@@ -72,8 +76,8 @@ export async function applySuggestion(id: number): Promise<HealingSuggestion> {
 
 export async function getSuggestions(projectId?: number): Promise<HealingSuggestion[]> {
   const url = projectId
-    ? `${API_BASE_URL}/api/healing/suggestions?projectId=${projectId}`
-    : `${API_BASE_URL}/api/healing/suggestions`;
+    ? `${API_BASE_URL}/api/v1/healing/suggestions?projectId=${projectId}`
+    : `${API_BASE_URL}/api/v1/healing/suggestions`;
 
   const res = await httpRequest(url);
   return res.json();

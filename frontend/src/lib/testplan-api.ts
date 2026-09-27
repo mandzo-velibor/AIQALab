@@ -1,3 +1,4 @@
+import { v1Project } from "@/lib/v1-project";
 import { API_BASE_URL } from "@/lib/config";
 import { httpRequest } from "@/lib/http";
 export interface TestScenarioDto {
@@ -17,17 +18,17 @@ export interface TestPlanResponse {
 }
 
 export async function generateTestPlan(url: string, projectId?: number, instruction?: string): Promise<TestPlanResponse> {
-  const res = await httpRequest(`${API_BASE_URL}/api/test-plans/generate`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/test-plan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, projectId: projectId ?? null, instruction: instruction ?? null }),
+    body: JSON.stringify({ project: v1Project(projectId), url, instruction: instruction ?? null }),
   });
 
   return res.json();
 }
 
 export async function getTestPlans(url: string): Promise<TestPlanResponse[]> {
-  const res = await httpRequest(`${API_BASE_URL}/api/test-plans?url=${encodeURIComponent(url)}`);
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/test-plans?url=${encodeURIComponent(url)}`);
 
   return res.json();
 }

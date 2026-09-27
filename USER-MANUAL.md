@@ -953,13 +953,33 @@ Non-2xx responses use one shape:
 | `FORBIDDEN` | Authenticated but not permitted |
 | `INTERNAL_ERROR` | Unexpected server fault |
 
-### 14.5 Legacy endpoints
+### 14.5 One API surface
 
-A second, unversioned surface exists under `/api` (`/api/explore`, `/api/analyze`,
-`/api/projects`, `/api/run`, `/api/healing/*`, …). **Some UI code still calls it.**
-Prefer `/api/v1`. The legacy surface is scheduled for removal in **B-033**.
+Everything lives under `/api/v1`. The unversioned `/api/*` surface was removed in
+**B-033**: the nine legacy controllers are gone and the dashboard, CLI and docs all call
+`/api/v1`. There is no second contract to keep in sync.
 
-Both surfaces sit behind the same API-key requirement.
+Three capabilities existed only on the legacy surface and were carried across rather than
+dropped, because deleting a route must not delete a feature:
+
+| Capability | Where it lives now |
+|---|---|
+| Per-test structured results | `GET /api/v1/executions/{executionId}/results` |
+| Per-agent explore results (the dashboard's agent panel) | `agentResults` on the explore response |
+| Applying a healing suggestion to the test source | `POST /api/v1/healing/suggestions/{id}/apply` |
+
+**Two healing models, one URL space.** `HealingProposal` (String id) is a review record:
+propose, then accept or reject. `HealingSuggestion` (Long id) is the one that can *do*
+something — applying it rewrites the generated test source and page object. They are
+reachable side by side under `/api/v1/healing/…` and cannot be merged without a schema
+migration, because a proposal carries no `elementName` and the applier needs it to
+supersede the right locator-history row.
+
+**Write requests carry a `project` object**, not a flat `projectId`. Since B-013, cost and
+usage are attributed per project, so a request without one has nowhere to attribute itself.
+The dashboard sends `{ "projectId": "<id>", "databaseId": <id> }`; `baseUrl`,
+`framework` and `language` are resolved server-side from `databaseId` rather than trusted
+from the browser.
 
 ---
 

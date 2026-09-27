@@ -54,7 +54,8 @@ public class V1ExploreController extends AbstractV1Controller {
                 snapshot.getLinkCount(),
                 snapshot.getFormCount(),
                 snapshot.getScreenshotBase64(),
-                LocalDateTime.now()
+                LocalDateTime.now(),
+                snapshot.getAgentResults()
         );
         return ResponseEntity.ok(response);
     }

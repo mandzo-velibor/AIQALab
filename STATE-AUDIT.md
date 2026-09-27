@@ -207,10 +207,22 @@ The full Playwright stdout goes into one `StringBuilder`, is persisted to `conso
 
 **Fix:** make `POST /workflows/full-test` return `202 Accepted` + `operationId` immediately and move the work to a background executor, with the existing progress endpoint as the polling channel (and a `GET /workflows/{id}` for the final result).
 
-### P1-10. Duplicate API surface: legacy `/api/*` and `/api/v1/*`
-Nine legacy controllers (`controller/`) alongside fifteen v1 controllers (`api/v1/`). The frontend still calls legacy paths (`/api/explore` in `frontend/src/lib/api.ts:19`). Two contracts to keep in sync, no deprecation plan, and a large blind spot for security review (P0-3).
+### P1-10. Duplicate API surface: legacy `/api/*` and `/api/v1/*` — **RESOLVED (B-033)**
 
-**Fix:** finish the frontend migration to `/api/v1`, then delete the legacy controllers.
+Nine legacy controllers (`controller/`) alongside fifteen v1 controllers (`api/v1/`). The frontend still called legacy paths. Two contracts to keep in sync, no deprecation plan, and a large blind spot for security review (P0-3).
+
+**Done:** the dashboard is on `/api/v1`, the nine legacy controllers are deleted, and the
+CLI was already v1-only. `ApiSurfaceTest` now fails the build if any `/api/**` mapping
+appears outside `/api/v1`, so the finding cannot silently reopen.
+
+**Three capabilities were on the legacy surface only** and were migrated rather than lost:
+per-test results (B-031), `agentResults` on explore, and healing *apply*. Two v1 request
+records also silently dropped fields the dashboard sends — `testType` on run and
+`instruction` on locators — which would have disabled the test-type selector and the
+locator guidance with no error anywhere. Both are wired now and pinned by tests.
+
+**Not fixed here:** `HealingProposal` and `HealingSuggestion` remain two models. Unifying
+them needs a schema migration, which is a separate decision.
 
 ### P1-11. Every Playwright run records screenshot + video + trace for every test
 `WorkspaceManager.initializeProjectStructure:341-344` sets `screenshot: 'on', video: 'on', trace: 'on'`. Note `screenshot: 'on'` is not the Playwright default (`only-on-failure`) — it captures for passing tests too. With 20 tests that is 20 videos + 20 traces per run: large disk usage, significant wall-clock overhead, and a large `ArtifactStore` copy per execution.

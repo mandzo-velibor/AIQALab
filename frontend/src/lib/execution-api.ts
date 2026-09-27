@@ -1,3 +1,4 @@
+import { v1Project } from "@/lib/v1-project";
 import { API_BASE_URL } from "@/lib/config";
 import { httpRequest } from "@/lib/http";
 import type { TestType } from "@/lib/testgen-api";
@@ -28,20 +29,30 @@ export interface TestExecution {
 }
 
 export async function runTest(testId: number, projectId?: number, testType?: TestType, instruction?: string): Promise<ExecutionResponse> {
-  const res = await httpRequest(`${API_BASE_URL}/api/executions/run`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ testId, projectId: projectId ?? null, testType: testType ?? null, instruction: instruction ?? null }),
+    body: JSON.stringify({
+      project: v1Project(projectId),
+      testId,
+      testType: testType ?? null,
+      instruction: instruction ?? null,
+    }),
   });
 
   return res.json();
 }
 
 export async function runAllTests(projectId?: number, testType?: TestType, instruction?: string): Promise<ExecutionResponse> {
-  const res = await httpRequest(`${API_BASE_URL}/api/executions/run`, {
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ runAll: true, projectId: projectId ?? null, testType: testType ?? null, instruction: instruction ?? null }),
+    body: JSON.stringify({
+      project: v1Project(projectId),
+      runAll: true,
+      testType: testType ?? null,
+      instruction: instruction ?? null,
+    }),
   });
 
   return res.json();
@@ -80,15 +91,15 @@ export interface ExecutionResults {
 }
 
 export async function getExecutionResults(executionId: number): Promise<ExecutionResults> {
-  const res = await httpRequest(`${API_BASE_URL}/api/executions/${executionId}/results`);
+  const res = await httpRequest(`${API_BASE_URL}/api/v1/executions/${executionId}/results`);
 
   return res.json();
 }
 
 export async function getExecutionHistory(projectId?: number): Promise<TestExecution[]> {
   const url = projectId
-    ? `${API_BASE_URL}/api/executions/history?projectId=${projectId}`
-    : `${API_BASE_URL}/api/executions/history`;
+    ? `${API_BASE_URL}/api/v1/executions?projectId=${projectId}`
+    : `${API_BASE_URL}/api/v1/executions`;
 
   const res = await httpRequest(url);
 
