@@ -769,7 +769,7 @@ it has.
 | B-031 | Surface reports in CLI and UI | P1 | M | **DONE** (UI half) | `dfa5b0f` |
 | B-032 | Bug reports grounded in real failures | P1 | M | **DONE** | `88e7295` |
 | B-033 | Retire the legacy `/api/*` surface | P2 | M | **DONE** | `06f76c5` |
-| B-030 | Allure integration (optional) | P2 | M | TODO | — |
+| B-030 | Allure integration (optional) | P2 | M | **DONE** (bespoke + optional Allure) | `5175dcc` |
 
 **Totals:** 3/5 done · 3 commits · elapsed 397m
 
@@ -1481,3 +1481,41 @@ render succeeded — an asymmetry that only a real end-to-end run surfaces.
 the project's 7). The Next.js guide bundled with this version still lists
 `vite-tsconfig-paths`, which Vite 8 does natively; the warning was followed rather than
 the document.
+
+
+### B-030 · Allure, decided
+
+`5175dcc` · P2 · M — **decision (c): ship both**
+
+**The finding that made it cheap.** The task's own estimate ("more than a week") rested on
+Allure Report 2 requiring a JVM, which a container may not have on the report path. Allure
+Report 3 is pure JS. So Report 3 is tried first, the Java CLI second, and if neither exists
+the run succeeds anyway with the results collected and a note naming the command that would
+render them.
+
+**Imposed on nobody.** No dependency is added to the user's `package.json` — that is how a
+QA tool breaks somebody's `npm ci`. Detection is by directory, not by declaration, because a
+declared package that failed to install fails mid-run. With no package present the generated
+config is byte-for-byte unchanged, and that is asserted rather than assumed.
+
+**It reuses B-020's mechanism.** `allure-playwright` is a reporter, so it goes into the
+companion config that already exists for the JSON reporter, and the user's own
+`playwright.config.ts` is still never modified.
+
+**Where results go, and why not the default.** Allure writes to `allure-results` in the
+workspace root by default, which is a stray directory next to the user's source. Results
+instead go to a dot-directory during the run, are moved into the run's artifact directory
+afterwards — beside the screenshots and traces, so exporting a run carries all of it — and
+the workspace is left exactly as found, temporary directory included. The directory is also
+cleared before each run, because Allure appends and a stale result would otherwise appear
+in this run's report as though it had just happened.
+
+**Verified, not assumed.** A real workspace with real `allure-playwright` and a real
+Chromium: two tests (one passing, one failing) produced Allure results and a rendered
+report with a working `index.html`, and the workspace was left clean. That test is opt-in
+because it needs a browser, an npm install and a JVM; the logic around it is covered by the
+fast unit tests.
+
+**All 38 tasks are now done.** The one thing still out of reach is measuring the *generator*
+rather than the golden suite (B-034's scope boundary), which needs provider credentials in
+CI — a secret this project does not have and should not take for a measurement.

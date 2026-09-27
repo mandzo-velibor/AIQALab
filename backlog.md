@@ -738,15 +738,27 @@ will open. Screenshots are embedded, with a 4 MB per-image cap.
 
 ### B-030 · Allure integration (optional — decide after B-029)
 **P2 · M · area: backend/report · DECISION REQUIRED**
+**Status: DONE — decision (c), bespoke + optional Allure** · `5175dcc`
 
 The user explicitly asked about Allure. Honest assessment: Allure gives categories/history/retries/envIRONMENT for free, but it needs `allure-playwright` in **every generated test workspace** — i.e. an npm dependency the tool imposes on the user's project. That is a real cost, and it is also more than a week of work to make it degrade gracefully when the dependency is absent.
 
 **Decision needed:** (a) adopt Allure, (b) ship only the bespoke HTML report, or (c) ship bespoke + optional Allure when the workspace already has it.
 
-**Acceptance criteria (if adopted)**
-- [ ] `allure generate` runs as part of execution when the workspace has `allure-playwright`
-- [ ] Absent dependency → bespoke report, no failure
-- [ ] Result survives into the user's repo (or is copied to the report dir)
+**Acceptance criteria (adopted)**
+- [x] Allure results are produced as part of execution when the workspace has
+      `allure-playwright`; rendering prefers Allure Report 3 and falls back to Report 2
+- [x] Absent dependency → bespoke report, no failure, and a config that is
+      byte-for-byte unchanged
+- [x] Results are copied into the run's artifact directory, beside the screenshots and
+      traces, and the workspace is left as found
+
+**Why the estimate was wrong.** The "more than a week" rested on Allure Report 2 needing a
+JVM, which a container may not have. Allure Report 3 is pure JS, so Report 3 is tried
+first and the Java CLI is the fallback. If neither is present the run still succeeds and the
+report names the command that would render the results.
+
+**Verified end to end** against a real workspace with real `allure-playwright` and a real
+Chromium: results produced, report rendered with a working `index.html`, workspace clean.
 
 **Files:** `service/workspace/*`, new `service/report/AllureReportService.java`
 **Depends on:** B-029, decision
