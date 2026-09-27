@@ -768,7 +768,7 @@ it has.
 | B-029 | Self-contained HTML report per run | P1 | M | **DONE** | `a8d84fe` |
 | B-031 | Surface reports in CLI and UI | P1 | M | **DONE** (UI half) | `dfa5b0f` |
 | B-032 | Bug reports grounded in real failures | P1 | M | **DONE** | `88e7295` |
-| B-033 | Retire the legacy `/api/*` surface | P2 | M | TODO | — |
+| B-033 | Retire the legacy `/api/*` surface | P2 | M | **DONE** | `06f76c5` |
 | B-030 | Allure integration (optional) | P2 | M | TODO | — |
 
 **Totals:** 3/5 done · 3 commits · elapsed 397m
@@ -1320,3 +1320,45 @@ fault.
 **Sprint 2 is now complete.** All four exit criteria are met: structured per-test results
 (B-022), a bounded and measured worst case (B-024), "why was it slow?" answerable from
 metrics (B-026), and no plaintext credentials in memory (B-027).
+
+
+### B-033 · One API surface, and three features that were only on the wrong one
+
+`06f76c5` · P2 · M
+
+**What shipped**
+
+The nine legacy controllers are deleted. The dashboard is on `/api/v1`; the CLI already
+was. `ApiSurfaceTest` fails the build if any `/api/**` mapping appears outside `/api/v1`.
+
+**The interesting part: the path rewrite would have deleted features**
+
+Three capabilities existed only on the legacy surface:
+
+- per-test structured results (shipped in B-031, on the surface about to be deleted)
+- `agentResults` on explore, which `explore-result.tsx` renders as a panel — v1 dropped it
+  even though `ExplorationService` already had the value in hand
+- healing **apply**, the only path that actually rewrites the generated test source; v1's
+  `accept` merely records a review decision
+
+Two v1 request records were also silently discarding fields the dashboard sends.
+`V1RunRequest` hardcoded a null `testType`, so the e2e/ui/api selector would have stopped
+working while the API kept returning 200 — the most dangerous kind of migration bug, since
+it fails silently and looks healthy. `V1LocatorsRequest` had no `instruction` field at all.
+Both now pass through, each pinned by a test that fails to compile if the field is removed.
+
+**Left alone on purpose**
+
+`HealingProposal` and `HealingSuggestion` are still two models. The applier needs an
+`elementName` to supersede the right locator-history row and a proposal has no such field,
+so merging them is a schema migration, not a cleanup. Both are reachable under
+`/api/v1/healing/…` and the distinction is documented in the manual.
+
+**Verification**
+
+575 tests green on a **clean** build, 6 new. Confirmed against a running prod-profile
+instance: all six legacy paths return 404, their v1 replacements return 200.
+
+**Sprint 3 is now complete.** Every run leaves an offline-openable HTML report with
+screenshots (B-029), bug reports map to deduplicated failures (B-032), and there is one API
+surface (B-033).

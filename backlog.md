@@ -808,6 +808,7 @@ two bugs.
 
 ### B-033 · Retire the legacy `/api/*` surface
 **P2 · M · area: backend/api**
+**Status: DONE** — `06f76c5`
 
 Nine legacy controllers (`controller/`) alongside fifteen v1 controllers (`api/v1/`); the frontend still calls `/api/explore` (`frontend/src/lib/api.ts:19`). Two contracts to keep in sync, no deprecation plan, and a large blind spot for the security review in B-013.
 
@@ -817,9 +818,18 @@ Nine legacy controllers (`controller/`) alongside fifteen v1 controllers (`api/v
 - Grep the CLI + docs for old paths; update.
 
 **Acceptance criteria**
-- [ ] No `/api/*` (non-v1) mappings remain
-- [ ] Frontend and CLI fully on v1
-- [ ] `STATE-AUDIT.md` appendix updated
+- [x] No `/api/*` (non-v1) mappings remain — enforced by `ApiSurfaceTest`
+- [x] Frontend and CLI fully on v1 (the CLI already was)
+- [x] `STATE-AUDIT.md` finding marked resolved
+
+**The migration was not a path rewrite.** Three capabilities lived only on the legacy
+surface and would have been deleted by one: per-test results (B-031), `agentResults` on
+explore, and healing *apply*. Two v1 request records also dropped fields the dashboard
+sends — `testType` on run, `instruction` on locators — which would have disabled the
+test-type selector and the locator guidance with no error anywhere. All carried across.
+
+**Still two healing models**, and that is not an oversight: a `HealingProposal` has no
+`elementName`, which the applier needs. Unifying them is a schema migration.
 
 **Files:** `controller/**` (delete), `frontend/src/lib/*.ts`, `cli/qalab`
 **Depends on:** B-013 (do the security pass on one surface, not two)
