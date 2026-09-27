@@ -134,23 +134,48 @@ const suggestion = {
 
 /** Every stubbed route, so an unhandled path is a 501 with a message rather than a 404. */
 function route(method, path) {
-  if (method === "POST" && path === "/api/v1/analyze") return analysisBody;
+  if (method === "POST" && path === "/api/v1/analyze") {
+    // The v1 envelope. Returning the bare analysis — which is what this stub used to do —
+    // let the suite pass while the real endpoint was breaking the panel, because the test
+    // encoded the same wrong contract as the bug it should have caught.
+    return {
+      operationId: "op-analyze-1",
+      status: "COMPLETED",
+      projectId: "1",
+      url: PAGE_URL,
+      analysis: analysisBody,
+      createdAt: "2026-09-27T10:00:00",
+    };
+  }
   if (method === "POST" && path === "/api/v1/explore") return exploreResponse;
 
+  // Locators. The by-url GET returns a bare list; the generate POST returns the v1
+  // envelope, which carries `count` — not the legacy `generated`.
   if (path === "/api/v1/locators") {
-    if (method === "GET") return [];
-    return { generated: 0, locators: [], instruction: null, strategiesUsed: [] };
-  }
-  if (method === "POST" && path === "/api/v1/test-plan") {
-    return { operationId: "op-plan", status: "COMPLETED", projectId: "1", url: PAGE_URL, scenarioCount: 0, scenarios: [], instruction: null, createdAt: "2026-09-27T10:00:00" };
+    return method === "GET"
+      ? []
+      : { operationId: "op-loc", status: "COMPLETED", projectId: "1", url: PAGE_URL,
+          count: 0, locators: [], createdAt: "2026-09-27T10:00:00" };
   }
   if (path === "/api/v1/test-plans") return [];
+  if (method === "POST" && path === "/api/v1/test-plan") {
+    return { operationId: "op-plan", status: "COMPLETED", projectId: "1", url: PAGE_URL,
+             scenarioCount: 0, scenarios: [], instruction: null, createdAt: "2026-09-27T10:00:00" };
+  }
+  // v1 returns a flat list of generated FILES, not per-test records with database ids.
+  // The dashboard's per-test "Run" button cannot work off this payload — see the
+  // known-limitation note in USER-MANUAL.md.
   if (path === "/api/v1/tests") {
-    if (method === "GET") return [];
-    return { generated: 0, tests: [], instruction: null };
+    return method === "GET"
+      ? []
+      : { operationId: "op-tests", status: "COMPLETED", projectId: "1", url: PAGE_URL,
+          count: 0, files: [], instruction: null, testType: null, note: null,
+          createdAt: "2026-09-27T10:00:00" };
   }
   if (method === "POST" && path === "/api/v1/run") {
-    return { operationId: "op-run", status: "COMPLETED", executionId: 77, testId: null, status_: undefined, state: "COMPLETED", result: { executionId: 77, status: "FAILED", durationMs: 4200, errorMessage: null, consoleLogs: "" }, healing: null, createdAt: "2026-09-27T10:00:00" };
+    return { operationId: "op-run", status: "COMPLETED", projectId: "1", executionId: 77,
+             executionStatus: "FAILED", duration: 4200, errorMessage: null, output: "",
+             createdAt: "2026-09-27T10:00:00" };
   }
   if (path === "/api/v1/executions") return [execution];
   if (path === "/api/v1/executions/77/results") return executionResults;

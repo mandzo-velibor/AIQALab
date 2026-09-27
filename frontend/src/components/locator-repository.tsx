@@ -80,11 +80,15 @@ export function LocatorRepository({ locators, loading, onGenerate, instruction =
                 <span className="text-muted-foreground">Preferred: </span>
                 <code className="bg-muted px-2 py-1 rounded text-xs">{locator.preferredLocator}</code>
               </div>
-              {locator.fallbackLocators.length > 0 && (
+              {/* Fallbacks are supplementary information, so their absence must not be
+                  able to take the panel down. The backend always populates the list, but
+                  this renders whatever arrives: an uncaught exception here blanks the
+                  whole locator section, which is a poor way to lose a list of selectors. */}
+              {(locator.fallbackLocators?.length ?? 0) > 0 && (
                 <div className="text-sm">
                   <span className="text-muted-foreground">Fallbacks: </span>
                   <div className="flex flex-wrap gap-1 mt-1">
-                    {locator.fallbackLocators.map((fb, i) => (
+                    {(locator.fallbackLocators ?? []).map((fb, i) => (
                       <code key={i} className="bg-muted px-2 py-1 rounded text-xs">{fb}</code>
                     ))}
                   </div>

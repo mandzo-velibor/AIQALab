@@ -390,12 +390,18 @@ export function QaWorkflow({ url: initialUrl, projectId, onHistoryChanged }: QaW
               <CardTitle>Screenshot</CardTitle>
             </CardHeader>
             <CardContent>
-              {result.screenshotBase64 ? (
-                <img
-                  src={`data:image/png;base64,${result.screenshotBase64}`}
-                  alt="Page screenshot"
-                  className="rounded-lg border w-full"
-                />
+              {result.screenshotPath ? (
+                /* Shown as a path, not an image. The artifact directory is not served
+                   over HTTP, so a path cannot become an <img src> — that is the same
+                   reason the execution dashboard shows report paths rather than links
+                   (B-031). The report.html for this run embeds the screenshot itself, so
+                   the image is one open away. */
+                <div className="space-y-1">
+                  <p className="font-mono text-xs break-all">{result.screenshotPath}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Open the run&apos;s <code>report.html</code> to view it inline.
+                  </p>
+                </div>
               ) : (
                 <p className="text-sm text-muted-foreground">No screenshot available</p>
               )}

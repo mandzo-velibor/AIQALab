@@ -1,6 +1,6 @@
 import { v1Project, type V1Project } from "@/lib/v1-project";
 import { API_BASE_URL } from "@/lib/config";
-import { httpRequest } from "@/lib/http";
+import { ApiError, httpRequest } from "@/lib/http";
 export interface DetectedForm {
   name: string;
   inputs: string[];
@@ -42,7 +42,19 @@ export interface AnalysisResponse {
   tables: DetectedTable[];
   possibleFlows: DetectedFlow[];
   riskAreas: RiskArea[];
-  screenshotBase64: string;
+  /**
+   * Path to the captured screenshot, not its bytes.
+   *
+   * <p>This was `screenshotBase64` until B-028. A full-page PNG does not fit the
+   * `analysis_json varchar(10000)` column it was being persisted into, and base64 inflates
+   * the payload by a third besides, so the API returns a path. The type kept claiming the
+   * old field, which is how a screenshot preview stayed silently blank for a while: the
+   * value was always `undefined` and the card quietly took its "no screenshot" branch.
+   *
+   * <p>Base64 survives only on the explore response, where it is genuinely needed because
+   * that is the one image the dashboard renders inline.
+   */
+  screenshotPath: string;
 }
 
 export interface AnalyzeRequest {
@@ -74,5 +86,28 @@ export async function analyzeUrl(
     } satisfies AnalyzeRequest),
   });
 
-  return res.json();
+  const body = (await res.json()) as V1AnalyzeEnvelope;
+  // The v1 surface wraps every response in an envelope and nests the payload under
+  // `analysis`. Returning the envelope as though it were the analysis made every field
+  // undefined, and the panel then threw on `result.forms.length` — so the whole analysis
+  // view has been blank since the v1 migration. Unwrapped here so callers keep the shape
+  // they actually want.
+  if (!body?.analysis) {
+    throw new ApiError(0, "MALFORMED_RESPONSE",
+      "The analyse response contained no analysis payload.");
+  }
+  return body.analysis;
+}
+
+/**
+ * What `/api/v1/analyze` actually returns: an envelope with the analysis nested inside.
+ * Declared rather than inlined so the mismatch is visible where the call happens.
+ */
+export interface V1AnalyzeEnvelope {
+  operationId: string;
+  status: string;
+  projectId: string;
+  url: string;
+  analysis: AnalysisResponse;
+  createdAt: string;
 }

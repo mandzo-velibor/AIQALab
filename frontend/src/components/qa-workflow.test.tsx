@@ -46,7 +46,22 @@ beforeEach(() => {
   vi.mocked(analyzeUrl).mockResolvedValue(analysis)
   vi.mocked(generateLocators).mockResolvedValue({
     generated: 1,
-    locators: [{ elementName: "email", preferredLocator: "getByLabel('Email')" }] as LocatorDto[],
+    // Every required field, not a partial. An earlier version of this fixture omitted
+    // `fallbackLocators` and the `as LocatorDto[]` cast hid it from the type checker, so
+    // the component crashed on `.length` of undefined — a defect the suite found, not one
+    // it was asserting about.
+    locators: [
+      {
+        id: 1,
+        elementName: "email",
+        elementType: "input",
+        preferredLocator: "getByLabel('Email')",
+        fallbackLocators: ["#email", "input[name=email]"],
+        strategy: "getByLabel",
+        confidence: 88,
+        reason: "label is stable",
+      },
+    ] satisfies LocatorDto[],
     instruction: null,
     strategiesUsed: ["getByLabel"],
   })
@@ -136,5 +151,15 @@ describe("QaWorkflow", () => {
   it("shows the buttons the user can act on in the execution section", async () => {
     await analyse()
     expect(await screen.findByRole("button", { name: "Run All Tests" })).toBeDefined()
+  })
+
+  it("shows the screenshot path rather than a permanently blank preview", async () => {
+    await analyse()
+
+    // Regression: the card read `screenshotBase64`, a field the API stopped returning in
+    // B-028, so it always took the "no screenshot" branch. Nothing caught it because no
+    // test rendered that card and the TypeScript interface still declared the old field.
+    expect(screen.getByText("/tmp/shot.png")).toBeDefined()
+    expect(screen.queryByText("No screenshot available")).toBeNull()
   })
 })

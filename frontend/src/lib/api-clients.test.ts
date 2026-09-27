@@ -220,11 +220,38 @@ describe("write clients send a project object, not a flat projectId", () => {
     expect(bodyOf(calls[0]).project).toEqual({ projectId: "12", databaseId: 12 })
   })
 
-  it("analyze", async () => {
-    const calls = stubFetch({ body: { pageType: "login" } })
-    await analyzeUrl("https://x.test", false, 12)
+  it("analyze sends the project and unwraps the v1 envelope", async () => {
+    // v1 nests the payload under `analysis`; returning the envelope as though it were
+    // the analysis made every field undefined, and the panel then threw on
+    // `result.forms.length`. That went unnoticed because this stub also returned a flat
+    // body — the test encoded the same wrong contract as the bug.
+    const analysis = { pageType: "login", forms: [], buttons: ["Login"] };
+    const calls = stubFetch({
+      body: {
+        operationId: "op-1",
+        status: "COMPLETED",
+        projectId: "12",
+        url: "https://x.test",
+        analysis,
+        createdAt: "2026-09-27T10:00:00",
+      },
+    })
+
+    const result = await analyzeUrl("https://x.test", false, 12)
+
     expect(calls[0].url).toBe(`${BASE}/api/v1/analyze`)
     expect(bodyOf(calls[0]).project).toEqual({ projectId: "12", databaseId: 12 })
+    // Callers must receive the analysis, not the envelope.
+    expect(result).toEqual(analysis)
+  })
+
+  it("analyze rejects an envelope with no analysis rather than returning undefined fields", async () => {
+    stubFetch({ body: { operationId: "op-1", status: "COMPLETED" } })
+
+    // Silently returning the envelope would put undefined arrays in front of a component
+    // that calls .length on them, which is the crash this whole fix is about.
+    await expect(analyzeUrl("https://x.test", false, 12))
+      .rejects.toThrow(/no analysis payload/i)
   })
 
   it("falls back to an anonymous project when the caller has none", async () => {
