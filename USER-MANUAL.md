@@ -1232,6 +1232,30 @@ not with something we accept.
 
 Breaker state is logged on every transition and readable through the gateway.
 
+### 16.8 Test coverage floor
+
+`mvn verify` fails if line coverage in `ai/gateway/` drops below 75% or in `service/`
+below 58%. The numbers are not aspirational — they are what the suite actually measures
+(79.9% and 60.0%), set a little under so ordinary work does not trip them.
+
+A floor exists because coverage erodes the way a bank balance erodes: code is added faster
+than tests, nothing is removed, and the number falls until it is meaningless. Checking the
+floor is what makes it a floor.
+
+`target/site/jacoco/index.html` has the per-class breakdown.
+
+**What is still thin, and named on purpose.** `service/` sits below the 70% the backlog
+suggested, and the shortfall is concentrated rather than spread:
+
+| Area | Coverage | Why it matters |
+|---|---|---|
+| `service.git` | 2.9% | touches the user's repository; effectively untested |
+| `ExecutionService` | 18% | runs Playwright; the largest single gap |
+| `CodeGenerationService` | 16% | writes the test files the product sells |
+
+None of these were in the original task's list, which is itself the finding: the named gaps
+were the ones somebody already suspected.
+
 ### 16.8 Prompt versioning
 
 Every AI call logs the prompt revision that produced it:
