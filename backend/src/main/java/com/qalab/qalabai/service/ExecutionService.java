@@ -14,6 +14,7 @@ import com.qalab.qalabai.model.TestExecution;
 import com.qalab.qalabai.repository.GeneratedTestRepository;
 import com.qalab.qalabai.repository.TestCaseResultRepository;
 import com.qalab.qalabai.repository.TestExecutionRepository;
+import com.qalab.qalabai.service.report.AllureReportService;
 import com.qalab.qalabai.service.report.ReportService;
 import com.qalab.qalabai.service.workspace.ArtifactResult;
 import com.qalab.qalabai.service.workspace.ArtifactStore;
@@ -41,6 +42,7 @@ public class ExecutionService {
     private final WorkspaceManager workspaceManager;
     private final ArtifactStore artifactStore;
     private final ReportService reportService;
+    private final AllureReportService allureReportService;
     private final HealingAnalysisService healingAnalysisService;
     private final TestCaseResultRepository testCaseResultRepository;
     private final ObjectMapper objectMapper;
@@ -52,6 +54,7 @@ public class ExecutionService {
                             WorkspaceManager workspaceManager,
                             ArtifactStore artifactStore,
                             ReportService reportService,
+                            AllureReportService allureReportService,
                             HealingAnalysisService healingAnalysisService,
                             TestCaseResultRepository testCaseResultRepository,
                             ObjectMapper objectMapper) {
@@ -62,6 +65,7 @@ public class ExecutionService {
         this.workspaceManager = workspaceManager;
         this.artifactStore = artifactStore;
         this.reportService = reportService;
+        this.allureReportService = allureReportService;
         this.healingAnalysisService = healingAnalysisService;
         this.testCaseResultRepository = testCaseResultRepository;
         this.objectMapper = objectMapper;
@@ -337,8 +341,29 @@ public class ExecutionService {
             if (artifacts.getTrace() != null) {
                 execution.setTracePath(artifacts.getTrace());
             }
+            // Allure, when the workspace already uses it. Published into the artifact
+            // directory beside everything else so the run's evidence travels together,
+            // and the bespoke report is still generated either way — the two are
+            // alternatives for the reader, not one replacing the other.
+            Map<String, Object> artifactMap = artifacts.asMap();
+            AllureReportService.AllureOutcome allureOutcome = allureReportService.publish(
+                    workspace == null || workspace.isBlank() ? null
+                            : java.nio.file.Paths.get(workspace),
+                    artifacts.getArtifactDir() == null ? null
+                            : java.nio.file.Paths.get(artifacts.getArtifactDir()));
+            if (allureOutcome != null && allureOutcome.available()) {
+                if (allureOutcome.resultsPath() != null) {
+                    artifactMap.put("allureResults", allureOutcome.resultsPath());
+                }
+                if (allureOutcome.hasReport()) {
+                    artifactMap.put("allureReport", allureOutcome.reportPath());
+                }
+                if (allureOutcome.renderNote() != null) {
+                    artifactMap.put("allureNote", allureOutcome.renderNote());
+                }
+            }
             com.qalab.qalabai.service.report.TestReport report = reportService.generate(
-                    execution, artifacts.asMap(), healingOutcome,
+                    execution, artifactMap, healingOutcome,
                     toTestCaseViews(caseResults), null);
             htmlReportPath = report.htmlReportPath();
             if (report.reportPath() != null) {

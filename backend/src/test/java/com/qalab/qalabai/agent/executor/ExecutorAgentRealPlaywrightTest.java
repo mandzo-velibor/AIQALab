@@ -81,7 +81,7 @@ class ExecutorAgentRealPlaywrightTest {
                 });
                 """);
 
-        PlaywrightTool tool = new PlaywrightTool();
+        PlaywrightTool tool = new PlaywrightTool(new com.qalab.qalabai.service.report.AllureReportService(true));
         ReflectionTestUtils.setField(tool, "testsDir", "./tests");
         ReflectionTestUtils.setField(tool, "timeoutSeconds", 180);
 

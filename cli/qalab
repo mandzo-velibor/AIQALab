@@ -388,6 +388,15 @@ print_summary() {
   if [ -f "$report_dir/report.html" ]; then
     echo "    $report_dir/report.html   <- open this"
   fi
+  # Allure, only when the workspace already used it (B-030). Shown as an equal
+  # alternative rather than a footnote: a reader accustomed to Allure should be able to
+  # open either. The report is a directory, not a single file, hence the trailing slash.
+  if [ -f "$report_dir/allure-report/index.html" ]; then
+    echo "    $report_dir/allure-report/   <- Allure (open index.html)"
+  elif [ -d "$report_dir/allure-results" ]; then
+    echo "    $report_dir/allure-results/   <- Allure results; render with:"
+    echo "        npx allure generate \"$report_dir/allure-results\" -o \"$report_dir/allure-report\""
+  fi
   [ -f "$report_dir/report.json" ] && echo "    $report_dir/report.json"
   [ -f "$report_dir/test-plan.md" ] && echo "    $report_dir/test-plan.md"
   [ -f "$report_dir/bug-report.json" ] && echo "    $report_dir/bug-report.json"

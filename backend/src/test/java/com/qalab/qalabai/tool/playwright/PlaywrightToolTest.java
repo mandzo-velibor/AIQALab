@@ -1,7 +1,9 @@
 package com.qalab.qalabai.tool.playwright;
 
 import com.qalab.qalabai.tool.ToolContext;
+import com.qalab.qalabai.service.report.AllureReportService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
@@ -12,6 +14,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -30,7 +33,7 @@ class PlaywrightToolTest {
     private static final Set<String> VALID_STATUSES = Set.of("PASSED", "FAILED", "ERROR", "TIMEOUT");
 
     private PlaywrightTool tool(long timeoutSeconds) {
-        PlaywrightTool tool = new PlaywrightTool();
+        PlaywrightTool tool = new PlaywrightTool(new com.qalab.qalabai.service.report.AllureReportService(true));
         ReflectionTestUtils.setField(tool, "testsDir", "./tests");
         ReflectionTestUtils.setField(tool, "timeoutSeconds", timeoutSeconds);
         return tool;
@@ -239,5 +242,61 @@ class PlaywrightToolTest {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /**
+     * B-030: the Allure reporter is added to the companion config only when the workspace
+     * already has {@code allure-playwright}. Both directions matter — adding it
+     * unconditionally would make a reporter load that does not exist, and the user is never
+     * given the dependency in the first place.
+     */
+    @Test
+    void theCompanionConfigIsUnchangedWhenAllureIsAbsent(@TempDir Path workspace) throws Exception {
+        PlaywrightTool tool = new PlaywrightTool(new AllureReportService(true));
+        Path json = Files.createTempFile("results", ".json");
+
+        String config = Files.readString(tool.writeReportingConfig(workspace, json, null));
+
+        // A complete no-op, not merely a smaller change: the absence of Allure must not
+        // alter a byte of what the user's run is otherwise configured with.
+        assertThat(config)
+                .doesNotContain("allure")
+                .contains("'json'");
+    }
+
+    @Test
+    void theCompanionConfigAddsTheAllureReporterWhenAvailable(@TempDir Path workspace)
+            throws Exception {
+        PlaywrightTool tool = new PlaywrightTool(new AllureReportService(true));
+        Path json = Files.createTempFile("results", ".json");
+        AllureReportService allure = new AllureReportService(true);
+
+        String config = Files.readString(
+                tool.writeReportingConfig(workspace, json, allure.resultsDir(workspace)));
+
+        assertThat(config)
+                .contains("allure-playwright")
+                .contains("resultsDir")
+                .contains(".qalab/allure-results");
+        assertThat(config)
+                .as("the JSON reporter must survive alongside it: the bespoke report and the "
+                        + "per-test results both depend on it")
+                .contains("'json'");
+    }
+
+    @Test
+    void aUsersOwnConfigIsNeverTouchedWhenAllureIsActive(@TempDir Path workspace) throws Exception {
+        Files.writeString(workspace.resolve("playwright.config.ts"),
+                "export default { testDir: './tests', workers: 1 };");
+        PlaywrightTool tool = new PlaywrightTool(new AllureReportService(true));
+        AllureReportService allure = new AllureReportService(true);
+        String before = Files.readString(workspace.resolve("playwright.config.ts"));
+
+        Files.readString(tool.writeReportingConfig(workspace,
+                Files.createTempFile("r", ".json"), allure.resultsDir(workspace)));
+
+        assertThat(Files.readString(workspace.resolve("playwright.config.ts")))
+                .as("B-020's contract: the user's config is never modified")
+                .isEqualTo(before);
     }
 }

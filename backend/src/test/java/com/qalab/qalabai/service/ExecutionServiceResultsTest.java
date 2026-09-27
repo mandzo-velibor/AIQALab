@@ -38,8 +38,10 @@ class ExecutionServiceResultsTest {
     void setUp() {
         executions = mock(TestExecutionRepository.class);
         caseResults = mock(TestCaseResultRepository.class);
+        // The Allure collaborator is last and defaults to "not available", so this test
+        // exercises the bespoke report path exactly as it did before Allure existed.
         service = new ExecutionService(null, null, executions, null, null, null, null, null,
-                caseResults, new ObjectMapper());
+                null, caseResults, new ObjectMapper());
     }
 
     private TestExecution execution(Long id, String status) {

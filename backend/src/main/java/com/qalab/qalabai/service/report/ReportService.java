@@ -59,6 +59,12 @@ public class ReportService {
         if (artifacts != null && !artifacts.isEmpty()) {
             body.put("artifacts", artifacts);
         }
+        // Allure, when the workspace already produced it. Hoisted to the top level because
+        // the report offers it as an alternative to itself: a reader who is used to Allure
+        // should be able to see that it exists and where it is, rather than dig for it.
+        copyIfPresent(artifacts, body, "allureReport", "allureReport");
+        copyIfPresent(artifacts, body, "allureResults", "allureResults");
+        copyIfPresent(artifacts, body, "allureNote", "allureNote");
         if (healing != null) {
             body.put("healing", healingSection(healing));
         }
@@ -305,5 +311,16 @@ public class ReportService {
 
     private String value(Object o) {
         return o != null ? String.valueOf(o) : "-";
+    }
+
+    private static void copyIfPresent(Map<String, Object> from, Map<String, Object> to, String key,
+                                      String target) {
+        if (from == null) {
+            return;
+        }
+        Object value = from.get(key);
+        if (value != null) {
+            to.put(target, value);
+        }
     }
 }

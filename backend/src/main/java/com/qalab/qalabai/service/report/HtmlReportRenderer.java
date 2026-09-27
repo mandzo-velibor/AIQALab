@@ -239,7 +239,34 @@ public final class HtmlReportRenderer {
         appendMeta(out, "Test file", summary.get("testFile"));
         appendMeta(out, "Status", summary.get("status"));
         appendMeta(out, "Created", summary.get("createdAt"));
+        renderAllureAlternatives(out, summary);
         out.append("</footer>\n");
+    }
+
+    /**
+     * Points at the Allure output when the workspace produced any.
+     *
+     * <p>Rendered as a path rather than a link for the same reason the artifacts are: the
+     * report is opened from the filesystem, and a relative href into a sibling directory
+     * is not something to depend on when the reader may have opened the file from a
+     * copy, an email attachment or a share.
+     */
+    private static void renderAllureAlternatives(StringBuilder out, Map<String, Object> summary) {
+        Object report = summary.get("allureReport");
+        Object results = summary.get("allureResults");
+        Object note = summary.get("allureNote");
+        if (report == null && results == null && note == null) {
+            return;
+        }
+        out.append("<div class=\"allure\">\n");
+        out.append("<p><b>Allure output:</b> this workspace also produces Allure results, "
+                + "so you can read the run in whichever report you prefer.</p>\n");
+        appendMeta(out, "Allure report", report);
+        appendMeta(out, "Allure results", results);
+        if (note != null) {
+            out.append("<p class=\"note\">").append(esc(String.valueOf(note))).append("</p>\n");
+        }
+        out.append("</div>\n");
     }
 
     private static void appendMeta(StringBuilder out, String label, Object value) {

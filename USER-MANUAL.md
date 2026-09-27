@@ -1232,6 +1232,54 @@ not with something we accept.
 
 Breaker state is logged on every transition and readable through the gateway.
 
+### 16.8 Reading a run: two reports, your choice
+
+Every run produces the self-contained `report.html` described above. If the workspace
+**already uses Allure** — that is, `allure-playwright` is in its `node_modules` — the run
+also produces Allure output, and you can read the run in whichever report you prefer.
+
+**Nothing is ever installed into your project.** Not a dependency, not a config edit. A QA
+tool that silently adds a package to someone's `package.json` is a tool that eventually
+breaks their `npm ci`. If Allure is there, it is used; if it is not, behaviour is
+byte-for-byte what it was before. Detection is by directory, not by declaration, because a
+declared dependency that failed to install would otherwise fail mid-run.
+
+```
+ARTIFACTS
+  <dir>/report.html            <- open this
+  <dir>/allure-report/         <- Allure (open index.html)
+  <dir>/allure-results/        <- Allure results; render with:
+      npx allure generate "<dir>/allure-results" -o "<dir>/allure-report"
+  <dir>/report.json
+```
+
+The report footer says the same thing, so you find out from inside the report too.
+
+**Which renderer is used.** Allure has two generations and the difference decides whether
+this is usable in a container:
+
+| | Renderer | Needs a JVM |
+|---|---|---|
+| Allure Report 2 | `allure` on `PATH` | yes |
+| Allure Report 3 | `npx allure` | **no** |
+
+Report 3 is preferred. If only the Java-based CLI is available, that is used instead. If
+neither is, the run still succeeds: the results are collected, and the report tells you the
+command that would render them. A missing optional renderer is never a failed run.
+
+**Where things go.** Allure results are written to `.qalab/allure-results` *inside* the
+workspace during the run — not `allure-results` in the root, which is the default and would
+leave a stray directory next to your source. After the run they are moved into the artifact
+directory beside the screenshots and traces, and the workspace is left exactly as it was
+found, including removing the temporary directory. They live with the run's other evidence
+so exporting a run carries all of it.
+
+The `resultsDir` is deliberately cleared before each run: Allure *appends* to an existing
+results directory, so a leftover result from a previous run would appear in this run's
+report as though it had just happened.
+
+**Turning it off:** `qalab.allure.enabled: false`.
+
 ### 16.8 Frontend tests
 
 The dashboard had `next build` and eslint and nothing else. Both say nothing about

@@ -5,6 +5,7 @@ import com.qalab.qalabai.tool.Tool;
 import com.qalab.qalabai.tool.ToolContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.qalab.qalabai.service.report.AllureReportService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -37,6 +38,18 @@ public class PlaywrightTool implements Tool {
 
     /** Cap on retained subprocess output; only the tail is kept for diagnostics. */
     private static final int MAX_OUTPUT_CHARS = 200_000;
+
+    /**
+     * Allure support, additive and optional. {@code allure-playwright} is just another
+     * reporter, so it slots into the companion config exactly where the JSON reporter does
+     * — the user's own config still is never touched, and no dependency is added to their
+     * project. Absent the package, the config is byte-for-byte what it was before.
+     */
+    private final AllureReportService allure;
+
+    public PlaywrightTool(AllureReportService allure) {
+        this.allure = allure;
+    }
 
     /**
      * Name of the generated companion config. Lives at the workspace root (see
@@ -113,7 +126,14 @@ public class PlaywrightTool implements Tool {
             // companion config adds the JSON reporter without touching the user's own
             // playwright.config.ts (B-020's contract).
             Path jsonReport = Files.createTempFile("qalab-playwright-report-", ".json");
-            Path reportingConfig = writeReportingConfig(runPath, jsonReport);
+            Path allureResults = allure.isAvailable(runPath) ? allure.resultsDir(runPath) : null;
+            if (allureResults != null) {
+                // Clear anything left by a previous run. Allure appends to an existing
+                // results directory, so a stale result from an earlier run would show up
+                // in this run's report as though it had just happened.
+                deleteRecursively(allureResults);
+            }
+            Path reportingConfig = writeReportingConfig(runPath, jsonReport, allureResults);
 
             ProcessOutcome outcome = runProcess(command, runPath, reportingConfig);
             long duration = outcome.durationMs();
@@ -184,6 +204,15 @@ public class PlaywrightTool implements Tool {
      * @return the companion config path, or null when one could not be written
      */
     Path writeReportingConfig(Path workspace, Path jsonOutput) {
+        return writeReportingConfig(workspace, jsonOutput, null);
+    }
+
+    /**
+     * @param allureResults when non-null, adds the Allure reporter pointed at this
+     *                      directory; the caller has already confirmed the workspace
+     *                      has {@code allure-playwright} installed
+     */
+    Path writeReportingConfig(Path workspace, Path jsonOutput, Path allureResults) {
         try {
             // Written at the workspace ROOT, not a subdirectory, for two reasons:
             // Node resolves node_modules by walking up from the importing file, and
@@ -201,9 +230,9 @@ public class PlaywrightTool implements Tool {
                     // It extends whatever the workspace uses and only ADDS a reporter.
                     export default defineConfig({
                       testDir: './tests',
-                      reporter: [['list'], ['json', { outputFile: %s }]],
+                      reporter: [['list'], ['json', { outputFile: %s }]%s],
                     });
-                    """.formatted(jsonLiteral(jsonOutput))
+                    """.formatted(jsonLiteral(jsonOutput), allureReporterFragment(workspace, allureResults))
                     : """
                     import base from '%s';
                     import { defineConfig } from '@playwright/test';
@@ -215,15 +244,59 @@ public class PlaywrightTool implements Tool {
                     const existing = Array.isArray(base.reporter) ? base.reporter : [];
                     export default defineConfig({
                       ...base,
-                      reporter: [...existing, ['json', { outputFile: %s }]],
+                      reporter: [...existing, ['json', { outputFile: %s }]%s],
                     });
-                    """.formatted(relativeImport(workspace, userConfig), jsonLiteral(jsonOutput));
+                    """.formatted(relativeImport(workspace, userConfig), jsonLiteral(jsonOutput),
+                    allureReporterFragment(workspace, allureResults));
 
             Files.writeString(config, contents);
             return config;
         } catch (IOException e) {
             log.warn("Could not write the Playwright reporting config: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * The Allure reporter entry, or an empty string when Allure is not in play.
+     *
+     * <p>{@code resultsDir} is set explicitly so the results land in a dot-directory
+     * rather than the workspace root. Left at the default they would appear as a stray
+     * {@code allure-results/} next to the user's source, which is exactly the litter a
+     * tool should not leave behind.
+     */
+    private String allureReporterFragment(Path workspace, Path allureResults) {
+        if (allureResults == null) {
+            return "";
+        }
+        return ", ['allure-playwright', { resultsDir: %s }]".formatted(
+                quoteJs(relativeDir(workspace, allureResults)));
+    }
+
+    /** Quotes a path for a JS string literal. */
+    private static String quoteJs(String value) {
+        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'";
+    }
+
+    /** A POSIX-style path relative to the workspace, as a config file expects. */
+    private static String relativeDir(Path workspace, Path target) {
+        try {
+            return workspace.relativize(target).toString().replace('\\', '/');
+        } catch (IllegalArgumentException e) {
+            return target.toAbsolutePath().toString().replace('\\', '/');
+        }
+    }
+
+    private void deleteRecursively(Path dir) {
+        if (dir == null || !Files.exists(dir)) {
+            return;
+        }
+        try (var walk = Files.walk(dir)) {
+            for (Path path : walk.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException e) {
+            log.debug("Could not clear {}: {}", dir, e.getMessage());
         }
     }
 

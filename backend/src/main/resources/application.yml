@@ -40,6 +40,14 @@ qalab:
   # many may be open at once: each holds a renderer and a page of its own, and an
   # unbounded number is how a small VM runs out of memory. idle-timeout closes the process
   # after a quiet spell rather than holding ~100 MB open forever.
+  # Allure is opt-in by *detection*, not by installation. Nothing is ever added to the
+  # user's package.json: if the workspace already has allure-playwright, the run records
+  # Allure results alongside the bespoke report; if not, behaviour is unchanged. Rendering
+  # prefers Allure Report 3 (pure JS, no JVM) and falls back to an `allure` on PATH; if
+  # neither is available the results are still collected and the report says which command
+  # would render them. Set to false to switch the detection off entirely.
+  allure:
+    enabled: true
   browser:
     max-concurrent-pages: 4
     idle-timeout-seconds: 300
