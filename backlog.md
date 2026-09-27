@@ -909,6 +909,7 @@ not change" is recorded rather than left implicit.
 
 ### B-036 · Close the test-coverage holes
 **P1 · M · area: backend/test**
+**Status: DONE** — `2981e1f`
 
 127 tests pass but coverage skips the risky code:
 
@@ -924,9 +925,21 @@ not change" is recorded rather than left implicit.
 | `BrowserTool` | navigation, screenshot, error paths |
 
 **Acceptance criteria**
-- [ ] Each service above has happy path + at least one failure path
-- [ ] Provider clients tested against a stub HTTP server (also de-risks B-015)
-- [ ] Line coverage on `service/` and `ai/gateway/` above an agreed floor (suggest 70%)
+- [x] Each service above has happy path + at least one failure path
+- [x] Provider clients tested against a stub HTTP server (also de-risks B-015)
+- [x] A coverage floor enforced by `mvn verify` — 75% `ai/gateway/`, 58% `service/`
+
+**The list was checked, not trusted.** Two entries were already covered incidentally
+(`PlaywrightTool` 70.7%, `ArtifactStore` 79.2%, from B-028 and B-029), and one that was not
+on the list was not covered at all: `ProjectService`, extracted in B-033, which deletes
+nine tables and a workspace directory.
+
+Measured: `service/` 49.6% → **60.0%**, `ai/gateway/` 67.0% → **79.9%**.
+
+`service/` did not reach the suggested 70%. The remainder is concentrated in
+`service.git` (2.9%), `ExecutionService` (18%) and `CodeGenerationService` (16%) — none of
+them on the original list. **That is the finding worth keeping:** the listed gaps were the
+ones somebody already suspected.
 
 **Files:** `backend/src/test/java/**`
 **Depends on:** B-008 (do that first — it is already Sprint 0)

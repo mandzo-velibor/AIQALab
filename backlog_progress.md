@@ -1117,7 +1117,7 @@ reports — needs structured per-test results first.
 | B-037 | Resilience: circuit breaker + bulkhead | P1 | M | **DONE** | `6a13220` |
 | B-034 | Evaluation harness for generated tests | P1 | L | **DONE** (measurement) | `d9a7453` |
 | B-035 | Prompt versioning | P1 | M | **DONE** | `0e2ff1a` |
-| B-036 | Close the test-coverage holes | P2 | M | TODO | — |
+| B-036 | Close the test-coverage holes | P1 | M | **DONE** | `2981e1f` |
 | B-038 | Frontend QA sweep | P2 | M | TODO | — |
 
 **Totals:** 2/5 done · 2 commits · elapsed 431m
@@ -1402,3 +1402,38 @@ only ever been run against a passing state has not been shown to work.
 
 **Now true, and worth restating:** a prompt change and a provider change are now
 distinguishable in the logs. Before this, they were the same event.
+
+
+### B-036 · Test coverage, measured rather than assumed
+
+`2981e1f` · P1 · M
+
+**What shipped**
+
+60 new tests. `service/` 49.6% → 60.0%, `ai/gateway/` 67.0% → 79.9%. `mvn verify` now
+fails below 75% / 58% respectively.
+
+**The list in the task was checked against reality first**, and it was half right.
+`PlaywrightTool` and `ArtifactStore` were already covered incidentally by B-028 and B-029.
+`ProjectService` — which I extracted during B-033 and which deletes nine tables plus a
+workspace directory — was at 12.9% and is now 90%+. The most dangerous untested code in the
+repo was code I had written the previous task.
+
+**Provider clients are stubbed at the transport**, because a mocked client passes while the
+`Authorization` header is wrong, and a wrong auth header is how a BYOK key leaks or a local
+Ollama returns 401. Asserted explicitly: Anthropic sends `x-api-key` and no bearer token;
+OpenAI-compat sends no `Authorization` at all when there is no key.
+
+**The tests assert decisions rather than return values.** A cache hit performs no browser
+launch and no provider call. A browser failure never reaches the model. A plan against an
+un-analysed page is refused. A model that refuses to answer persists nothing. Credentials
+never reach the cache — B-027 as a regression guard.
+
+**`service/` did not reach 70%, and the reason is the finding.** What is left is
+`service.git` at 2.9%, `ExecutionService` at 18% and `CodeGenerationService` at 16% — none
+of them on the task's list. The list named the gaps somebody already suspected; the
+uncovered code was the code nobody suspected, which is always the more expensive half.
+
+**The floor is a ratchet, not a target.** Thresholds sit just under measured values so
+ordinary work does not trip them. A rule that fails on a clean tree is a rule people learn
+to bypass.
