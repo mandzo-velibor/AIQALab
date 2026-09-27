@@ -1118,7 +1118,7 @@ reports — needs structured per-test results first.
 | B-034 | Evaluation harness for generated tests | P1 | L | **DONE** (measurement) | `d9a7453` |
 | B-035 | Prompt versioning | P1 | M | **DONE** | `0e2ff1a` |
 | B-036 | Close the test-coverage holes | P1 | M | **DONE** | `2981e1f` |
-| B-038 | Frontend QA sweep | P2 | M | TODO | — |
+| B-038 | Frontend QA sweep | P2 | M | **DONE** | `0e6b597` |
 
 **Totals:** 2/5 done · 2 commits · elapsed 431m
 
@@ -1437,3 +1437,47 @@ uncovered code was the code nobody suspected, which is always the more expensive
 **The floor is a ratchet, not a target.** Thresholds sit just under measured values so
 ordinary work does not trip them. A rule that fails on a clean tree is a rule people learn
 to bypass.
+
+
+### B-038 · Frontend tests, and the two defects they found
+
+`0e6b597` · P2 · M
+
+**What shipped**
+
+45 unit tests over the `lib/*` clients and the three journey components, plus 3 Playwright
+journeys against a stub backend. Both run in CI.
+
+**Why the clients were the first target.** `next build` and eslint pass with a wrong API
+path, a dropped request field, or a missing `project` object. B-033 moved every call to
+`/api/v1` and reshaped every write body; nothing would have noticed if that had been wrong.
+The client tests assert URLs and bodies, so it cannot be undone silently.
+
+**Two real defects, in four places**
+
+Every card involved was collapsed *exactly when it was empty*, hiding the controls needed
+to fill it: the execution history's first-run guidance, and the instruction box plus
+generate button for locators, the test plan, and tests. A user with nothing yet was told
+nothing. The guidance now also renders in the card header, via a new `subtitle` slot on
+`CollapsibleCard`, so it is visible whether or not the card is open.
+
+**The part that took the longest, and was worth it**
+
+The E2E suite started with `page.route` interception and passed two of three journeys
+against pages that were quietly empty. `app/projects/[id]` is a **server component** — it
+fetches the project, its history and its healing suggestions during the server render, so
+browser-level interception never sees those requests. Replacing interception with a real
+stub server (`e2e/stub-api.mjs`) was the fix, and it then needed CORS preflights answered
+because the browser reaches it cross-origin; without that every request failed as "Failed
+to fetch", which is indistinguishable from a product bug.
+
+**A build-time trap worth remembering.** `NEXT_PUBLIC_API_BASE_URL=... npm run build && npm
+run start` applies the variable to the build only. `/config.js` reads it at request time,
+so the client fell back to its default and every browser request failed while the server
+render succeeded — an asymmetry that only a real end-to-end run surfaces.
+
+**On versions.** `vitest` 4 not 5 (5 needs `@types/node` ≥22; the project pins 20), and
+`@vitejs/plugin-react` 5 not 6 (6 pulls a rolldown plugin wanting `@babel/core` 8 against
+the project's 7). The Next.js guide bundled with this version still lists
+`vite-tsconfig-paths`, which Vite 8 does natively; the warning was followed rather than
+the document.

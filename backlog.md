@@ -973,6 +973,7 @@ otherwise keep costing a timeout on every call.
 
 ### B-038 · Frontend QA sweep
 **P2 · M · area: frontend**
+**Status: DONE** — `0e6b597`
 
 51 source files, no test runner beyond `next build` + eslint. The dashboard surfaces the same data the CLI does and is the primary UI.
 
@@ -982,8 +983,18 @@ otherwise keep costing a timeout on every call.
 - Wire into the existing CI job.
 
 **Acceptance criteria**
-- [ ] `npm test` runs in CI
-- [ ] At least one E2E covering the main journey
+- [x] `npm test` runs in CI — 45 unit tests, plus 3 Playwright journeys
+- [x] E2E covering the main journey: analyse → run → read per-test results, and approve a
+      healing suggestion
+
+**Two UI defects found, in four places.** Every card involved was collapsed exactly when
+empty, hiding the controls needed to fill it: the execution history's first-run guidance,
+and the instruction box and generate button for locators, plan and tests.
+
+**The E2E needed a real stub backend, not route interception.** `app/projects/[id]` is a
+server component that fetches during the server render; a browser-only stub leaves it
+empty and the suite passes without exercising it. That is what happened until
+`e2e/stub-api.mjs` became an actual server.
 
 **Files:** `frontend/**`, `.github/workflows/ci.yml`
 **Depends on:** B-022 (needs realistic fixtures)
