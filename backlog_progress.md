@@ -1116,7 +1116,7 @@ reports — needs structured per-test results first.
 |---|---|---|---|---|---|
 | B-037 | Resilience: circuit breaker + bulkhead | P1 | M | **DONE** | `6a13220` |
 | B-034 | Evaluation harness for generated tests | P1 | L | **DONE** (measurement) | `d9a7453` |
-| B-035 | Prompt versioning | P1 | M | TODO | — |
+| B-035 | Prompt versioning | P1 | M | **DONE** | `0e2ff1a` |
 | B-036 | Close the test-coverage holes | P2 | M | TODO | — |
 | B-038 | Frontend QA sweep | P2 | M | TODO | — |
 
@@ -1362,3 +1362,43 @@ instance: all six legacy paths return 404, their v1 replacements return 200.
 **Sprint 3 is now complete.** Every run leaves an offline-openable HTML report with
 screenshots (B-029), bug reports map to deduplicated failures (B-032), and there is one API
 surface (B-033).
+
+
+### B-035 · Prompt versioning
+
+`0e2ff1a` · P1 · M
+
+**What shipped**
+
+Every gateway log line carries `prompt=<name>@<hash>`. `prompts/manifest.properties` pins
+each template to the exact text that was evaluated, and the build fails on drift.
+
+**Two decisions worth stating**
+
+The version is a **content hash**, not a counter. A hand-maintained `v2` is the design
+everyone reaches for and the one that fails: nobody forgets to read it, people forget to
+increment it, and the result is an edit that nobody can attribute. A hash moves if and only
+if the text moves.
+
+The manifest's **citation field is required to be non-empty**. Requiring only a hash would
+produce a list of numbers nobody reads within a month. "The score did not change" is a
+result worth writing down, and forcing the author to type it is what stops the file decaying
+into decoration.
+
+**The bug found on the way**
+
+All eight prompt loaders caught their own `IOException` and returned `""`. So a missing or
+unreadable template sent an *empty system prompt* to the provider and got back a confident,
+useless answer — costing a call, looking like a model problem, and invisible in the output.
+That is strictly worse than failing. A missing or unregistered template is now fatal, an
+unknown name lists the valid ones, and the eight duplicated loaders became one
+`PromptLibrary`.
+
+**Verification**
+
+582 tests green on a clean build, 7 new. The drift guard was checked by actually editing a
+template: the build failed naming both the manifest hash and the new one. A guard that has
+only ever been run against a passing state has not been shown to work.
+
+**Now true, and worth restating:** a prompt change and a provider change are now
+distinguishable in the logs. Before this, they were the same event.

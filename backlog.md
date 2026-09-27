@@ -883,6 +883,7 @@ itself.
 
 ### B-035 · Prompt versioning
 **P2 · S · area: backend/ai**
+**Status: DONE** — `0e2ff1a`
 
 Seven prompt templates in `resources/prompts/`, changed ad hoc, with no version, no fixture, no offline check. The prompt is the product; it is the one asset with zero safety net.
 
@@ -892,8 +893,14 @@ Seven prompt templates in `resources/prompts/`, changed ad hoc, with no version,
 - Changelog discipline: prompt changes must cite the eval delta.
 
 **Acceptance criteria**
-- [ ] Every AI call logs the prompt version
-- [ ] Prompt diffs require an eval run
+- [x] Every AI call logs the prompt version — `prompt=<name>@<hash>` on the gateway line
+- [x] Prompt diffs require an eval run — `manifest.properties` pins each template to the
+      evaluated text and the build fails on drift
+
+**The version is a content hash, deliberately.** A hand-maintained counter is the obvious
+design and the wrong one: it gets forgotten, and an un-bumped edit produces unattributable
+output. The citation field in the manifest is required to be non-empty, so "the score did
+not change" is recorded rather than left implicit.
 
 **Files:** `resources/prompts/*`, `agent/*`, B-026/B-034 outputs
 **Depends on:** B-026, B-034
