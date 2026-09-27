@@ -98,7 +98,15 @@ export function ExecutionDashboard({ executions, loading, onRunAll, highlightExe
   return (
     <CollapsibleCard
       title={`Execution History (${executions.length})`}
-      defaultOpen={executions.length > 0}
+      // Open by default, for the same reason as LocatorRepository: a card collapsed while
+      // empty hides the controls that fill it. The first-run guidance additionally lives in
+      // the header so it is visible even if a user collapses the card.
+      defaultOpen
+      subtitle={
+        executions.length === 0
+          ? 'No executions yet. Click "Run All Tests" to execute generated tests.'
+          : undefined
+      }
       action={
         <Button onClick={onRunAll} disabled={loading} size="sm">
           {loading ? "Running..." : "Run All Tests"}
@@ -116,11 +124,7 @@ export function ExecutionDashboard({ executions, loading, onRunAll, highlightExe
           />
         </div>
       )}
-      {executions.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No executions yet. Click &quot;Run All Tests&quot; to execute generated tests.
-        </p>
-      ) : (
+      {executions.length > 0 && (
           <div className="space-y-3">
             {executions.map((exec) => {
               const isHighlighted = exec.id === highlightExecutionId;

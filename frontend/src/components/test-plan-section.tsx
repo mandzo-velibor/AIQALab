@@ -48,7 +48,6 @@ export function TestPlanSection({ scenarios, loading, onGenerate, instruction = 
   return (
     <CollapsibleCard
       title={`AI Test Plan (${scenarios.length} scenarios)`}
-      defaultOpen={scenarios.length > 0}
       action={
         <Button onClick={onGenerate} disabled={loading} size="sm">
           {loading ? "Generating..." : "Generate Test Plan"}

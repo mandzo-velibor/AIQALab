@@ -118,6 +118,34 @@ jobs:
         run: npx tsc --noEmit
         working-directory: frontend
 
+      # B-038. `next build` and eslint passing says nothing about behaviour: a wrong API
+      # path or a dropped request field still builds, lints and renders. These are the
+      # checks that would have caught B-033's migration going wrong.
+      - name: Unit tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      # Separate from `npm test` because it needs a browser and two servers. It boots a
+      # stub backend alongside the app, which matters because `app/projects/[id]` is a
+      # server component: a browser-only stub would leave it empty and the suite would pass
+      # without ever exercising it.
+      - name: End-to-end journey
+        run: npm run test:e2e
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:3199
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
   security-check:
     name: Secrets & env check
     runs-on: ubuntu-latest

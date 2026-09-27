@@ -25,7 +25,6 @@ export function GeneratedTestsSection({ tests, loading, onGenerate, onRunTest, i
   return (
     <CollapsibleCard
       title={`Generated Tests (${tests.length})`}
-      defaultOpen={tests.length > 0}
       action={
         <Button onClick={onGenerate} disabled={loading} size="sm">
           {loading ? "Generating..." : "Generate Tests"}

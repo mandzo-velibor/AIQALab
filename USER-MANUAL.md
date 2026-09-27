@@ -1232,6 +1232,46 @@ not with something we accept.
 
 Breaker state is logged on every transition and readable through the gateway.
 
+### 16.8 Frontend tests
+
+The dashboard had `next build` and eslint and nothing else. Both say nothing about
+behaviour: a wrong API path, a dropped request field or a control that never appears all
+build cleanly and render a plausible page.
+
+```bash
+npm test        # 45 unit tests, no browser needed
+npm run test:e2e # 3 journeys, real browser + stub backend
+```
+
+**What the unit tests cover.** The `lib/*` API clients — every path and request body, so
+B-033's move to `/api/v1` cannot silently regress — and the three components that carry the
+journey. The assertions are about decisions, not return values: that a cache hit fetches
+nothing, that a failed analysis is reported instead of rendered as an empty page, that
+Apply is unreachable before a suggestion is approved, and that a failed results load says
+so rather than looking like a run with no tests.
+
+**Two real defects the component tests found.** Four cards were collapsed exactly when
+empty, which hid the controls you need in order to fill them — the first-run guidance in
+the execution history and the instruction box for locators, a plan and tests were all
+behind a toggle. The first-run message now also lives in the card header, so it is visible
+whether or not the card is open.
+
+**The E2E suite runs against a real stub backend** (`e2e/stub-api.mjs`), not browser route
+interception. `app/projects/[id]` is a server component that fetches during the server
+render, so a browser-only stub leaves that page empty and the suite passes without ever
+exercising it. The stub answers CORS preflights, because the browser talks to it
+cross-origin and the real backend has Spring's CORS handling; without it every request
+fails as "Failed to fetch", which reads exactly like a product bug.
+
+The journeys assert the wire as well as the pixels: the analysed URL, the `project` object
+on write requests, that `runAll` really runs everything, and that approving a healing
+suggestion does not quietly become applying it.
+
+**Versions are pinned to what the project already had.** `vitest` 4 rather than 5, because
+5 requires `@types/node` ≥22 and this project pins 20. `@vitejs/plugin-react` 5 rather than
+6, which pulls a rolldown plugin wanting `@babel/core` 8 against the project's 7. The setup
+follows the guide shipped with this Next.js version rather than a remembered one.
+
 ### 16.8 Test coverage floor
 
 `mvn verify` fails if line coverage in `ai/gateway/` drops below 75% or in `service/`

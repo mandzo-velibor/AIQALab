@@ -35,9 +35,13 @@ function getStrategyColor(strategy: string) {
 
 export function LocatorRepository({ locators, loading, onGenerate, instruction = "", onInstructionChange }: LocatorRepositoryProps) {
   return (
+    // Left open by default. The previous `defaultOpen={locators.length > 0}` collapsed the
+    // card exactly when it was empty, which hid the instruction box and the generate button
+    // behind the toggle — the controls you need in order to create the first locator were
+    // the ones you could not reach. B-038's component tests found the same defect here and
+    // in the execution dashboard; the fix is to not pass defaultOpen at all.
     <CollapsibleCard
       title={`Locator Repository (${locators.length})`}
-      defaultOpen={locators.length > 0}
       action={
         <Button onClick={onGenerate} disabled={loading} size="sm">
           {loading ? "Generating..." : "Generate Locators"}
