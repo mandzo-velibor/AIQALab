@@ -67,9 +67,9 @@ public class AnalysisCache {
      * <p>A cache lookup is not the bottleneck — the browser navigation and LLM call that
      * follow it are orders of magnitude slower — so the lock costs nothing real.</p>
      */
-    private final Map<String, Entry<AnalysisResponse>> analyses;
-    private final Map<String, Entry<String>> pageContent;
-    private final Map<String, Entry<String>> postLoginContent;
+    private final Map<String, CacheEntry<AnalysisResponse>> analyses;
+    private final Map<String, CacheEntry<String>> pageContent;
+    private final Map<String, CacheEntry<String>> postLoginContent;
 
     private final AtomicLong hits = new AtomicLong();
     private final AtomicLong misses = new AtomicLong();
@@ -87,10 +87,10 @@ public class AnalysisCache {
         log.info("Analysis cache: ttl={}s, maxEntries={}", this.ttl.toSeconds(), this.maxEntries);
     }
 
-    private Map<String, Entry<AnalysisResponse>> boundedAnalyses() {
+    private Map<String, CacheEntry<AnalysisResponse>> boundedAnalyses() {
         return new LinkedHashMap<>(16, 0.75f, false) {
             @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Entry<AnalysisResponse>> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<String, CacheEntry<AnalysisResponse>> eldest) {
                 boolean evict = size() > AnalysisCache.this.maxEntries;
                 if (evict) {
                     evictions.incrementAndGet();
@@ -100,10 +100,10 @@ public class AnalysisCache {
         };
     }
 
-    private Map<String, Entry<String>> boundedText() {
+    private Map<String, CacheEntry<String>> boundedText() {
         return new LinkedHashMap<>(16, 0.75f, false) {
             @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Entry<String>> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<String, CacheEntry<String>> eldest) {
                 boolean evict = size() > AnalysisCache.this.maxEntries;
                 if (evict) {
                     evictions.incrementAndGet();
@@ -113,7 +113,7 @@ public class AnalysisCache {
         };
     }
 
-    private record Entry<T>(T value, Instant storedAt) {
+    private record CacheEntry<T>(T value, Instant storedAt) {
         boolean isFresh(Duration ttl) {
             return Duration.between(storedAt, Instant.now()).compareTo(ttl) < 0;
         }
@@ -122,7 +122,7 @@ public class AnalysisCache {
     // ---- analysis ----
 
     public synchronized AnalysisResponse get(String urlHash) {
-        Entry<AnalysisResponse> entry = analyses.get(urlHash);
+        CacheEntry<AnalysisResponse> entry = analyses.get(urlHash);
         if (entry == null) {
             misses.incrementAndGet();
             return null;
@@ -148,9 +148,9 @@ public class AnalysisCache {
         if (response == null) {
             return;
         }
-        analyses.put(urlHash, new Entry<>(response, Instant.now()));
+        analyses.put(urlHash, new CacheEntry<>(response, Instant.now()));
         if (simplifiedHtml != null) {
-            pageContent.put(urlHash, new Entry<>(simplifiedHtml, Instant.now()));
+            pageContent.put(urlHash, new CacheEntry<>(simplifiedHtml, Instant.now()));
         }
         log.info("Cached analysis for URL hash: {}", urlHash);
     }
@@ -163,7 +163,7 @@ public class AnalysisCache {
 
     public synchronized void putPostLoginContent(String urlHash, String simplifiedHtml) {
         if (simplifiedHtml != null) {
-            postLoginContent.put(urlHash, new Entry<>(simplifiedHtml, Instant.now()));
+            postLoginContent.put(urlHash, new CacheEntry<>(simplifiedHtml, Instant.now()));
         }
     }
 
@@ -171,8 +171,8 @@ public class AnalysisCache {
         return fresh(postLoginContent, urlHash);
     }
 
-    private synchronized <T> T fresh(Map<String, Entry<T>> map, String key) {
-        Entry<T> entry = map.get(key);
+    private synchronized <T> T fresh(Map<String, CacheEntry<T>> map, String key) {
+        CacheEntry<T> entry = map.get(key);
         if (entry == null) {
             return null;
         }
