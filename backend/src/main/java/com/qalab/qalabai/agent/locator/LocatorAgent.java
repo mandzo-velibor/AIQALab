@@ -14,9 +14,10 @@ import com.qalab.qalabai.ai.gateway.AiRequest;
 import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.LocatorDefinition;
+import com.qalab.qalabai.prompt.PromptLibrary;
+import com.qalab.qalabai.prompt.VersionedPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -32,24 +33,18 @@ public class LocatorAgent implements QaAgent {
 
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
-    private final String locatorPrompt;
+    private final PromptLibrary prompts;
+    private final VersionedPrompt locatorPrompt;
 
     public LocatorAgent(AiGateway aiGateway,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        PromptLibrary prompts) {
+        this.prompts = prompts;
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
-        this.locatorPrompt = loadPrompt();
+        this.locatorPrompt = prompts.get("locator-agent");
     }
 
-    private String loadPrompt() {
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/locator-agent.md");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.error("Failed to load locator prompt: {}", e.getMessage());
-            return "";
-        }
-    }
 
     @Override
     public String getName() {
@@ -72,7 +67,8 @@ public class LocatorAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson, instruction);
             log.info("Sending request to AI for locator generation");
 
-            AiRequest request = AiRequest.builder(AiOperation.LOCATOR_GENERATION, locatorPrompt, userPrompt)
+            AiRequest request = AiRequest.builder(AiOperation.LOCATOR_GENERATION, locatorPrompt.text(), userPrompt)
+                    .promptVersion(locatorPrompt.version())
                     .validator(JsonValidators.hasArrayField("locators"))
                     .build();
             AgentExecutionContext ctx = contextFrom(task);

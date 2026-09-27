@@ -15,9 +15,10 @@ import com.qalab.qalabai.repository.PageAnalysisHistoryRepository;
 import com.qalab.qalabai.tool.ToolContext;
 import com.qalab.qalabai.tool.browser.BrowserTool;
 import com.qalab.qalabai.tool.browser.DomSimplifier;
+import com.qalab.qalabai.prompt.PromptLibrary;
+import com.qalab.qalabai.prompt.VersionedPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -38,32 +39,26 @@ public class ExplorerService {
     private final AnalysisCache cache;
     private final ObjectMapper objectMapper;
     private final PageAnalysisHistoryRepository historyRepository;
-    private final String explorerPrompt;
+    private final PromptLibrary prompts;
+    private final VersionedPrompt explorerPrompt;
 
     public ExplorerService(BrowserTool browserTool,
                            DomSimplifier domSimplifier,
                            AiGateway aiGateway,
                            AnalysisCache cache,
                            ObjectMapper objectMapper,
-                           PageAnalysisHistoryRepository historyRepository) {
+                           PageAnalysisHistoryRepository historyRepository,
+                        PromptLibrary prompts) {
+        this.prompts = prompts;
         this.browserTool = browserTool;
         this.domSimplifier = domSimplifier;
         this.aiGateway = aiGateway;
         this.cache = cache;
         this.objectMapper = objectMapper;
         this.historyRepository = historyRepository;
-        this.explorerPrompt = loadPrompt();
+        this.explorerPrompt = prompts.get("explorer");
     }
 
-    private String loadPrompt() {
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/explorer.md");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.error("Failed to load explorer prompt: {}", e.getMessage());
-            return "";
-        }
-    }
 
     public AnalysisResponse analyze(String url, boolean forceRefresh) {
         return analyze(url, forceRefresh, null, null, null);
@@ -205,7 +200,8 @@ public class ExplorerService {
     private String callLlmWithRetry(String userPrompt, Long projectId) {
         try {
             log.info("LLM request sent");
-            AiRequest request = AiRequest.builder(AiOperation.ANALYZE, explorerPrompt, userPrompt)
+            AiRequest request = AiRequest.builder(AiOperation.ANALYZE, explorerPrompt.text(), userPrompt)
+                    .promptVersion(explorerPrompt.version())
                     .validator(JsonValidators.isJsonObject())
                     .build();
             AgentExecutionContext ctx = AgentExecutionContext.builder()
@@ -220,7 +216,8 @@ public class ExplorerService {
         } catch (Exception e) {
             log.warn("First LLM call failed: {}. Retrying...", e.getMessage());
             try {
-                AiRequest request = AiRequest.builder(AiOperation.ANALYZE, explorerPrompt, userPrompt)
+                AiRequest request = AiRequest.builder(AiOperation.ANALYZE, explorerPrompt.text(), userPrompt)
+                    .promptVersion(explorerPrompt.version())
                         .validator(JsonValidators.isJsonObject())
                         .build();
                 AgentExecutionContext ctx = AgentExecutionContext.builder()

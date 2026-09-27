@@ -1,5 +1,6 @@
 package com.qalab.qalabai.agent;
 
+import com.qalab.qalabai.prompt.PromptLibrary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.locator.LocatorAgent;
 import com.qalab.qalabai.agent.planner.PlannerAgent;
@@ -63,7 +64,7 @@ class AgentInstructionTest {
     @Test
     void locatorAgentAppendsInstructionToUserPrompt() throws Exception {
         stubResponse("{\"locators\":[]}");
-        new LocatorAgent(aiGateway, objectMapper).execute(task("focus on the login form"));
+        new LocatorAgent(aiGateway, objectMapper, new PromptLibrary()).execute(task("focus on the login form"));
 
         AiRequest request = captureRequest();
         assertTrue(request.getUserPrompt().contains("USER INSTRUCTIONS"));
@@ -73,7 +74,7 @@ class AgentInstructionTest {
     @Test
     void locatorAgentOmitsInstructionWhenAbsent() throws Exception {
         stubResponse("{\"locators\":[]}");
-        new LocatorAgent(aiGateway, objectMapper).execute(task(null));
+        new LocatorAgent(aiGateway, objectMapper, new PromptLibrary()).execute(task(null));
 
         assertFalse(captureRequest().getUserPrompt().contains("USER INSTRUCTIONS"));
     }
@@ -81,7 +82,7 @@ class AgentInstructionTest {
     @Test
     void plannerAgentAppendsInstructionToUserPrompt() throws Exception {
         stubResponse("{\"pageType\":\"Login\",\"scenarios\":[]}");
-        new PlannerAgent(aiGateway, objectMapper).execute(task("exclude security scenarios"));
+        new PlannerAgent(aiGateway, objectMapper, new PromptLibrary()).execute(task("exclude security scenarios"));
 
         AiRequest request = captureRequest();
         assertTrue(request.getUserPrompt().contains("USER INSTRUCTIONS"));
@@ -93,7 +94,7 @@ class AgentInstructionTest {
         stubResponse("{\"tests\":[]}");
         Task task = task("write a negative login test");
         task.putContext("testType", "ui");
-        new TestGeneratorAgent(aiGateway, objectMapper).execute(task);
+        new TestGeneratorAgent(aiGateway, objectMapper, new PromptLibrary()).execute(task);
 
         AiRequest request = captureRequest();
         assertTrue(request.getUserPrompt().contains("USER INSTRUCTIONS"));
@@ -105,7 +106,7 @@ class AgentInstructionTest {
     @Test
     void testGeneratorAgentOmitsConstraintForAll() throws Exception {
         stubResponse("{\"tests\":[]}");
-        new TestGeneratorAgent(aiGateway, objectMapper).execute(task(null));
+        new TestGeneratorAgent(aiGateway, objectMapper, new PromptLibrary()).execute(task(null));
 
         assertFalse(captureRequest().getUserPrompt().contains("USER INSTRUCTIONS"));
         assertFalse(captureRequest().getUserPrompt().contains("STRUCTURED TEST TYPE CONSTRAINT"));

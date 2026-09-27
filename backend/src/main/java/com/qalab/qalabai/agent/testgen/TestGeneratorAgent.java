@@ -14,9 +14,10 @@ import com.qalab.qalabai.ai.gateway.AiRequest;
 import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.GeneratedTest;
+import com.qalab.qalabai.prompt.PromptLibrary;
+import com.qalab.qalabai.prompt.VersionedPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -32,24 +33,18 @@ public class TestGeneratorAgent implements QaAgent {
 
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
-    private final String generatorPrompt;
+    private final PromptLibrary prompts;
+    private final VersionedPrompt generatorPrompt;
 
     public TestGeneratorAgent(AiGateway aiGateway,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                        PromptLibrary prompts) {
+        this.prompts = prompts;
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
-        this.generatorPrompt = loadPrompt();
+        this.generatorPrompt = prompts.get("test-generator");
     }
 
-    private String loadPrompt() {
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/test-generator.md");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.error("Failed to load test generator prompt: {}", e.getMessage());
-            return "";
-        }
-    }
 
     @Override
     public String getName() {
@@ -79,7 +74,8 @@ public class TestGeneratorAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, testPlanJson, locatorRepositoryJson, pageContentHtml, postLoginContentHtml, loginUsername, loginPassword, instruction, testType);
             log.info("Sending request to AI for test generation");
 
-            AiRequest request = AiRequest.builder(AiOperation.TEST_GENERATION, generatorPrompt, userPrompt)
+            AiRequest request = AiRequest.builder(AiOperation.TEST_GENERATION, generatorPrompt.text(), userPrompt)
+                    .promptVersion(generatorPrompt.version())
                     .validator(JsonValidators.hasArrayField("tests"))
                     .build();
             AgentExecutionContext ctx = AgentExecutionContext.builder()

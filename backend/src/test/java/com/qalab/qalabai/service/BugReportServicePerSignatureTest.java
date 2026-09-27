@@ -1,5 +1,6 @@
 package com.qalab.qalabai.service;
 
+import com.qalab.qalabai.prompt.PromptLibrary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.ai.gateway.AiGateway;
 import com.qalab.qalabai.ai.gateway.AiResponse;
@@ -68,7 +69,7 @@ class BugReportServicePerSignatureTest {
                 .thenReturn(Optional.empty());
 
         service = new BugReportService(bugReports, executions, caseResults, projects, contexts,
-                aiGateway, new ObjectMapper());
+                aiGateway, new ObjectMapper(), new PromptLibrary());
     }
 
     private TestExecution failedExecution() {
@@ -239,7 +240,7 @@ class BugReportServicePerSignatureTest {
         FailureContextFactory factory = mock(FailureContextFactory.class);
         when(factory.fromExecution(any(), anyString(), any(), any())).thenReturn(context);
         service = new BugReportService(bugReports, executions, caseResults, mock(ProjectRepository.class),
-                factory, aiGateway, new ObjectMapper());
+                factory, aiGateway, new ObjectMapper(), new PromptLibrary());
 
         List<BugReport> reports = service.generateAll(500L, 42L, null);
 

@@ -16,6 +16,16 @@ public class AiRequest {
     private final AiCredentialMode credentialMode;
     private final Integer maxOutputTokens;
     private final ResponseValidator validator;
+    /**
+     * Version of the prompt template behind this call, e.g. {@code test-generator@a1b2c3d4e5f6}.
+     *
+     * <p>Added by B-035. Without it, an AI call and its output cannot be tied to the prompt
+     * that produced them, so a prompt edit is indistinguishable from a provider or model
+     * change when something regresses. It is deliberately not a metric tag: every prompt
+     * revision would mint a new time series, and the value needed for debugging is in the
+     * log line that carries the operation id.
+     */
+    private final String promptVersion;
 
     public AiRequest(AiOperation operation,
                      String systemPrompt,
@@ -24,7 +34,8 @@ public class AiRequest {
                      AiProviderType provider,
                      AiCredentialMode credentialMode,
                      Integer maxOutputTokens,
-                     ResponseValidator validator) {
+                     ResponseValidator validator,
+                     String promptVersion) {
         this.operation = operation;
         this.systemPrompt = systemPrompt;
         this.userPrompt = userPrompt;
@@ -33,6 +44,7 @@ public class AiRequest {
         this.credentialMode = credentialMode;
         this.maxOutputTokens = maxOutputTokens;
         this.validator = validator;
+        this.promptVersion = promptVersion;
     }
 
     public AiOperation getOperation() {
@@ -63,6 +75,9 @@ public class AiRequest {
         return maxOutputTokens;
     }
 
+    public String getPromptVersion() {
+        return promptVersion;
+    }
     public ResponseValidator getValidator() {
         return validator;
     }
@@ -76,6 +91,7 @@ public class AiRequest {
         private final AiOperation operation;
         private final String systemPrompt;
         private final String userPrompt;
+        private String promptVersion;
         private String model;
         private AiProviderType provider;
         private AiCredentialMode credentialMode = AiCredentialMode.MANAGED;
@@ -86,6 +102,12 @@ public class AiRequest {
             this.operation = operation;
             this.systemPrompt = systemPrompt;
             this.userPrompt = userPrompt;
+        }
+
+        /** Records which revision of the prompt template this call is using. */
+        public Builder promptVersion(String promptVersion) {
+            this.promptVersion = promptVersion;
+            return this;
         }
 
         public Builder model(String model) {
@@ -114,7 +136,8 @@ public class AiRequest {
         }
 
         public AiRequest build() {
-            return new AiRequest(operation, systemPrompt, userPrompt, model, provider, credentialMode, maxOutputTokens, validator);
+            return new AiRequest(operation, systemPrompt, userPrompt, model, provider, credentialMode,
+                    maxOutputTokens, validator, promptVersion);
         }
     }
 }

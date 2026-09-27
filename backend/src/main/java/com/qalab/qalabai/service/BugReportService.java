@@ -20,9 +20,10 @@ import com.qalab.qalabai.repository.ProjectRepository;
 import com.qalab.qalabai.repository.TestCaseResultRepository;
 import com.qalab.qalabai.repository.TestExecutionRepository;
 import com.qalab.qalabai.util.UserInstructions;
+import com.qalab.qalabai.prompt.PromptLibrary;
+import com.qalab.qalabai.prompt.VersionedPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -54,7 +55,8 @@ public class BugReportService {
     private final FailureContextFactory contextFactory;
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
-    private final String systemPrompt;
+    private final PromptLibrary prompts;
+    private final VersionedPrompt systemPrompt;
 
     public BugReportService(BugReportRepository bugReportRepository,
                             TestExecutionRepository executionRepository,
@@ -62,7 +64,9 @@ public class BugReportService {
                             ProjectRepository projectRepository,
                             FailureContextFactory contextFactory,
                             AiGateway aiGateway,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                        PromptLibrary prompts) {
+        this.prompts = prompts;
         this.bugReportRepository = bugReportRepository;
         this.executionRepository = executionRepository;
         this.testCaseResultRepository = testCaseResultRepository;
@@ -70,7 +74,7 @@ public class BugReportService {
         this.contextFactory = contextFactory;
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
-        this.systemPrompt = loadPrompt();
+        this.systemPrompt = prompts.get("bug-report-generator");
     }
 
     /**
@@ -319,7 +323,8 @@ public class BugReportService {
     private BugReport generateReport(FailureContext context, TestExecution execution, String instruction) {
         try {
             String userPrompt = buildUserPrompt(context, instruction);
-            AiRequest request = AiRequest.builder(AiOperation.BUG_REPORT, systemPrompt, userPrompt)
+            AiRequest request = AiRequest.builder(AiOperation.BUG_REPORT, systemPrompt.text(), userPrompt)
+                    .promptVersion(systemPrompt.version())
                     .validator(JsonValidators.isJsonObject())
                     .build();
             AgentExecutionContext ctx = AgentExecutionContext.builder()
@@ -460,13 +465,4 @@ public class BugReportService {
         return value.substring(0, limit) + "\n... [truncated]";
     }
 
-    private String loadPrompt() {
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/bug-report-generator.md");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.error("Failed to load bug report generator prompt: {}", e.getMessage());
-            return "You are a Senior QA Bug Reporter. Produce a structured bug report in JSON.";
-        }
-    }
 }

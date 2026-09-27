@@ -11,9 +11,10 @@ import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.agent.ProjectContext;
 import com.qalab.qalabai.healing.model.DomSnapshot;
 import com.qalab.qalabai.healing.model.LocatorCandidate;
+import com.qalab.qalabai.prompt.PromptLibrary;
+import com.qalab.qalabai.prompt.VersionedPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -35,12 +36,15 @@ public class HealingAiEvaluator {
 
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
-    private final String systemPrompt;
+    private final PromptLibrary prompts;
+    private final VersionedPrompt systemPrompt;
 
-    public HealingAiEvaluator(AiGateway aiGateway, ObjectMapper objectMapper) {
+    public HealingAiEvaluator(AiGateway aiGateway, ObjectMapper objectMapper,
+                        PromptLibrary prompts) {
+        this.prompts = prompts;
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
-        this.systemPrompt = loadPrompt();
+        this.systemPrompt = prompts.get("healing-evaluator");
     }
 
     public CandidateEvaluation evaluate(String originalLocator,
@@ -51,7 +55,8 @@ public class HealingAiEvaluator {
                                         String operationId) {
         String userPrompt = buildUserPrompt(originalLocator, failureReason, snapshot, candidates);
 
-        AiRequest request = AiRequest.builder(AiOperation.HEALING_EVALUATION, systemPrompt, userPrompt)
+        AiRequest request = AiRequest.builder(AiOperation.HEALING_EVALUATION, systemPrompt.text(), userPrompt)
+                    .promptVersion(systemPrompt.version())
                 .validator(JsonValidators.isJsonObject())
                 .build();
         AgentExecutionContext ctx = AgentExecutionContext.builder()
@@ -125,13 +130,4 @@ public class HealingAiEvaluator {
     }
 
 
-    private String loadPrompt() {
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/healing-evaluator.md");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.error("Failed to load healing evaluator prompt: {}", e.getMessage());
-            return "";
-        }
-    }
 }

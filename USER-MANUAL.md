@@ -1232,7 +1232,49 @@ not with something we accept.
 
 Breaker state is logged on every transition and readable through the gateway.
 
-### 16.8 Observability: logs and metrics
+### 16.8 Prompt versioning
+
+Every AI call logs the prompt revision that produced it:
+
+```
+AI call done: op=op-… operation=TEST_GENERATION provider=go mode=MANAGED tokens=812 estimated=false cost=0.0 prompt=test-generator@b7de0f2ea777
+```
+
+If output changes, `prompt=` tells you whether the template changed or the provider did.
+Without it those two look identical, which is how a prompt edit ends up being debugged as
+a model problem.
+
+**The version is a content hash, not a counter.** A hand-maintained `v2` is the obvious
+design and the wrong one: nobody forgets to read it, people forget to increment it, and an
+un-bumped edit produces output nobody can attribute. A hash moves if and only if the text
+moves.
+
+**Editing a prompt requires an eval.** `prompts/manifest.properties` pins every template to
+the exact text that was measured, and the build fails when a template drifts from it:
+
+```
+A prompt template changed without an eval run.
+  test-generator: manifest says b7de0f2ea777, file hashes to 4d563cbd2191
+```
+
+So the procedure is:
+
+1. Edit `prompts/<name>.md`
+2. `mvn test -Dtest=DefectRecallHarnessTest`
+3. `shasum -a 256 src/main/resources/prompts/<name>.md | cut -c1-12`
+4. Update the manifest line with the new hash, the score you measured, and what changed
+
+The citation is required to be non-empty on purpose. A bare list of hashes is a list
+nobody reads, and "the score did not change" is a real result worth recording rather than a
+formality.
+
+**A missing prompt now fails the run.** Each of the eight call sites used to catch its own
+`IOException` and return `""`, which sends an empty system prompt and gets back a
+confident, useless answer. That is worse than an error: it costs a provider call and looks
+like a model problem. A missing or unregistered template is fatal, and an unknown name
+lists the valid ones.
+
+### 16.9 Observability: logs and metrics
 
 #### Finding a run in the logs
 
@@ -1296,7 +1338,7 @@ costs. Only those three endpoints are exposed at all; `/env`, `/config`, `/heapd
 `/threaddump` are not, and `anyRequest().denyAll()` means a newly added endpoint is
 unreachable until someone decides its access.
 
-### 16.9 Token accounting
+### 16.10 Token accounting
 
 When a provider does not report usage, tokens are estimated at roughly four characters
 per token and the record is flagged `estimated`. Cost is estimated from a pricing

@@ -13,9 +13,10 @@ import com.qalab.qalabai.ai.gateway.AiRequest;
 import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.FailureAnalysis;
+import com.qalab.qalabai.prompt.PromptLibrary;
+import com.qalab.qalabai.prompt.VersionedPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -29,24 +30,18 @@ public class FailureAnalystAgent implements QaAgent {
 
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
-    private final String analystPrompt;
+    private final PromptLibrary prompts;
+    private final VersionedPrompt analystPrompt;
 
     public FailureAnalystAgent(AiGateway aiGateway,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+                        PromptLibrary prompts) {
+        this.prompts = prompts;
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
-        this.analystPrompt = loadPrompt();
+        this.analystPrompt = prompts.get("failure-analyst");
     }
 
-    private String loadPrompt() {
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/failure-analyst.md");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.error("Failed to load failure analyst prompt: {}", e.getMessage());
-            return "";
-        }
-    }
 
     @Override
     public String getName() {
@@ -72,7 +67,8 @@ public class FailureAnalystAgent implements QaAgent {
             String userPrompt = buildUserPrompt(testFile, errorMessage, consoleLogs, screenshotPath);
             log.info("Sending failure analysis request to AI");
 
-            AiRequest request = AiRequest.builder(AiOperation.FAILURE_ANALYSIS, analystPrompt, userPrompt)
+            AiRequest request = AiRequest.builder(AiOperation.FAILURE_ANALYSIS, analystPrompt.text(), userPrompt)
+                    .promptVersion(analystPrompt.version())
                     .validator(JsonValidators.isJsonObject())
                     .build();
             AgentExecutionContext ctx = AgentExecutionContext.builder()

@@ -15,9 +15,10 @@ import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.HealingSuggestion;
 import com.qalab.qalabai.tool.ToolContext;
 import com.qalab.qalabai.tool.browser.BrowserTool;
+import com.qalab.qalabai.prompt.PromptLibrary;
+import com.qalab.qalabai.prompt.VersionedPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -33,26 +34,20 @@ public class SelfHealingAgent implements QaAgent {
     private final AiGateway aiGateway;
     private final BrowserTool browserTool;
     private final ObjectMapper objectMapper;
-    private final String healingPrompt;
+    private final PromptLibrary prompts;
+    private final VersionedPrompt healingPrompt;
 
     public SelfHealingAgent(AiGateway aiGateway,
                             BrowserTool browserTool,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                        PromptLibrary prompts) {
+        this.prompts = prompts;
         this.aiGateway = aiGateway;
         this.browserTool = browserTool;
         this.objectMapper = objectMapper;
-        this.healingPrompt = loadPrompt();
+        this.healingPrompt = prompts.get("self-healing-agent");
     }
 
-    private String loadPrompt() {
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/self-healing-agent.md");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.error("Failed to load self-healing prompt: {}", e.getMessage());
-            return "";
-        }
-    }
 
     @Override
     public String getName() {
@@ -90,7 +85,8 @@ public class SelfHealingAgent implements QaAgent {
             String userPrompt = buildUserPrompt(oldLocator, elementName, failureSummary, currentDom);
             log.info("Sending healing request to AI");
 
-            AiRequest request = AiRequest.builder(AiOperation.SELF_HEALING, healingPrompt, userPrompt)
+            AiRequest request = AiRequest.builder(AiOperation.SELF_HEALING, healingPrompt.text(), userPrompt)
+                    .promptVersion(healingPrompt.version())
                     .validator(JsonValidators.isJsonObject())
                     .build();
             AgentExecutionContext ctx = AgentExecutionContext.builder()

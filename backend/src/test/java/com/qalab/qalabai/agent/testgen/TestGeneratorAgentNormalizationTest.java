@@ -1,5 +1,6 @@
 package com.qalab.qalabai.agent.testgen;
 
+import com.qalab.qalabai.prompt.PromptLibrary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.agent.AgentResult;
 import com.qalab.qalabai.model.GeneratedTest;
@@ -24,7 +25,7 @@ class TestGeneratorAgentNormalizationTest {
     private String normalize(String code) throws Exception {
         Method m = TestGeneratorAgent.class.getDeclaredMethod("normalizeCode", String.class);
         m.setAccessible(true);
-        return (String) m.invoke(new TestGeneratorAgent(null, objectMapper), code);
+        return (String) m.invoke(new TestGeneratorAgent(null, objectMapper, new PromptLibrary()), code);
     }
 
     @Test
@@ -60,7 +61,7 @@ class TestGeneratorAgentNormalizationTest {
         m.setAccessible(true);
         @SuppressWarnings("unchecked")
         List<GeneratedTest> tests = (List<GeneratedTest>) m.invoke(
-                new TestGeneratorAgent(null, objectMapper), aiResponse, "https://example.com");
+                new TestGeneratorAgent(null, objectMapper, new PromptLibrary()), aiResponse, "https://example.com");
 
         assertEquals(1, tests.size());
         assertEquals("import { test, expect } from '@playwright/test';\nconst p = 1;\n", tests.get(0).getTestCode());

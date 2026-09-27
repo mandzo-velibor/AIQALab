@@ -1,5 +1,6 @@
 package com.qalab.qalabai.service;
 
+import com.qalab.qalabai.prompt.PromptLibrary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qalab.qalabai.ai.gateway.AiGateway;
 import com.qalab.qalabai.ai.gateway.AiProviderType;
@@ -60,7 +61,7 @@ class BugReportServiceTest {
                 .thenReturn(List.of());
         service = new BugReportService(bugReportRepository, executionRepository,
                 testCaseResultRepository, projectRepository, contextFactory, aiGateway,
-                new ObjectMapper());
+                new ObjectMapper(), new PromptLibrary());
     }
 
     private TestExecution failedExecution(Long id) {

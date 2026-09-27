@@ -15,9 +15,10 @@ import com.qalab.qalabai.ai.gateway.AiResponse;
 import com.qalab.qalabai.ai.provider.JsonValidators;
 import com.qalab.qalabai.model.TestPlan;
 import com.qalab.qalabai.model.TestScenario;
+import com.qalab.qalabai.prompt.PromptLibrary;
+import com.qalab.qalabai.prompt.VersionedPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -33,24 +34,18 @@ public class PlannerAgent implements QaAgent {
 
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
-    private final String plannerPrompt;
+    private final PromptLibrary prompts;
+    private final VersionedPrompt plannerPrompt;
 
     public PlannerAgent(AiGateway aiGateway,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        PromptLibrary prompts) {
+        this.prompts = prompts;
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
-        this.plannerPrompt = loadPrompt();
+        this.plannerPrompt = prompts.get("planner-agent");
     }
 
-    private String loadPrompt() {
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/planner-agent.md");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.error("Failed to load planner prompt: {}", e.getMessage());
-            return "";
-        }
-    }
 
     @Override
     public String getName() {
@@ -75,7 +70,8 @@ public class PlannerAgent implements QaAgent {
             String userPrompt = buildUserPrompt(pageUrl, pageAnalysisJson, locatorRepositoryJson, instruction);
             log.info("Sending request to AI for test plan generation");
 
-            AiRequest request = AiRequest.builder(AiOperation.TEST_PLAN, plannerPrompt, userPrompt)
+            AiRequest request = AiRequest.builder(AiOperation.TEST_PLAN, plannerPrompt.text(), userPrompt)
+                    .promptVersion(plannerPrompt.version())
                     .validator(JsonValidators.hasArrayField("scenarios"))
                     .build();
             AgentExecutionContext ctx = AgentExecutionContext.builder()

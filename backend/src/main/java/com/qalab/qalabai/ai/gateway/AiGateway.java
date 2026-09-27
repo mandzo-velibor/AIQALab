@@ -170,8 +170,11 @@ public class AiGateway {
                 provider, result.getModelUsed() != null ? result.getModelUsed() : model,
                 mode, input, output, estimated, cost);
 
-        log.info("AI call done: op={} provider={} mode={} tokens={} estimated={} cost={}",
-                request.getOperation(), provider, mode, input + output, estimated, cost);
+        // promptVersion is on every completion line (B-035): it is what makes an output
+        // attributable to a prompt revision rather than to "something changed".
+        log.info("AI call done: op={} operation={} provider={} mode={} tokens={} estimated={} cost={} prompt={}",
+                operationId, request.getOperation(), provider, mode, input + output, estimated, cost,
+                request.getPromptVersion() != null ? request.getPromptVersion() : "unversioned");
 
         return new AiResponse(result.getContent(), provider,
                 result.getModelUsed() != null ? result.getModelUsed() : model,
