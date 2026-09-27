@@ -300,7 +300,32 @@ If the log shows `Started QaLabAiApplication`, the migrations and the model agre
 ## Tech Stack
 
 - **Backend**: Java 21, Spring Boot 3.3, Spring Data JPA, PostgreSQL, Playwright Java
-- **Frontend** (first client of the engine): Next.js, TypeScript, Tailwind CSS, shadcn/ui
+- **Frontend** (first client of the engine): Next.js 16, React 19, TypeScript, Tailwind CSS, shadcn/ui
+- **Observability**: Actuator + Micrometer, JSON logs in the prod profile, one shared Chromium
+
+## Tests
+
+```bash
+# Backend — 647 tests. Use `clean`: an incremental build will happily reuse a stale
+# class file and report green on a tree that no longer compiles.
+cd backend && mvn clean test
+
+# Backend coverage floor (also enforced by `mvn verify`)
+mvn jacoco:report        # then open backend/target/site/jacoco/index.html
+
+# Frontend unit tests
+cd frontend && npm test
+
+# Frontend journeys, against a real stub backend and a real browser
+npm run test:e2e
+
+# Prompt change? The manifest test fails until you re-run the eval and record the delta.
+cd backend && mvn test -Dtest=DefectRecallHarnessTest
+```
+
+`npm run test:e2e` boots a stub API alongside the app, because much of the UI is a server
+component and a browser-only stub would leave those pages empty and the suite would pass
+without exercising them.
 
 ## Quick Start
 
@@ -416,10 +441,19 @@ exposed through `GET /api/v1/reports`.
 
 ### 4. CI/CD
 
-`.github/workflows/ci.yml` runs on push/PR to `main`/`master`: backend build (JDK 21 +
-Node 20, Playwright Chromium, `mvn -B verify`), frontend build (typecheck + `next build`),
-a security check that fails if `.env` or hardcoded API keys are committed, and Docker image
-builds (push only).
+`.github/workflows/ci.yml` runs on push/PR to `main`/`master`:
+
+| Job | What it proves |
+|---|---|
+| `backend-build` | `mvn -B verify` on JDK 21 — the full suite plus the coverage floor (75% `ai/gateway`, 58% `service/`) |
+| `flyway-verify` | The app boots against a real PostgreSQL and Flyway migrates a fresh schema with `ddl-auto: validate` |
+| `frontend-build` | typecheck, `next build`, **45 unit tests** and **3 Playwright journeys** against a stub backend |
+| `eval-recall` | Defect recall against the committed golden baseline (B-034) |
+| `security-check` | Fails if `.env` or a hardcoded API key is committed |
+| `docker` | Image build (push only) |
+
+The frontend job runs two suites because `next build` says nothing about behaviour: a wrong
+API path or a dropped request field builds and lints cleanly and still 404s at runtime.
 
 ## Using AI QA Lab from an External QA Repository
 
@@ -670,12 +704,13 @@ ai-qa-lab/
 │       ├── ai/             # AI provider abstraction
 │       ├── api/            # Operation/status + error model, v1 DTOs & controllers
 │       ├── config/         # Startup setup, WS config
-│       ├── controller/     # Legacy UI REST endpoints
 │       ├── dto/            # Data transfer objects
 │       ├── model/          # JPA entities
+│       ├── observability/  # Micrometer metrics (AI calls, latency, breakers)
+│       ├── prompt/         # Versioned prompt templates + the eval manifest
 │       ├── repository/     # Spring Data repos
-│       ├── service/        # Application services, workspace abstraction
-│       └── tool/           # Agent tools
+│       ├── service/        # Application services, workspace, reports
+│       └── tool/           # Agent tools (incl. the shared browser session)
 ├── frontend/               # Next.js UI (first client)
 ├── cli/qalab               # CLI client for the Core API
 ├── sdk/qalab-sdk/          # Java SDK for the Core API

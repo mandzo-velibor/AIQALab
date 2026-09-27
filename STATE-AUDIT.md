@@ -5,6 +5,25 @@
 **Baseline:** `main` @ `9d5cbef`
 **Verification:** `mvn test` → **127 tests, 0 failures** (BUILD SUCCESS)
 
+> **This is a historical snapshot, not a status report.** The figures above describe the
+> tree at `9d5cbef` and are kept verbatim so the findings can be read in context. For what
+> is true now, see `backlog_progress.md` — all 38 tasks in `backlog.md` are complete, and
+> each finding below is marked resolved with the commit that did it. Current state:
+> **647 backend tests** and **45 frontend unit tests + 3 E2E journeys**, on a clean build.
+>
+> Two corrections to this audit's own numbers, both found while working through it:
+>
+> - The "127 tests, 0 failures" verification was run **incrementally**, not with `mvn
+>   clean test`. An incremental build reuses stale class files, so it reported green on a
+>   tree that had not compiled since B-027. `AnalysisCache` could not compile from a clean
+>   tree — inside an anonymous `LinkedHashMap` subclass, the simple name `Entry` resolves to
+>   the inherited `Map.Entry`, not to `AnalysisCache.Entry` — so CI had been red since B-027
+>   without this file noticing. Fixed in `6a44d9d`. Any verification in this file that says
+>   `mvn test` should be read as suspect for the same reason.
+> - Several "unimplemented"/"missing" findings were already implemented when the audit was
+>   written; the backlog they produced re-implemented some of them. Where that happened it
+>   is noted in `backlog_progress.md`.
+
 ---
 
 ## 0. Executive summary

@@ -528,6 +528,8 @@ artifacts/execution-<id>/
 ├── report.json          execution-level report (machine contract)
 ├── report.md            the same, human-readable and diffable
 ├── console.log          full Playwright output
+├── allure-results/      only if the workspace already uses Allure (see §16.8)
+├── allure-report/       the rendered Allure report, when a renderer was available
 └── tests/
     ├── 0-login-with-empty-password/
     │   ├── test-failed-1.png
@@ -536,6 +538,10 @@ artifacts/execution-<id>/
         ├── test-failed-1.png
         └── trace.zip
 ```
+
+If the workspace already has `allure-playwright`, the same run also produces Allure
+output alongside — your choice of report, with nothing installed into your project and no
+edit to your Playwright config. See §16.8.
 
 **`report.html` is the deliverable.** Open it in any browser: it needs no network, no
 server and no sibling files to render. Screenshots are embedded in the page, so the
@@ -1280,7 +1286,7 @@ report as though it had just happened.
 
 **Turning it off:** `qalab.allure.enabled: false`.
 
-### 16.8 Frontend tests
+### 16.9 Frontend tests
 
 The dashboard had `next build` and eslint and nothing else. Both say nothing about
 behaviour: a wrong API path, a dropped request field or a control that never appears all
@@ -1320,7 +1326,7 @@ suggestion does not quietly become applying it.
 6, which pulls a rolldown plugin wanting `@babel/core` 8 against the project's 7. The setup
 follows the guide shipped with this Next.js version rather than a remembered one.
 
-### 16.8 Test coverage floor
+### 16.10 Test coverage floor
 
 `mvn verify` fails if line coverage in `ai/gateway/` drops below 75% or in `service/`
 below 58%. The numbers are not aspirational — they are what the suite actually measures
@@ -1344,7 +1350,7 @@ suggested, and the shortfall is concentrated rather than spread:
 None of these were in the original task's list, which is itself the finding: the named gaps
 were the ones somebody already suspected.
 
-### 16.8 Prompt versioning
+### 16.11 Prompt versioning
 
 Every AI call logs the prompt revision that produced it:
 
@@ -1386,7 +1392,7 @@ confident, useless answer. That is worse than an error: it costs a provider call
 like a model problem. A missing or unregistered template is fatal, and an unknown name
 lists the valid ones.
 
-### 16.9 Observability: logs and metrics
+### 16.12 Observability: logs and metrics
 
 #### Finding a run in the logs
 
@@ -1450,7 +1456,7 @@ costs. Only those three endpoints are exposed at all; `/env`, `/config`, `/heapd
 `/threaddump` are not, and `anyRequest().denyAll()` means a newly added endpoint is
 unreachable until someone decides its access.
 
-### 16.10 Token accounting
+### 16.13 Token accounting
 
 When a provider does not report usage, tokens are estimated at roughly four characters
 per token and the record is flagged `estimated`. Cost is estimated from a pricing
@@ -1487,22 +1493,34 @@ Ordered by how likely you are to hit them.
 
 | # | Limitation | Impact | Tracking |
 |---|---|---|---|
-| 1 | ~~No authentication~~ **Partly fixed in Sprint 1** — bearer API keys now guard `/api/**` (B-013). **Still open:** no signup/login, no roles, no audit log, `defaultAccount()` is still global so usage is not per-tenant, and `CredentialStore` is still global so BYOK keys have no owner. `/ws/**` is unauthenticated (browser WebSockets cannot set headers). | Keys close the anonymous-spend hole; the tenancy model is still single-tenant. | B-016, B-033, ADR 0001 follow-ups |
-| 2 | **No database migrations.** `ddl-auto: update` in dev/base, `validate` in prod. A production schema can be neither created nor evolved reliably. | Blocks trustworthy releases. | B-014 |
-| 3 | ~~`qalab.ai` config block absent~~ **Fixed in Sprint 1** — every provider has a default base URL and model, and a missing model is a loud configuration error. | — | — |
-| 4 | ~~Rate limiting is a no-op~~ **Fixed in Sprint 1** — token bucket per provider and per account, off by default. **Still open:** state is in-memory and per-process, so a multi-node deployment would not share limits. | Single node is now protected; a cluster is not. | — |
-| 5 | ~~Workflow runs synchronously on the request thread~~ **Fixed in Sprint 1** — `POST` returns `202` immediately and the work runs on a bounded background pool; the CLI polls. **Still open:** job state is in-memory and per process, so a restart loses in-flight and uncollected results, and a multi-node deployment would not share the queue. | Single node is now safe against proxy timeouts. | — |
-| 6 | **`intent` discards the instruction.** The prompt is used only to detect intent, then dropped. | Intent-driven runs produce generic suites. | `docs/known-limitations/intent-drops-instruction.md` |
-| 7 | **One bug report per execution**, not per distinct failure. | Twenty identical failures yield one vague report. | B-032 |
-| 8 | **No per-test structured results.** Failures are parsed from Playwright's text output; the summary caps the list at 8. | No reliable "which tests failed" for large suites. | B-022 |
-| 9 | **No HTML/Allure report.** `report.md` is generated server-side but never surfaced by the CLI. | The most useful artifact is missing. | B-029, B-030 |
-| 10 | ~~Default token budget below one workflow run~~ **Fixed in Sprint 1** — shipped configuration sets `0` (unlimited). A metered deployment must choose its own limit deliberately. | — | — |
-| 11 | **No caching of page analysis between runs** (deliberate). | Every run re-explores and re-analyses. The largest available latency win, but it trades correctness for speed and that trade is unchosen. | deferred |
-| 12 | ~~Playwright records artifacts for every test~~ **Fixed in Sprint 1** — generated workspaces now default to `only-on-failure` / `off` / `retain-on-failure`. Existing workspaces keep their own config until regenerated. | — | — |
-| 13 | ~~Playwright concurrency unset~~ **Fixed in Sprint 1** — generated workspaces now pin workers to `cores - 1` (override with `QALAB_PLAYWRIGHT_WORKERS`) and report the effective value. Existing workspaces keep their own config until regenerated. | — | — |
-| 14 | **Legacy `/api/*` surface still live and used by the UI.** | Two contracts to maintain; doubles the security review surface. | B-033 |
-| 15 | **Generated tests inherit the generator's limits.** Assertions are grounded in the captured page content, so a defect that is invisible in a static snapshot cannot be found. | Fundamental to the approach. | by design |
-| 16 | **No prompt versioning or eval harness.** | No signal on whether a prompt or model change improved or degraded output. | B-034, B-035 |
+| 1 | **Tenancy is still single-tenant.** Bearer API keys guard `/api/**` (B-013), but there is no signup, no roles and no audit log; `defaultAccount()` is global so usage is not per-tenant, and `CredentialStore` is global so a BYOK key has no owner. | Keys close the anonymous-spend hole. Two people sharing one Core still share one account and one budget. | ADR 0001 follow-ups |
+| 2 | **`/ws/**` is unauthenticated.** Browser WebSockets cannot set an `Authorization` header, so the event stream is authenticated by origin instead. | Anyone who can reach the port can watch the run stream. | ADR 0001, tracked |
+| 3 | **Job, rate-limit and cache state is in-memory and per process.** A restart loses in-flight runs and uncollected results; a multi-node deployment would not share its queue or its limits. | Single node is safe against proxy timeouts. A cluster is not, and no deployment is documented as safe across restarts. | — |
+| 4 | **Artifacts are shown as a path, not a link.** Nothing serves the artifact directory over HTTP, so the dashboard cannot link to a report. An endpoint that did would expose every run's screenshots, videos and traces to anyone who could reach it. | One extra step to open a report. A deliberate choice: the access model is undecided. | B-031 open question: per-account ownership, a shared read-only token, or an admin-only route |
+| 5 | **Two healing models coexist.** `HealingProposal` (String id) is a review record — propose, accept, reject. `HealingSuggestion` (Long id) is the one that can *apply* a fix. They cannot be merged without a schema migration, because the applier needs an `elementName` that a proposal does not carry. | Two concepts in one domain. Both are reachable under `/api/v1/healing/…` and the manual says which is which. | needs a schema migration |
+| 6 | **The generator itself is unmeasured.** The eval harness scores the golden suite, which is the instrument's own health check. Scoring generated suites needs provider credentials in CI, which this project does not have. | A prompt or model change that makes generated tests *worse* may not be caught. A prompt change does force an eval run, and the golden score is committed and enforced. | B-034 scope boundary |
+| 7 | **`service/` coverage is 60%, below the 70% originally suggested.** The remainder is concentrated in `service.git` (2.9%, touches the user's repository), `ExecutionService` (18%) and `CodeGenerationService` (16%). | Real gaps in code that writes files and touches a repo. A floor of 58% is enforced so it cannot erode further. | B-036 follow-ups |
+| 8 | **Generated tests inherit the generator's limits.** Assertions are grounded in the captured page content, so a defect invisible in a static snapshot cannot be found. | Fundamental to the approach, not a bug. | by design |
+| 9 | **No caching of page analysis between runs** (deliberate). | Every run re-explores and re-analyses. The largest available latency win, but it trades correctness for speed and that trade is unchosen. | deferred — the metrics from B-026 can now inform the decision |
+| 10 | **Allure output depends on a renderer existing.** The results are always collected, but rendering needs either Allure Report 3 (`npx allure`, no JVM) or the Java-based Report 2 on `PATH`. With neither, the report names the command to run. | The report is still there; it needs one command. Never fails a run. | B-030 |
+
+**Fixed since the Sprint 1 audit** (listed so nobody goes looking for them):
+
+| Was | Now |
+|---|---|
+| No database migrations; `ddl-auto: update` in dev | Flyway owns the schema; prod runs `validate` against it (B-014) |
+| No per-test structured results; failures parsed from Playwright text | Structured per-test results persisted and shown in the dashboard (B-022) |
+| One bug report per execution | One per distinct failure signature, deduplicated across runs (B-032) |
+| No HTML report; `report.md` never surfaced | Self-contained `report.html` per run, path printed by the CLI and shown in the UI (B-029, B-031) |
+| No Allure | Optional, for workspaces that already use it (B-030) |
+| Legacy `/api/*` surface still live and used by the UI | One surface; a build fails if any `/api/**` mapping reappears outside `/api/v1` (B-033) |
+| `intent` discards the instruction | Forwarded, and pinned by a test (see `docs/known-limitations/`) |
+| No prompt versioning, no eval harness | Every call logs its prompt revision; a prompt edit without an eval run fails the build (B-034, B-035) |
+| No coverage floor, untested core services | 647 backend tests, 45 frontend unit tests, 3 E2E journeys, and an enforced floor (B-036, B-038) |
+| "Why was it slow?" answered by reading logs | Correlated JSON logs and ten metrics (B-026) |
+| One browser launched per call | One shared Chromium, reattached with a crash-safe relaunch (B-028) |
+| Screenshots base64 in a `varchar(10000)` column | Paths; the column could not hold a full-page PNG (B-028) |
+
 
 ---
 
